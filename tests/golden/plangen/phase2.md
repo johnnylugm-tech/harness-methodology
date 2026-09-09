@@ -397,18 +397,25 @@ are not re-opened. This bounds backtracking to a single step.
       # string, e.g. FR-02: ["app.a", "app.b"] — both forms are supported.
       FR-01: "app.api.webhooks"
   
-    architecture_constraints:
-      - "no_circular_dependencies"
+    architecture_constraints: []
+    # For deterministic parity use mappings with: id, executor:
+    # import-linter, contract_type, optional contract_name,
+    # source_modules, and forbidden_modules for forbidden contracts.
+    # Legacy free-form strings remain advisory/backward-compatible.
+    decision_issues: []
+    # Register every SRS FR-XX-deferred/NFR-XX-deferred id here.
+    # Each row: {id, status: open|resolved, blocks_phase,
+    # resolution_ref}. Resolved refs must name an existing artifact.
   
     high_risk_modules:
       - "app.api.webhooks"
   
-    required_artifacts:  # repo-relative paths this project MUST ship
+    required_artifacts:  # repo-relative paths + explicit lifecycle deadline
       # Checked against the delivered tree at every gate. A path that
       # is absent, or that ships somewhere other than where it is
       # declared, blocks and the message says which. Omit or leave []
       # if the spec names no mandatory files.
-      - ".env.example"
+      - {path: ".env.example", required_by_phase: 3}
   ```
 
 - **[SAB-VALIDATE]** Validate the SAB block before committing:
@@ -424,11 +431,11 @@ are not re-opened. This bounds backtracking to a single step.
   python3 harness/scripts/generate_sab.py --project .
   ```
   > **Note**: If `SAB.json` already exists and needs regeneration, pass `--overwrite`.
-  - SAB.json contains all 15 fields from `SABSpec`:
+  - SAB.json contains all 16 fields from `SABSpec`:
     version, created_at, phase, project, layers, allowed_dependencies,
     quality_targets, nfr_dimension_mapping, nfr_traceability, advisory_only,
     gate_score_overrides, fr_module_traceability, architecture_constraints,
-    high_risk_modules, required_artifacts.
+    decision_issues, high_risk_modules, required_artifacts.
   - Used by: drift detector (M2), gate architecture dimension, constitution check
   - Also embedded inline in `quality_manifest.json` via `harness_bridge`
 

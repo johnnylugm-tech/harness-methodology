@@ -80,6 +80,7 @@ class PhaseArtifactRegistry:
 
     @property
     def PHASE_ARTIFACTS(self) -> Dict[Phase, Dict]:
+        from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS
         from core.utils.project_layout import ProjectLayout
         layout = ProjectLayout(self.project_root)
         
@@ -94,9 +95,7 @@ class PhaseArtifactRegistry:
                 "depends_on": [],
             },
             Phase.PLAN: {
-                "artifacts": [
-                    layout.get_relative_str(layout.sad_path),
-                ],
+                "artifacts": list(PHASE_DELIVERABLE_PATHS[2].values()),
                 "depends_on": [Phase.SPECIFY],
             },
             Phase.IMPLEMENT: {

@@ -21,6 +21,7 @@ CONTRACT (single source of truth — do not duplicate in templates/docs):
                gate_score_overrides (dict, AUTO-DERIVED by parser — omit or leave {})
                fr_module_traceability (dict)
                architecture_constraints (list)
+               decision_issues (list of {id, status, blocks_phase, resolution_ref})
                high_risk_modules (list)
                required_artifacts (list of repo-relative paths, checked against
                  the delivered tree at every finalize)
@@ -67,6 +68,7 @@ class SABSpec:
     gate_score_overrides: dict = field(default_factory=dict)  # NFR-derived threshold floors
     fr_module_traceability: dict = field(default_factory=dict)
     architecture_constraints: list = field(default_factory=list)
+    decision_issues: list = field(default_factory=list)
     high_risk_modules: list = field(default_factory=list)
     # Round 68 站1: repo-relative paths this project must ship, checked against
     # the delivered tree at every finalize (core.quality_gate.required_artifacts).
@@ -112,6 +114,7 @@ class SABSpec:
             "gate_score_overrides": self.gate_score_overrides,
             "fr_module_traceability": self.fr_module_traceability,
             "architecture_constraints": self.architecture_constraints,
+            "decision_issues": self.decision_issues,
             "high_risk_modules": self.high_risk_modules,
             "required_artifacts": self.required_artifacts,
         }
@@ -431,6 +434,7 @@ def extract_sab_from_sad(sad_path) -> Optional[SABSpec]:
         gate_score_overrides=gate_score_overrides,
         fr_module_traceability=sab_data.get("fr_module_traceability", {}),
         architecture_constraints=sab_data.get("architecture_constraints", []),
+        decision_issues=sab_data.get("decision_issues", []),
         high_risk_modules=sab_data.get("high_risk_modules", []),
         required_artifacts=sab_data.get("required_artifacts", []),
     )
@@ -557,8 +561,16 @@ def render_canonical_sab_template(
             lines.append('    # string, e.g. FR-02: ["app.a", "app.b"] — both forms are supported.')
             lines.append(f'    {fr_id}: "{module_example}"')
         elif f.name == "architecture_constraints":
-            lines.append("  architecture_constraints:")
-            lines.append('    - "no_circular_dependencies"')
+            lines.append("  architecture_constraints: []")
+            lines.append("  # For deterministic parity use mappings with: id, executor:")
+            lines.append("  # import-linter, contract_type, optional contract_name,")
+            lines.append("  # source_modules, and forbidden_modules for forbidden contracts.")
+            lines.append("  # Legacy free-form strings remain advisory/backward-compatible.")
+        elif f.name == "decision_issues":
+            lines.append("  decision_issues: []")
+            lines.append("  # Register every SRS FR-XX-deferred/NFR-XX-deferred id here.")
+            lines.append("  # Each row: {id, status: open|resolved, blocks_phase,")
+            lines.append("  # resolution_ref}. Resolved refs must name an existing artifact.")
         elif f.name == "high_risk_modules":
             lines.append("  high_risk_modules:")
             lines.append(f'    - "{module_example}"')
@@ -567,18 +579,22 @@ def render_canonical_sab_template(
             # every finalize, so the example has to be a shape a real project
             # writes: config files a spec calls mandatory, whose absence
             # otherwise turns the dimensions they feed into free points.
-            lines.append("  required_artifacts:  # repo-relative paths this project MUST ship")
+            lines.append("  required_artifacts:  # repo-relative paths + explicit lifecycle deadline")
             lines.append("    # Checked against the delivered tree at every gate. A path that")
             lines.append("    # is absent, or that ships somewhere other than where it is")
             lines.append("    # declared, blocks and the message says which. Omit or leave []")
             lines.append("    # if the spec names no mandatory files.")
-            lines.append('    - ".env.example"')
+            lines.append('    - {path: ".env.example", required_by_phase: 3}')
         else:
             raise RuntimeError(
                 f"render_canonical_sab_template: unhandled SABSpec field {f.name!r} — "
                 "add a render branch so the canonical template never silently drops a field"
             )
-        lines.append("")
+        # decision_issues immediately follows architecture_constraints; avoid
+        # creating an extra whitespace-only line when plan renderers indent the
+        # canonical block.
+        if f.name != "architecture_constraints":
+            lines.append("")
 
     return "\n".join(lines)
 
@@ -635,6 +651,31 @@ def validate_sab_block(sad_path) -> list[str]:
             "[]` if the spec names none — the empty list is a decision and is "
             "accepted; leaving the key out is not."
         )
+    for idx, item in enumerate(spec.required_artifacts):
+        if isinstance(item, str):
+            continue  # legacy declaration; checked at every executable gate
+        if not isinstance(item, dict):
+            errors.append(f"required_artifacts[{idx}] must be a path string or mapping")
+            continue
+        if not isinstance(item.get("path"), str) or not item.get("path", "").strip():
+            errors.append(f"required_artifacts[{idx}] mapping needs a non-empty path")
+        deadline = item.get("required_by_phase")
+        if not isinstance(deadline, int) or deadline < 2 or deadline > 8:
+            errors.append(
+                f"required_artifacts[{idx}].required_by_phase must be integer 2..8"
+            )
+    for idx, constraint in enumerate(spec.architecture_constraints):
+        if isinstance(constraint, str):
+            continue
+        if not isinstance(constraint, dict):
+            errors.append(f"architecture_constraints[{idx}] must be string or mapping")
+            continue
+        for key in ("id", "executor", "contract_type", "source_modules"):
+            if key not in constraint:
+                errors.append(f"architecture_constraints[{idx}] missing {key}")
+        if constraint.get("contract_type") == "forbidden" and \
+                "forbidden_modules" not in constraint:
+            errors.append(f"architecture_constraints[{idx}] forbidden contract missing forbidden_modules")
     # Round 29 Station 2a: collect valid layer names for scope_layers validation
     valid_layer_names: set[str] = {
         lyr.get("name", "")

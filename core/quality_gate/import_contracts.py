@@ -256,6 +256,11 @@ def read_import_contracts(project: "str | Path") -> dict:
                 "name": parser.get(section, "name", fallback=section).strip(),
                 "type": kind,
                 "sources": sources,
+                # Semantic parity checks need both sides of a forbidden
+                # relation.  Omitting targets made "a forbidden contract
+                # exists" indistinguishable from "the declared package is
+                # actually forbidden".
+                "targets": targets,
                 "unreadable": unreadable,
                 # A contract this framework could not read is not one it may
                 # call vacuous. `decides=False` is the claim "this contract

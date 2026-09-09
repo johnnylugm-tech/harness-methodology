@@ -40,7 +40,7 @@ from core.quality_gate.red_assertion_check import (
 from core.quality_gate.spec_coverage import _get_test_directories
 from core.utils.project_layout import ProjectLayout
 
-__all__ = ["check_property_spec", "parse_property_tables"]
+__all__ = ["check_property_spec", "parse_property_tables", "property_mapping_findings"]
 
 _FR_HEADER = re.compile(r"^###\s+((?:N?FR)-\d+)\b")
 # property-based test markers (language-agnostic): hypothesis (py), fast-check (js/ts)
@@ -102,6 +102,8 @@ def _parse_invariant_table(body: str) -> list[SubAssertion]:
         i_inv = _find(header, "invariant")
         i_app = _find(header, "applies")
         i_fp = _find(header, "fulfill_phase")
+        i_test = _find(header, "test_function")
+        i_review = _find(header, "review_ref")
         if i_inv is None or i_app is None:
             return []
         props: list[SubAssertion] = []
@@ -131,7 +133,15 @@ def _parse_invariant_table(body: str) -> list[SubAssertion]:
                         fulfill_phase = int(_fp_text)
                     except ValueError:
                         fulfill_phase = None
-            props.append(SubAssertion(rid, pred, applies, fulfill_phase))
+            test_function = None
+            if i_test is not None and i_test < len(cells):
+                test_function = cells[i_test].strip().strip("`").strip() or None
+            review_ref = None
+            if i_review is not None and i_review < len(cells):
+                review_ref = cells[i_review].strip().strip("`").strip() or None
+            props.append(SubAssertion(
+                rid, pred, applies, fulfill_phase, test_function, review_ref
+            ))
         return props
     return []
 
@@ -200,6 +210,93 @@ def _fr_has_property_test(fr_id: str, test_blobs: list[str]) -> bool:
             return True
             
     return False
+
+
+def _named_property_test(test_function: str, test_blobs: list[str]) -> bool:
+    """True only when the named test's own body/decorators use a PBT tool."""
+    for blob in test_blobs:
+        try:
+            tree = _ast.parse(blob)
+        except SyntaxError:
+            # JS/TS: bind the tool marker and function name to the same nearby
+            # declaration block instead of accepting an unrelated file token.
+            pattern = re.compile(
+                rf"(?:test|it)\s*\(\s*['\"]{re.escape(test_function)}['\"]"
+                rf"[\s\S]{{0,2000}}?(?:fast-check|fast_check|\bfc\.(?:assert|property)\b)"
+            )
+            if pattern.search(blob):
+                return True
+            continue
+        lines = blob.splitlines()
+        for node in _ast.walk(tree):
+            if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)) \
+                    and node.name == test_function:
+                start = node.decorator_list[0].lineno if node.decorator_list else node.lineno
+                end = getattr(node, "end_lineno", node.lineno)
+                return bool(_PROP_TOOL.search("\n".join(lines[start - 1:end])))
+    return False
+
+
+def property_mapping_findings(project: str | Path) -> list[str]:
+    """P2 transition findings for missing/duplicate property→test identities."""
+    path = ProjectLayout(Path(project)).test_spec_path
+    if not path.is_file():
+        return []
+    content = path.read_text(encoding="utf-8", errors="replace")
+    props = parse_property_tables(content)
+    cases_by_fr = {fr: cases for fr, (cases, _) in SpecAssertionParser.parse(content).items()}
+    findings: list[str] = []
+    property_ids: set[str] = set()
+    test_names: set[str] = set()
+    for fr_id, rows in props.items():
+        for row in rows:
+            if not row.rule_id:
+                findings.append(f"{fr_id} property has no property_id")
+            elif row.rule_id in property_ids:
+                findings.append(f"property_id {row.rule_id} is declared more than once")
+            property_ids.add(row.rule_id)
+            if not row.test_function:
+                findings.append(f"{fr_id} property {row.rule_id} has no test_function")
+            elif row.test_function in test_names:
+                findings.append(f"property test_function {row.test_function} is mapped more than once")
+            else:
+                test_names.add(row.test_function)
+            reviews = check_test_spec_consistency(cases_by_fr.get(fr_id, []), [row])
+            if any(v.severity != "error" for v in reviews):
+                if not row.review_ref:
+                    findings.append(
+                        f"{fr_id} property {row.rule_id} needs_review but has no review_ref"
+                    )
+                else:
+                    if not _review_disposition_resolves(
+                        Path(project), row.review_ref, row.rule_id
+                    ):
+                        findings.append(
+                            f"{fr_id} property {row.rule_id} review_ref has no matching "
+                            "accepted/rejected/revised disposition: "
+                            f"{row.review_ref}"
+                        )
+    return findings
+
+
+def _review_disposition_resolves(project: Path, ref: str, property_id: str) -> bool:
+    """Resolve ``path:line`` and prove the line closes this exact property."""
+    match = re.fullmatch(r"(.+):(\d+)", ref.strip())
+    if not match:
+        return False
+    rel, number = match.group(1), int(match.group(2))
+    if Path(rel).is_absolute() or number < 1:
+        return False
+    path = project / rel
+    if not path.is_file():
+        return False
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    if number > len(lines):
+        return False
+    evidence = lines[number - 1].lower()
+    return property_id.lower() in evidence and any(
+        disposition in evidence for disposition in ("accepted", "rejected", "revised")
+    )
 
 
 def _is_structural_tautology(predicate: str) -> bool:
@@ -328,10 +425,17 @@ def check_property_spec(project: Path, *, require_execution: bool) -> list[Viola
             # real invariant keeps the FR in the execution path.
             if fr_id in _tautology_frs and fr_id not in _non_tautology_frs:
                 continue
-            if not _fr_has_property_test(fr_id, test_blobs):
+            named = [p.test_function for p in props_by_fr[fr_id] if p.test_function]
+            missing_named = [name for name in named
+                             if not _named_property_test(name, test_blobs)]
+            executed = (not missing_named and bool(named)) if named else \
+                _fr_has_property_test(fr_id, test_blobs)
+            if not executed:
                 violations.append(Violation(
                     check_type="property_not_executed", rule_id=fr_id, severity="error",
-                    message=(f"{fr_id} declares a property invariant but no property-based "
+                    message=(f"{fr_id} declares a property invariant but no matching property-based "
                              f"test (hypothesis @given / fast-check) executes it — an "
-                             f"unverified invariant proves nothing")))
+                             f"unverified invariant proves nothing"
+                             + (f"; missing exact test(s): {', '.join(missing_named)}"
+                                if missing_named else ""))))
     return violations

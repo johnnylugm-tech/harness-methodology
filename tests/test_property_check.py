@@ -206,6 +206,66 @@ def test_fulfill_phase_missing_column_falls_back_to_p4(tmp_path: Path) -> None:
     assert r4.get("fulfill_phase") == 4
 
 
+def test_p2_mapping_requires_exact_property_test_identity(tmp_path: Path) -> None:
+    from core.quality_gate.property_check import property_mapping_findings
+
+    proj = _project(tmp_path, _FR_WITH_PROP)
+    findings = property_mapping_findings(proj)
+    assert any("has no test_function" in f for f in findings)
+
+    spec = _FR_WITH_PROP.replace(
+        "| property_id | invariant | applies_to |",
+        "| property_id | invariant | applies_to | test_function |",
+    ).replace(
+        "| P1-len | `len(source) == 3` | 1 |",
+        "| P1-len | `len(source) == 3` | 1 | test_fr01_roundtrip_property |",
+    )
+    ProjectLayout(proj).test_spec_path.write_text(_spec(spec), encoding="utf-8")
+    assert property_mapping_findings(proj) == []
+
+
+def test_named_property_does_not_accept_unrelated_fr_property_test(tmp_path: Path) -> None:
+    spec = _FR_WITH_PROP.replace(
+        "| property_id | invariant | applies_to |",
+        "| property_id | invariant | applies_to | test_function |",
+    ).replace(
+        "| P1-len | `len(source) == 3` | 1 |",
+        "| P1-len | `len(source) == 3` | 1 | test_fr01_exact_property |",
+    )
+    proj = _project(tmp_path, spec)
+    tests_dir = proj / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_other.py").write_text(
+        "from hypothesis import given, strategies as st\n"
+        "@given(st.text())\ndef test_fr01_unrelated_property(x):\n    assert x == x\n",
+        encoding="utf-8",
+    )
+    violations = check_property_spec(proj, require_execution=True)
+    assert any(v.check_type == "property_not_executed" and
+               "test_fr01_exact_property" in v.message for v in violations)
+
+
+def test_needs_review_reference_must_close_the_exact_property(tmp_path: Path) -> None:
+    from core.quality_gate.property_check import property_mapping_findings
+
+    body = """### FR-01: symbolic
+| # | Test Function | Inputs | Type | Derivation |
+|---|---|---|---|---|
+| 1 | `test_fr01_case` | source=\"abc\" | happy_path | Q1 |
+
+**Properties**
+| property_id | invariant | applies_to | test_function | review_ref |
+|---|---|---|---|---|
+| P-symbolic | `decode(encode(x)) == x` | 1 | test_fr01_symbolic | review.md:1 |
+"""
+    proj = _project(tmp_path, body)
+    (proj / "review.md").write_text("P-other accepted\n", encoding="utf-8")
+    assert any("no matching" in f for f in property_mapping_findings(proj))
+    (proj / "review.md").write_text("P-symbolic accepted by architecture review\n",
+                                    encoding="utf-8")
+    assert property_mapping_findings(proj) == []
+
+
 def _spec_with_fulfill_phase(fulfill_row: str) -> str:
     """Build a TEST_SPEC body whose FR-01 Properties table includes a
     `fulfill_phase` column matching the legacy `(property_id, invariant,

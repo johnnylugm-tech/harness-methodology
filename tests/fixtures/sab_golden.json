@@ -44,6 +44,7 @@
     "no_circular_dependencies",
     "no_shell_true"
   ],
+  "decision_issues": [],
   "high_risk_modules": [
     "sample.executor"
   ],

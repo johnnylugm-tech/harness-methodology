@@ -37,7 +37,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-__all__ = ["LEGAL_ARTIFACTS", "PHASE_DELIVERABLES", "DELIVERABLE_ANCHORS", "anchor_for",
+__all__ = ["LEGAL_ARTIFACTS", "PHASE_DELIVERABLES", "PHASE_DELIVERABLE_PATHS",
+           "DELIVERABLE_ANCHORS", "anchor_for",
            "SAB_TEMPLATE_EXAMPLE_VALUES", "TEMPLATE_EXAMPLE_MARKER",
            "TEMPLATE_EXAMPLE_VALUES", "TEMPLATE_EXAMPLE_TEST_NAMES",
            "framework_examples_in", "sab_template_module_paths"]
@@ -128,6 +129,31 @@ PHASE_DELIVERABLES: dict[int, list[str]] = {
     1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
     2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
     6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "quality_manifest"],
+}
+
+# Canonical on-disk locations for phase-level deliverables.  Keep approval
+# identifiers (above) separate from paths: ADR.md is intentionally approved by
+# basename while it lives below ``02-architecture/adr``.  Validators, auditors,
+# and phase-link checks must consume this map instead of maintaining their own
+# incomplete phase lists.
+PHASE_DELIVERABLE_PATHS: dict[int, dict[str, str]] = {
+    1: {
+        "SRS.md": "01-requirements/SRS.md",
+        "SPEC_TRACKING.md": "01-requirements/SPEC_TRACKING.md",
+        "TRACEABILITY_MATRIX.md": "01-requirements/TRACEABILITY_MATRIX.md",
+        "TEST_INVENTORY.yaml": "TEST_INVENTORY.yaml",
+    },
+    2: {
+        "SAD.md": "02-architecture/SAD.md",
+        "ADR.md": "02-architecture/adr/ADR.md",
+        "TEST_SPEC.md": "02-architecture/TEST_SPEC.md",
+    },
+    6: {
+        "QUALITY_REPORT.md": "06-quality/QUALITY_REPORT.md",
+        "RELEASE_NOTES.md": "06-quality/RELEASE_NOTES.md",
+        "FINAL_SIGN_OFF.md": "06-quality/FINAL_SIGN_OFF.md",
+        "quality_manifest": ".methodology/quality_manifest.json",
+    },
 }
 
 

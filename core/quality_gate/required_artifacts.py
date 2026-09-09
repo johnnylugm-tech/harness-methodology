@@ -55,7 +55,7 @@ STATUS_MISSING = "missing"
 STATUS_ELSEWHERE = "elsewhere"
 
 
-def _declared(project: Path, sab: "dict | None") -> list[str]:
+def _raw_declared(project: Path, sab: "dict | None") -> list:
     """The declared list, from *sab* or from the project's SAB.json.
 
     Read from SAB.json rather than from `GateContext.sab_data` for the reason
@@ -65,7 +65,7 @@ def _declared(project: Path, sab: "dict | None") -> list[str]:
     on disk is the source; a copy of it is not.
     """
     if sab is not None:
-        return [str(p).strip() for p in (sab.get("required_artifacts") or [])]
+        return list(sab.get("required_artifacts") or [])
     path = project / ".methodology" / "SAB.json"
     if not path.is_file():
         return []
@@ -75,7 +75,15 @@ def _declared(project: Path, sab: "dict | None") -> list[str]:
         return []
     if not isinstance(data, dict):
         return []
-    return [str(p).strip() for p in (data.get("required_artifacts") or [])]
+    return list(data.get("required_artifacts") or [])
+
+
+def _declared(project: Path, sab: "dict | None") -> list[str]:
+    paths: list[str] = []
+    for item in _raw_declared(project, sab):
+        value = item.get("path") if isinstance(item, dict) else item
+        paths.append(str(value or "").strip())
+    return paths
 
 
 # Directories a delivered file never legitimately lives in; searching them
@@ -121,7 +129,8 @@ def _find_elsewhere(project: Path, rel: str) -> str:
 
 
 def declared_artifact_findings(
-    project: "str | Path", sab: "dict | None" = None,
+    project: "str | Path", sab: "dict | None" = None, *,
+    required_by_phase: "int | None" = None,
 ) -> list[dict]:
     """Every declared path that is not at the path it was declared at.
 
@@ -135,7 +144,20 @@ def declared_artifact_findings(
     project = Path(project)
 
     findings: list[dict] = []
-    for entry in _declared(project, sab):
+    raw = _raw_declared(project, sab)
+    for item in raw:
+        if required_by_phase is not None:
+            # Legacy strings keep their historical gate-time semantics.  A
+            # phase boundary may only infer a deadline from an explicit typed
+            # declaration; otherwise P3/P8 artifacts would be falsely demanded
+            # at P2.
+            if not isinstance(item, dict):
+                continue
+            deadline = item.get("required_by_phase")
+            if not isinstance(deadline, int) or deadline > required_by_phase:
+                continue
+        value = item.get("path") if isinstance(item, dict) else item
+        entry = str(value or "").strip()
         if not entry:
             continue
         rel = entry.rstrip("/")

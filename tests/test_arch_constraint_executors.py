@@ -188,3 +188,41 @@ def test_only_the_unconfigured_state_blocks(tmp_path):
     declared_only_rows = [r for r in rows
                           if r["constraint"].startswith("fr07")]
     assert unconfigured_blocking_reason(declared_only_rows) is None
+
+
+def test_typed_forbidden_constraint_requires_exact_semantic_parity(tmp_path):
+    """A same-type contract over different modules must not certify the SAB."""
+    from core.quality_gate.arch_constraints import classify_constraints
+
+    project = _project(tmp_path)
+    (project / ".importlinter").write_text(
+        "[importlinter]\nroot_package = app\n\n"
+        "[importlinter:contract:db]\nname = DB boundary\n"
+        "type = forbidden\nsource_modules = app.api\n"
+        "forbidden_modules = django\n",
+        encoding="utf-8",
+    )
+    declared = [{
+        "id": "AC-SQLALCHEMY", "executor": "import-linter",
+        "contract_type": "forbidden", "source_modules": ["app.api"],
+        "forbidden_modules": ["sqlalchemy"],
+    }]
+    row = classify_constraints(declared, project)[0]
+    assert row["status"] == "unconfigured"
+    assert "sqlalchemy" in row["evidence"]
+
+    path = project / ".importlinter"
+    path.write_text(path.read_text(encoding="utf-8").replace("django", "sqlalchemy"),
+                    encoding="utf-8")
+    assert classify_constraints(declared, project)[0]["status"] == "enforced"
+
+
+def test_legacy_confined_to_constraint_is_not_silently_declared_only(tmp_path):
+    """Compatibility bridge for taskq-sol's pre-typed SAB vocabulary."""
+    from core.quality_gate.arch_constraints import classify_constraints
+
+    row = classify_constraints(
+        ["sqlalchemy_confined_to_repository_and_migrations"], _project(tmp_path)
+    )[0]
+    assert row["status"] == "unconfigured"
+    assert "forbidden" in row["evidence"]

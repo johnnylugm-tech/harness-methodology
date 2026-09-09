@@ -155,7 +155,7 @@ CONSTRAINT_EXECUTOR_CANDIDATES: tuple[dict, ...] = (
     {
         "about": "a package may only be imported from one layer",
         "keywords": ("only_in", "only in", "imports_only", "isolation",
-                     "restricted_to", "forbidden"),
+                     "restricted_to", "confined_to", "confined to", "forbidden"),
         "executor": "import-linter",
         "requires": ("contract", "forbidden"),
         "limits": "only the modules the contract names",
@@ -314,7 +314,7 @@ def _evaluate(candidate: dict, project: "str | Path | None") -> "tuple[str, str]
 
 
 def classify_constraints(
-    constraints: "list[str] | tuple[str, ...]",
+    constraints: "list[str | dict] | tuple[str | dict, ...]",
     project: "str | Path | None" = None,
 ) -> list[dict]:
     """One row per declared constraint, in declaration order.
@@ -334,6 +334,9 @@ def classify_constraints(
     """
     rows: list[dict] = []
     for constraint in constraints:
+        if isinstance(constraint, dict):
+            rows.append(_classify_structured_constraint(constraint, project))
+            continue
         lowered = str(constraint).lower()
         row = {
             "constraint": str(constraint),
@@ -376,6 +379,77 @@ def classify_constraints(
                     sorted({c["remedy"] for c, _, _ in decided}))
         rows.append(row)
     return rows
+
+
+def _classify_structured_constraint(
+    constraint: dict, project: "str | Path | None",
+) -> dict:
+    """Compare a typed SAB constraint with the exact executor configuration.
+
+    Legacy free-form strings remain supported as advisory/classified input.
+    New declarations use a typed shape so enforcement is based on identity and
+    module sets, never on English keyword coincidence::
+
+      {id, executor: import-linter, contract_type, contract_name?,
+       source_modules, forbidden_modules?}
+    """
+    cid = str(constraint.get("id") or "<unnamed>")
+    row = {
+        "constraint": cid,
+        "status": STATUS_UNCONFIGURED,
+        "executor": str(constraint.get("executor") or ""),
+        "evidence": "",
+        "remedy": "make the executor configuration exactly match the typed SAB declaration",
+    }
+    executor = row["executor"]
+    kind = str(constraint.get("contract_type") or "")
+    expected_sources = sorted(str(x) for x in constraint.get("source_modules", []))
+    expected_targets = sorted(str(x) for x in constraint.get("forbidden_modules", []))
+    wanted_name = str(constraint.get("contract_name") or "")
+    if executor != "import-linter" or kind not in {"layers", "independence", "forbidden"}:
+        row["status"] = STATUS_DECLARED_ONLY
+        row["evidence"] = (
+            "typed constraint names no supported deterministic executor "
+            f"(executor={executor!r}, contract_type={kind!r})"
+        )
+        row["remedy"] = ""
+        return row
+    if project is None:
+        row["status"] = STATUS_DECLARED_ONLY
+        row["evidence"] = "project configuration was not supplied"
+        row["remedy"] = ""
+        return row
+    if _project_executor_tool(project, "architecture_constraints") != "import-linter":
+        row["status"] = STATUS_DECLARED_ONLY
+        row["evidence"] = "this project's language does not route architecture checks to import-linter"
+        row["remedy"] = ""
+        return row
+
+    contracts = read_import_contracts(project)["contracts"]
+    candidates = [c for c in contracts if c.get("type") == kind]
+    if wanted_name:
+        candidates = [c for c in candidates if c.get("name") == wanted_name]
+    matched = next((c for c in candidates
+                    if sorted(c.get("sources") or []) == expected_sources
+                    and sorted(c.get("targets") or []) == expected_targets), None)
+    if matched and matched.get("decides", True):
+        row["status"] = STATUS_ENFORCED
+        row["evidence"] = (
+            f"import-linter contract {matched['name']!r} exactly matches "
+            f"type={kind}, sources={expected_sources}, targets={expected_targets}"
+        )
+        row["remedy"] = ""
+    else:
+        seen = [
+            {"name": c.get("name"), "sources": c.get("sources"),
+             "targets": c.get("targets")} for c in candidates
+        ]
+        row["evidence"] = (
+            f"no import-linter contract exactly matches type={kind}, "
+            f"name={wanted_name or '<any>'}, sources={expected_sources}, "
+            f"targets={expected_targets}; candidates={seen}"
+        )
+    return row
 
 
 def unconfigured_blocking_reason(rows: "list[dict]") -> "str | None":

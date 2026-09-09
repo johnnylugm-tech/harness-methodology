@@ -103,15 +103,18 @@ must hold for ALL inputs, not just the declared cases. Add one only when the FR
 has an algebraic property (round-trip, idempotence, monotonicity, conservation).
 Same shape as Sub-assertions but with the `invariant` header:
 
-| property_id | invariant (predicate over Inputs / result) | applies_to (case #) |
-|---|---|---|
-| P1-roundtrip | `decode(encode(source)) == source` | 1 |
+| property_id | invariant (predicate over Inputs / result) | applies_to (case #) | test_function | review_ref |
+|---|---|---|---|---|
+| P1-roundtrip | `decode(encode(source)) == source` | 1 | `test_fr01_roundtrip_property` | |
 
 Rules (enforced by `harness_cli.py check-property-spec`):
   * an invariant referencing only case Inputs is self-consistency-checked against
     those cases by the same P2 engine — a false invariant FAILS before P3;
   * once declared, the FR MUST have a property-based test executing it
-    (`hypothesis @given` / fast-check) — blocked from P4;
+    (`hypothesis @given` / fast-check), named exactly by `test_function`;
+  * a property the deterministic engine marks `needs_review` MUST carry a
+    `review_ref` as `path:line`; that line must name the property ID and an
+    `accepted`, `rejected`, or `revised` disposition before P3;
   * property STRENGTH (does it kill mutants?) is measured by the existing
     `mutation_testing` dimension — deliberately NOT re-scored here.
 

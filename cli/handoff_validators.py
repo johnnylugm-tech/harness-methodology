@@ -91,16 +91,49 @@ def _validate_handoff_p1_to_p2(project: Path) -> list[str]:
     return errors
 
 def _validate_handoff_p2_to_p3(project: Path) -> list[str]:
-    """P2→P3: TEST_SPEC.md must contain parseable named test cases (table format)."""
+    """P2→P3: all canonical P2 deliverables exist and TEST_SPEC is parseable."""
     errors: list[str] = []
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS
+
+    missing = [
+        f"{did} missing at {rel}"
+        for did, rel in PHASE_DELIVERABLE_PATHS[2].items()
+        if not (project / rel).is_file()
+    ]
+    if missing:
+        return missing
+    try:
+        from core.quality_gate.decision_issues import decision_issue_findings
+        from core.quality_gate.sab_parser import extract_sab_from_sad, validate_sab_block
+
+        sad_path = project / PHASE_DELIVERABLE_PATHS[2]["SAD.md"]
+        errors.extend(validate_sab_block(sad_path))
+        sab = extract_sab_from_sad(sad_path)
+        errors.extend(decision_issue_findings(
+            project, sab.decision_issues if sab else [], entering_phase=3
+        ))
+        from core.quality_gate.arch_constraints import (
+            classify_constraints, unconfigured_blocking_reason,
+        )
+        constraint_reason = unconfigured_blocking_reason(classify_constraints(
+            sab.architecture_constraints if sab else [], project
+        ))
+        if constraint_reason:
+            errors.append(constraint_reason)
+        from core.quality_gate.required_artifacts import declared_artifact_findings
+        for artifact in declared_artifact_findings(
+            project, sab.to_dict() if sab else {}, required_by_phase=2
+        ):
+            errors.append(
+                f"required artifact {artifact['declared']} is {artifact['status']} "
+                "at its Phase 2 deadline"
+            )
+    except (OSError, RuntimeError, ValueError) as exc:
+        errors.append(f"SAD decision issue lifecycle cannot be validated: {exc}")
     spec_path = ProjectLayout(project).test_spec_path
-    if not spec_path.exists():
-        return [
-            "TEST_SPEC.md missing at 02-architecture/TEST_SPEC.md. "
-            "P2 Sub-Task 3/3 produces this file via the derive_test_cases.md skill. "
-            "Re-run Phase 2 orchestrator with explicit skill invocation."
-        ]
     items = _parse_test_spec(spec_path)
+    from core.quality_gate.property_check import property_mapping_findings
+    errors.extend(property_mapping_findings(project))
     if not items:
         # 0 cases may be legitimate (genuinely empty) or wrong-shape. Distinguish.
         _code, _ = spec_coverage._run_spec_coverage_check(

@@ -80,6 +80,11 @@ class SubAssertion:
     predicate: str
     applies_to: list[int] = field(default_factory=list)
     fulfill_phase: int | None = None
+    # Exact implementation identity for property declarations.  Optional at
+    # the data type for backward-compatible reads; the P2 transition contract
+    # requires it before entering implementation.
+    test_function: str | None = None
+    review_ref: str | None = None
 
 
 class UnsafePredicateError(ValueError):

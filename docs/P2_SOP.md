@@ -145,6 +145,8 @@ sab:
   architecture_constraints:
     - "no_circular_dependencies"
 
+  decision_issues: []  # 每個 *-deferred 議題須有 status、blocks_phase、resolution_ref
+
   high_risk_modules:
     - "app.api.webhooks"
 

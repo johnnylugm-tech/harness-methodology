@@ -32,6 +32,7 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for direct runs
 
 from core.phase_topology import ENTRY_GATE_MAP, VALID_PHASES  # noqa: E402
+from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS  # noqa: E402
 from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX  # noqa: E402
 
 
@@ -173,10 +174,12 @@ PHASE_SPEC: dict[int, dict[str, Any]] = {
         "ab_rounds": 1,
         "constitution_type": "sad",
         "deliverables": [
-            (["02-architecture/SAD.md"],
+            ([PHASE_DELIVERABLE_PATHS[2]["SAD.md"]],
              "SAD.md -- System Architecture Document", True),
-            (["02-architecture/adr/"],
-             "ADR -- Architecture Decision Records", False),
+            ([PHASE_DELIVERABLE_PATHS[2]["ADR.md"]],
+             "ADR.md -- Architecture Decision Records", True),
+            ([PHASE_DELIVERABLE_PATHS[2]["TEST_SPEC.md"]],
+             "TEST_SPEC.md -- Named test specification", True),
             ([".methodology/sessions_spawn.log", "sessions_spawn.log"], ".methodology/sessions_spawn.log", False),  # non-blocking: A/B audit removed
             (["00-summary/Phase2_STAGE_PASS.md"],
              "Phase2_STAGE_PASS.md -- Phase pass certificate", False),

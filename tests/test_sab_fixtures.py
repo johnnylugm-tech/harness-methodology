@@ -45,7 +45,7 @@ class TestSabGoldenFixture:
             "version", "created_at", "phase", "project", "layers",
             "dependencies", "quality_targets", "nfr_dimension_mapping",
             "nfr_traceability", "advisory_only", "gate_score_overrides",
-            "fr_module_traceability", "architecture_constraints",
+            "fr_module_traceability", "architecture_constraints", "decision_issues",
             "high_risk_modules",
         }
         assert required.issubset(golden.keys()), \

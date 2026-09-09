@@ -179,7 +179,9 @@ _CEILINGS: dict[str, int] = {
     # return propagation. The check itself is 48 lines in its own helper in
     # cli/advance_prechecks.py; what this function gained is one more call
     # site, which is what it is for.
-    "cli/phase_cmds.py::_advance_prechecks": 271,
+    # 2026-09-09: +4 — authoritative P2 transition-contract call; the
+    # judgement itself lives in the new, bounded cli/p2_transition.py module.
+    "cli/phase_cmds.py::_advance_prechecks": 275,
     # The one run with NO safe cut point under the extraction rule: every
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line

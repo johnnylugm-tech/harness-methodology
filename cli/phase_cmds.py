@@ -134,6 +134,7 @@ from cli.advance_steps import (  # noqa: F401  re-export after Round 82 站3 spl
     _advance_step_write_next_plan_header,
     _run_doctor_after_advance,
 )
+from cli.p2_transition import precheck_p2_transition
 from core.utils.script_loader import load_harness_script
 from harness.handover_generator import HandoverGenerator
 
@@ -2026,6 +2027,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # Phase 3 onward is deliberately NOT asked here: finalize_gate answers it
     # there with more evidence, and two layers on one source is Round 20.
     _pre_rc = _precheck_declared_constraints_are_configured(completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    _pre_rc = precheck_p2_transition(project, completed_phase)
     if _pre_rc is not None:
         return _pre_rc
 

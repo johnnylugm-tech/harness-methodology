@@ -20,7 +20,7 @@ def test_legal_artifacts_exports() -> None:
     assert mod.LEGAL_ARTIFACTS == mod.LEGAL_ARTIFACTS  # sanity
     assert mod.PHASE_DELIVERABLES == mod.PHASE_DELIVERABLES  # sanity
     assert set(mod.__all__) == {
-        "LEGAL_ARTIFACTS", "PHASE_DELIVERABLES",
+        "LEGAL_ARTIFACTS", "PHASE_DELIVERABLES", "PHASE_DELIVERABLE_PATHS",
         # Round 33 站1 — the H1 anchor each deliverable is reloaded against.
         # It lives here because this module is already the one place a
         # deliverable's identity is stated, and the anchor had drifted from
@@ -39,6 +39,19 @@ def test_legal_artifacts_exports() -> None:
         "TEMPLATE_EXAMPLE_TEST_NAMES", "framework_examples_in",
         "sab_template_module_paths",
     }
+
+
+def test_p2_runtime_consumers_share_canonical_disk_paths() -> None:
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS
+    from core.quality_gate.phase_artifact_enforcer import Phase, PhaseArtifactRegistry
+    from scripts.phase_auditor import PHASE_SPEC
+
+    canonical = list(PHASE_DELIVERABLE_PATHS[2].values())
+    audited = [paths[0] for paths, _description, mandatory
+               in PHASE_SPEC[2]["deliverables"] if mandatory]
+    assert audited == canonical
+    registry = PhaseArtifactRegistry(".")
+    assert registry.PHASE_ARTIFACTS[Phase.PLAN]["artifacts"] == canonical
 
 
 def test_legal_artifacts_has_p1_p2_p4_to_p8() -> None:

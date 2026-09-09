@@ -138,6 +138,18 @@ class TestHandoffP1ToP2:
 
 
 class TestHandoffP2ToP3:
+    @staticmethod
+    def _seed_design_docs(project: Path) -> None:
+        (project / "02-architecture" / "adr").mkdir(parents=True, exist_ok=True)
+        (project / "02-architecture" / "SAD.md").write_text(
+            "# SAD\n<!-- SAB:START -->\n```yaml\nsab:\n  phase: 2\n"
+            "  project: test\n  required_artifacts: []\n```\n<!-- SAB:END -->\n",
+            encoding="utf-8",
+        )
+        (project / "02-architecture" / "adr" / "ADR.md").write_text(
+            "# ADR\n", encoding="utf-8"
+        )
+
     def test_missing_test_spec_blocks(self, tmp_path: Path):
         """P2 never produced TEST_SPEC.md → block."""
         # Need a SAD.md with FRs for the inner check to engage
@@ -154,6 +166,10 @@ class TestHandoffP2ToP3:
         (tmp_path / "02-architecture" / "SAD.md").write_text(
             "# SAD\n### FR-01: a\n", encoding="utf-8"
         )
+        (tmp_path / "02-architecture" / "adr").mkdir(parents=True)
+        (tmp_path / "02-architecture" / "adr" / "ADR.md").write_text(
+            "# ADR\n", encoding="utf-8"
+        )
         _seed_test_spec(
             tmp_path,
             "# TEST_SPEC\n\n## §1 Strategy Overview\nProse, no table.\n",
@@ -164,6 +180,7 @@ class TestHandoffP2ToP3:
 
     def test_well_formed_test_spec_passes(self, tmp_path: Path):
         """Happy path: TEST_SPEC.md has derive_test_cases.md table rows → OK."""
+        self._seed_design_docs(tmp_path)
         _seed_test_spec(
             tmp_path,
             "# TEST_SPEC\n\n"
@@ -174,6 +191,20 @@ class TestHandoffP2ToP3:
         )
         errs = _validate_handoff(tmp_path, from_phase=2)
         assert errs == []
+
+    def test_parseable_spec_does_not_hide_missing_sad_or_adr(self, tmp_path: Path):
+        _seed_test_spec(
+            tmp_path,
+            "# TEST_SPEC\n\n### FR-01: example\n"
+            "| # | Test Function | Type | Derivation |\n"
+            "|---|---|---|---|\n"
+            "| 1 | `test_fr01_happy` | happy_path | Q1 |\n",
+        )
+        errs = _validate_handoff(tmp_path, from_phase=2)
+        assert errs == [
+            "SAD.md missing at 02-architecture/SAD.md",
+            "ADR.md missing at 02-architecture/adr/ADR.md",
+        ]
 
 
 # ---------------------------------------------------------------------------
