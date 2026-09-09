@@ -6,9 +6,13 @@ load time — see docs/WORKFLOW_PLAYBOOK.md §4 and
 scripts/workflow_audit/js_lint.py's module docstring for why this is a
 comment/string-aware scan rather than a substring search.
 
-`bug-hunt-crg.js` and `standalone-mutmut.js` are intentionally out of
-scope: they are not among the 8 phase files and are not
-workflowgen-generated (Round 11 plan's 明確不做 list).
+`bug-hunt-crg.js` and `standalone-mutmut.js` are out of scope for the
+GENERATED-file conventions: they are not among the 8 phase files and are not
+workflowgen-generated (Round 11 plan's 明確不做 list). Round 111 站F6 split
+that exemption in two — the four RUNTIME-LEGALITY checks now run over every
+`.js` in `.claude/workflows/` (see SHIPPED_FILES), because who wrote a file
+and whether the runtime will load it are different questions and only the
+first one distinguishes those two.
 """
 from __future__ import annotations
 
@@ -54,24 +58,39 @@ PHASE_FILES = [
 # keeps guarding the SHIPPED files — a hand edit never passes the generator.
 GENERATED_FILES = [*PHASE_FILES, RUNALL_FILE]
 
+# Every .js the runtime can be asked to load, generated or not — Round 111
+# 站F6. "Who wrote it" and "will the runtime take it" are different
+# questions, and only the first one distinguishes `bug-hunt-crg.js` and
+# `standalone-mutmut.js`. They are still out of scope for the pipeline
+# CONTRACTS below (every dispatch through the wrapper, every halt through
+# the helper, the coverage layout) — those describe a generator's output and
+# an independent tool has no such pipeline. What applies to them is the four
+# runtime-legality checks, and only those four use this list.
+#
+# No live wound: measured 2026-09-09, both files pass all four today
+# (banned constructs none, parse clean, `export const meta` first, 14 KB and
+# 15 KB against a 512 KB cap). This is the denominator being made whole, and
+# the round does not pretend otherwise.
+SHIPPED_FILES = sorted(p.name for p in WORKFLOWS_DIR.glob("*.js"))
+
 
 def _read(filename: str) -> str:
     return (WORKFLOWS_DIR / filename).read_text(encoding="utf-8")
 
 
-@pytest.mark.parametrize("filename", GENERATED_FILES)
+@pytest.mark.parametrize("filename", SHIPPED_FILES)
 def test_no_banned_runtime_constructs(filename):
     violations = find_banned_constructs(_read(filename))
     assert not violations, f"{filename}: playbook §4 banned construct(s) found: {violations}"
 
 
-@pytest.mark.parametrize("filename", GENERATED_FILES)
+@pytest.mark.parametrize("filename", SHIPPED_FILES)
 def test_under_512kb_hard_cap(filename):
     size = len(_read(filename).encode("utf-8"))
     assert size <= MAX_BYTES, f"{filename}: {size} bytes exceeds the {MAX_BYTES}-byte runtime parse limit"
 
 
-@pytest.mark.parametrize("filename", GENERATED_FILES)
+@pytest.mark.parametrize("filename", SHIPPED_FILES)
 def test_meta_is_first_statement(filename):
     stripped = strip_comments_and_strings(_read(filename)).lstrip()
     assert stripped.startswith("export const meta"), (
@@ -84,7 +103,7 @@ def test_meta_is_first_statement(filename):
     not node_available(),
     reason="node not found on PATH — syntax gate needs Node.js (dev-only dependency)",
 )
-@pytest.mark.parametrize("filename", GENERATED_FILES)
+@pytest.mark.parametrize("filename", SHIPPED_FILES)
 def test_node_check_syntax(filename):
     """Parse each SHIPPED file the way the RUNTIME parses it.
 
