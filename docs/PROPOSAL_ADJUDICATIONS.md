@@ -10385,6 +10385,54 @@ docstring 寫明 p4 是唯一的比較來源,而 p3/p6 的副本刻意還在寫 
 mtime+size 都沒變,Python 認為 `.pyc` 仍然有效 —— 還原完測試還是紅的。
 清掉 `__pycache__` 才看到真相。)
 
+### §5 站F5 — 一支從來沒有在任何地方跑過的回歸測試
+
+`tests/test_generate_full_plan.py::test_real_srs_md_extracts_all_frs` 用
+`repo_root = Path(__file__).parent.parent.parent` 找 `01-requirements/SRS.md`。
+它是為「harness 是專案底下的 submodule」那個佈局寫的 —— 在那個佈局裡路徑是對的,
+但**沒有任何消費專案的 CI 會跑 harness 的測試套件**(逐一掃過語料每個
+`.github/workflows/*.yml`,零個引用 `harness/tests`)。在獨立佈局裡那個路徑解析成
+`/Users/johnny/projects`(所有專案的**上層目錄**)→ 永遠 SKIPPED。
+
+改成 `scripts/corpus_replay.py` 已在用的發現方式,語料不存在時帶理由 skip
+(CI 就是這種機器)。**斷言換掉並且變窄**:舊斷言是「SRS.md 解析出的 FR 數
+== SPEC.md 的 `### FR-` 數」,跨檔相等在 4/21 專案是紅的,而原因都不是解析器缺陷
+(omnibot 的 SPEC 沒有 `### FR-` 標題、omnibot-new 有 deferred、taskq-opus 進行中、
+tts-new 老舊)。新斷言是單向且同檔內的:SRS.md 裡每個非 `-deferred` 的
+`### FR-NN` 標題,`parse_srs_fr_sections` 都要回傳。**實測 21/21 通過,
+其中 17 個有標題可以掉**;分母本身也被斷言(R110:沒有人走過的不變式不算成立)。
+taskq-new 的 `### FR-99-deferred` 是唯一看似例外,正是 `-deferred` 規則正確排除的那個。
+
+**接上語料當場挖出兩件本來看不到的事**(都不在本輪範圍,列進 §9):
+
+1. `parse_srs_fr_sections` 回傳**兩種 dict 形狀** —— section 路徑永遠給
+   `implementation_modules` / `acceptance_criteria` / `verification_method`,
+   下面那條 table-format fallback 一個都不給。4 個專案(omnibot、omnibot-new、
+   taskq-opus、tts-new)用 table 形式寫 FR。
+2. 那三個欄位**全樹零讀者**。section 路徑從一個 optional 的 Appendix A JSON block
+   填它們,而沒有任何 phase-1 prompt 叫 Agent A 產出那個 block。
+
+所以那三個型別斷言**沒有**被推廣到語料 —— 推廣就是拿一個「解析器明確支援的格式」
+去指控 4 個專案(R46),而且指控的是沒有人讀的欄位。
+
+反證:CP-8 把 `parents[2]` 的路徑條件放回去 → 該測試立刻回到 SKIPPED。
+
+### §6 站F6 — runtime lint 的分母漏掉兩支已交付的 workflow
+
+`tests/test_workflow_js_conventions.py` 把 `bug-hunt-crg.js` /
+`standalone-mutmut.js` 排除在**執行期構造 lint** 之外,理由是「不是 workflowgen
+生成的」。但「誰寫的」與「runtime 收不收」是兩個問題,只有前者能區分這兩支。
+
+4 條**執行期合法性**的 case(`test_no_banned_runtime_constructs` /
+`test_under_512kb_hard_cap` / `test_meta_is_first_statement` /
+`test_node_check_syntax`)的分母從 `GENERATED_FILES`(9)擴到
+`.claude/workflows/*.js` 全體(12)。dispatch / halt / wrapper / coverage-layout
+那些**維持現狀** —— 那是生成管線的合約(每個 dispatch 走 wrapper、每個 halt 走
+helper),獨立工具沒有那個管線。
+
+**今天沒有活傷口,計畫不假裝有**:兩支實測四條全過(banned 空、parse 乾淨、
+`export const meta` 是第一個語句、14KB/15KB 對 512KB 上限)。這是分母補齊。
+
 ### §9 明列不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
@@ -10812,3 +10860,5 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 | 合併 `structural_fr_ids` 與 `parse_srs_fr_sections` | 實測 21 專案只差 `-deferred` 與散文;兩者各自對自己的問題正確 | 出現第三個 FR 讀法,或某次不一致改變了判定 |
 | ci-template 漂移自動執行 `init-project --ci-only --overwrite` | 覆寫專案的 CI 檔是專案端決定 | 老闆裁定框架可以覆寫已交付專案的 CI |
 | 動 `test_undoing_the_extraction...` 的空參數集 | 查證後不是缺陷 | — |
+| `parse_srs_fr_sections` 的兩種 dict 形狀(table fallback 少三個欄位) | 站F5 接上語料才看到;統一形狀是改解析器的回傳合約,與本輪需求無關 —— 告知不改 | 那三個欄位出現第一個讀者 |
+| 移除 `implementation_modules` / `acceptance_criteria` / `verification_method` | 全樹零讀者,但無關 dead code:CLAUDE.md 告知不刪 | 老闆裁定 |

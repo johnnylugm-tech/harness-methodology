@@ -2840,9 +2840,29 @@ class TestParseSrsFrSectionsMergesJson:
         assert fr["verification_method"] == ""
 
     def test_real_srs_md_extracts_all_frs(self):
-        """Regression against the actual INGESTION MODE SRS.md shipped with
-        the current integration-test project. Must extract every FR the
-        project's canonical SPEC.md declares.
+        """Regression against the actual INGESTION MODE SRS.md files delivered
+        by the corpus projects. Nothing an SRS declares as an FR section may be
+        lost by the parser.
+
+        Round 111 站F5 re-pointed this test. It resolved its root as
+        `Path(__file__).parent.parent.parent`, which is correct only in the
+        layout where harness is a submodule inside the project — and no
+        consuming project's CI runs the harness test suite (checked every
+        `.github/workflows/*.yml` beside this repo: zero reference
+        `harness/tests`). In the standalone layout that path is the PARENT of
+        every project, so the skip fired and this test had never run anywhere.
+
+        The assertion changed with it, and narrowed. The old one compared the
+        FR count parsed from SRS.md against the `### FR-NN` count in SPEC.md —
+        a cross-file equality that is red on 4 of the 21 corpus projects for
+        reasons that are not parser defects (omnibot's SPEC has no `### FR-`
+        headings at all, omnibot-new defers some, taskq-opus is mid-flight,
+        tts-new predates the shape). What is checked now is one-directional
+        and within one file: every non-`-deferred` `### FR-NN` heading in an
+        SRS must come back from `parse_srs_fr_sections`. Measured 2026-09-09:
+        21/21 projects pass, 17 of them with at least one heading to lose.
+        taskq-new's `### FR-99-deferred` is the one apparent exception and is
+        exactly what the `-deferred` rule correctly excludes.
 
         INGESTION MODE (phase1_plan.md §[A-1]) is "100% transcribe ... no
         invention" from SPEC.md. implementation_modules / acceptance_criteria
@@ -2856,31 +2876,61 @@ class TestParseSrsFrSectionsMergesJson:
         pins the structural (markdown-section) extraction, not JSON-only
         metadata that INGESTION MODE never produces.
 
-        The expected count is read from the hosting project's own SPEC.md
-        (`### FR-NN` headings), not hand-pinned, because this test rotates
-        across integration-test projects as the harness dogfoods successive
-        rounds (taskq: 5 FRs -> taskq-plus: 8 FRs per PROJECT_BRIEF.md's
-        "progressive test-bed round 1 of 3") — a hardcoded count goes stale
-        every rotation the same way an un-regenerated golden does."""
-        repo_root = Path(__file__).parent.parent.parent
-        srs_path = repo_root / "01-requirements" / "SRS.md"
-        spec_path = repo_root / "SPEC.md"
-        if not srs_path.exists() or not spec_path.exists():
-            pytest.skip(f"Real SRS.md/SPEC.md not present under {repo_root}")
-        expected_fr_count = len(re.findall(
-            r"^### FR-\d+", spec_path.read_text(encoding="utf-8"), re.MULTILINE
-        ))
-        assert expected_fr_count > 0, f"SPEC.md at {spec_path} declares no FRs"
-        frs = parse_srs_fr_sections(srs_path)
-        assert len(frs) == expected_fr_count, (
-            f"expected {expected_fr_count} FRs from real SRS.md (per "
-            f"{spec_path}), got {len(frs)}"
+        The three per-FR type assertions the old version carried
+        (`implementation_modules` / `acceptance_criteria` /
+        `verification_method` present and correctly typed) are NOT generalised
+        to the corpus, and that is a finding rather than a concession.
+        `parse_srs_fr_sections` returns two dict shapes: the section path
+        always emits those three, and the table-format fallback beneath it
+        never does. Four projects (omnibot, omnibot-new, taskq-opus, tts-new)
+        write their FRs as a table and would be charged for a format the
+        parser explicitly supports. Searched the tree for a reader of any of
+        the three: there is none — the section path fills them from an
+        optional Appendix A JSON block that no phase-1 prompt asks Agent A to
+        emit, and nothing downstream reads them back. Both facts are recorded
+        in docs/PROPOSAL_ADJUDICATIONS.md rather than fixed here; asserting
+        them would be this test picking a shape by which corpus project it
+        happened to meet.
+
+        The corpus is discovered rather than listed, the same way
+        scripts/corpus_replay.py discovers it, and a machine with no delivered
+        trees beside this repo skips — a CI runner has none and has nothing to
+        say (Round 88 站1).
+        """
+        from corpus_replay import CORPUS_ROOT, corpus_projects  # noqa: PLC0415
+
+        names = corpus_projects()
+        if not names:
+            pytest.skip("no harness-managed project beside this repo — "
+                        "this regression reads delivered SRS.md files")
+
+        heading = re.compile(r"^### (FR-\d+)(-\w+)?\b", re.MULTILINE)
+        with_headings, problems = 0, []
+        for name in names:
+            srs_path = CORPUS_ROOT / name / "01-requirements" / "SRS.md"
+            if not srs_path.exists():
+                continue
+            declared = {
+                m.group(1) for m in
+                heading.finditer(srs_path.read_text(encoding="utf-8", errors="replace"))
+                if not m.group(2)
+            }
+            frs = parse_srs_fr_sections(srs_path)
+            parsed = {fr["fr"] for fr in frs}
+            if declared:
+                with_headings += 1
+            if lost := sorted(declared - parsed):
+                problems.append(f"{name}: {lost}")
+            for fr in frs:
+                assert fr["fr"].startswith("FR-"), f"{name}: bad FR id: {fr}"
+
+        assert not problems, (
+            "these SRS.md files declare an FR section the parser did not "
+            "return:\n    " + "\n    ".join(problems)
         )
-        for fr in frs:
-            assert fr["fr"].startswith("FR-"), f"bad FR id: {fr}"
-            assert isinstance(fr["implementation_modules"], list), \
-                f"{fr['fr']}: implementation_modules not list"
-            assert isinstance(fr["acceptance_criteria"], list), \
-                f"{fr['fr']}: acceptance_criteria not list"
-            assert isinstance(fr["verification_method"], str), \
-                f"{fr['fr']}: verification_method not str"
+        # Guard the denominator: an invariant nothing exercised is not an
+        # invariant that held (Round 110).
+        assert with_headings, (
+            f"none of the {len(names)} corpus projects has an SRS.md with a "
+            f"`### FR-NN` heading — this test passed without checking anything"
+        )

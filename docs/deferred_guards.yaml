@@ -2279,3 +2279,18 @@ entries:
     evidence: >-
       2026-09-09: re-open 欄是 `—`。查證後不是缺陷 —— `_EXTRACTED` 唯一那筆的
       `reconstructible: False` 帶完整理由(R87 站5),空集是誠實的,不是死守衛。
+  - round: 111
+    item: "`parse_srs_fr_sections` 的兩種 dict 形狀(table fallback 少三個欄位)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「那三個欄位出現第一個讀者」。站F5 當場搜過全樹
+      (`scripts/ core/ cli/ harness/`),`implementation_modules` /
+      `acceptance_criteria` / `verification_method` 在 `artifact_parsers.py`
+      以外零次出現 —— 沒有讀者,所以兩種形狀今天沒有消費者能被它咬到。
+  - round: 111
+    item: "移除 `implementation_modules` / `acceptance_criteria` / `verification_method`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-09-09: 條件是「老闆裁定」。本輪沒有這個裁定;三個欄位原封不動。

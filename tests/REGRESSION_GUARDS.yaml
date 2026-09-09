@@ -5847,3 +5847,7 @@
 - test: tests/test_baseline_comparisons.py::test_the_bridge_does_not_keep_its_own_copy_of_the_map
   bug: "two declarations of one mapping is how the writer set and the reader set drifted apart, and the comment above the local copy asserted 'there is no p3 baseline (Gate 2 has no architecture dim)' while nine corpus projects had one. The owner is core.quality_gate.crg_baseline, the module that writes baselines"
   fixed_in: "Round 111"
+
+- test: tests/test_generate_full_plan.py::TestParseSrsFrSectionsMergesJson::test_real_srs_md_extracts_all_frs
+  bug: "this regression resolved its root as `Path(__file__).parent.parent.parent`, correct only in the layout where harness is a submodule inside the project — and no consuming project's CI runs the harness suite (checked every .github/workflows/*.yml beside this repo: zero reference `harness/tests`). In the standalone layout that path is the PARENT of every project, so the skip fired and the test had never run anywhere. Re-pointed at the corpus the way scripts/corpus_replay.py discovers it. The assertion narrowed with it and is stated in the docstring: the old one compared SRS.md's parsed FR count against SPEC.md's `### FR-` count, a cross-file equality that is red on 4 of 21 projects for reasons that are not parser defects; what is checked now is that no non-`-deferred` `### FR-NN` heading is lost by parse_srs_fr_sections — 21/21 pass, 17 with at least one heading to lose, and the denominator is asserted so the invariant cannot pass on an empty corpus"
+  fixed_in: "Round 111"
