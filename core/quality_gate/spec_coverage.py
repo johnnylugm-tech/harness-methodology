@@ -757,6 +757,19 @@ def _run_spec_coverage_check(
                 print("  Agent A may have hallucinated names. Re-run derive_test_cases.md.")
             return (1, 0.0)
 
+        # Round 111 站F1: the check above reads the working-tree file, so a
+        # declaration that shrinks satisfies it. The P1 copy is what
+        # state.json.test_inventory_checksum was recorded to protect, and
+        # nothing read it back until now. Reported here and recorded once per
+        # advance in cli/advance_prechecks.py; the verdict is unchanged.
+        from core.quality_gate.naming_authority import (
+            declaration_movement,
+            movement_report,
+        )
+        _moved = declaration_movement(project)
+        if _moved and verbose:
+            print(movement_report(_moved))
+
     outcomes = _live_test_outcomes(project)
     report = spec_coverage_report(
         project, fr_id=fr_id, test_outcomes=outcomes, _items=items

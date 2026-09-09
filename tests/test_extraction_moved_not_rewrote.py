@@ -78,10 +78,23 @@ _EXTRACTED: "dict[str, dict]" = {
         # not a relocation of it — "this is the code that was there" has
         # expired for this one helper. The other eight claims are untouched
         # and still run.
+        #
+        # Round 111 站F1 removed `_precheck_manifest_and_p1_baselines` for
+        # the same reason. That helper has written a sha256 of
+        # TEST_INVENTORY.yaml into state.json at the P1 exit since v2.6.1
+        # and nothing in the tree read it back — the check it was written to
+        # protect reads the WORKING-TREE file, so retracting a declared name
+        # passes it, and 15 of the 21 corpus projects carry a digest that no
+        # longer matches. It now reads that baseline back at every later
+        # exit and records what left the declaration. New code inside the
+        # moved body, not a relocation of it. Putting it in a new sibling
+        # function purely to keep this claim green was considered and
+        # rejected: the P1 baseline is what this helper is named for, and
+        # shaping the code around the guard is the thing these guards exist
+        # to catch. The other seven claims are untouched and still run.
         "helpers": (
             "_precheck_cleared_dir_evidence",
             "_precheck_backup_artifacts",
-            "_precheck_manifest_and_p1_baselines",
             "_precheck_per_fr_gate1_and_phase_truth",
             "_precheck_early_stage_pass",
             "_precheck_deliverable_anchors",

@@ -224,6 +224,31 @@ sinks:
       declining to make one, and it is decidable from the row text this
       component already records.
 
+  "spec-coverage:naming-authority":
+    sink: report-only
+    why: >-
+      Round 111 站F1. The P1 Naming Authority check reads the working-tree
+      TEST_INVENTORY.yaml, so a declaration that shrinks satisfies it, and
+      `state.json.test_inventory_checksum` — written at the P1 exit since
+      v2.6.1 for exactly this comparison — had one writer and zero readers.
+      Not a verdict, and the why is not deferral: the first version of this
+      fix DID block on shrinkage, and checked against the only corpus project
+      whose declaration shrinks it was a false accusation. taskq-new's 50
+      retracted names include
+      test_fr10_ac5_status_mapping_422_401_403_404_409_429_503_500, which its
+      TEST_SPEC.md carries as eight separate rows, and
+      test_fr02_ac3_state_machine_done_failed_timeout split in two. Splitting
+      one declaration into the tests it always meant is refinement, and
+      charging the one project that refined its declaration is Round 46.
+      Measured 2026-09-09 across the 21 corpus projects: 11 have moved, 10
+      purely by addition (the normal path — P2 derives test cases and the
+      inventory grows, and every name in today's file is already compared
+      against TEST_SPEC.md by the live check), so only taskq-new files a row.
+    reopen_when: >-
+      a retracted name is one TEST_SPEC.md never carried under any spelling —
+      that is a declaration withdrawn rather than refined, and it is decidable
+      from the two sets this component already records.
+
   "spec:undelivered":
     sink: report-only
     why: >-
