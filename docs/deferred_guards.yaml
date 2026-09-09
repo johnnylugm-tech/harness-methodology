@@ -60,6 +60,31 @@
 # recorded only the first; that is how a MET verdict comes to read like an
 # instruction.
 #
+# THE TOKEN IS NOW DERIVED, NOT DECLARED (Round 112 站6). Until this round the
+# verdict said in one word what `evidence` said in prose, and nothing bound the
+# two. Round 112 站1 is the cost: a row whose condition — 那三個欄位出現第一個
+# 讀者 — measured FALSE, carrying `MET`. The counter-proof for that fix (flip it
+# back) was green in all nine assertions, because MET and ALREADY_DONE were
+# field-identical: both carry `resolved_in`, both name a real test. One fact,
+# two statements, nothing joining them — Round 33 and Round 84's shape, in the
+# file built to notice that shape elsewhere.
+#
+# `condition_met_in` is the fact; the token follows from it. Filling it for the
+# eighteen rows that carried MET was a re-read, not a re-measurement: every one
+# already named its place inside its own prose. ONE of them did not survive the
+# re-read — Round 80's 分解 row asked for a behaviour golden pinning
+# finalize_gate's verdict/exit code/BLOCK text, its own `note` says "that is NOT
+# what was built", and it is now ALREADY_DONE. That is the second instance of
+# the same defect in two rounds, and it is the answer to whether this guard was
+# worth building.
+#
+# WHAT IT DOES NOT DO. It catches an omission, not a lie: a false
+# `condition_met_in` is still green. That is the standard `evidence` is already
+# held to (Round 45) — the gain is that the claim is specific and falsifiable
+# instead of one word swapped for another. NOT_MET and PREMISE_FALSE set neither
+# field, so those two stay a reading; tests/test_deferred_index.py says so in
+# the open rather than leaving the silence.
+#
 # KEYED BY (round, item), NOT BY LINE. The first draft keyed on the ledger line
 # number, which every subsequent ledger edit invalidates — Round 81's own
 # section, inserted above Round 80's, moved all eight of its rows. `item` is
@@ -73,7 +98,12 @@
 #   guard        pytest node id that measures the re-open condition, or `manual`
 #                (ALREADY_DONE may not be `manual` — a claim that the work is
 #                done has to name the test that proves it)
-#   resolved_in  set when the condition has since been met and acted on
+#   condition_met_in
+#                where the re-open condition CAME TRUE — a commit, a round, or a
+#                dated measurement. Set if and only if the verdict is MET.
+#   resolved_in  the round that ACTED on the decision. It says nothing about the
+#                condition: eight rows carry it over a condition that never came
+#                true, which is what ALREADY_DONE is for.
 #   note         why this mapping is what it is
 # =============================================================================
 
@@ -81,6 +111,7 @@ entries:
   - round: 81
     item: "把抽出的 36 個 helper 搬去新模組"
     verdict: MET
+    condition_met_in: "57dcc2c1"
     evidence: >-
       抽取全部在 main 上綠過一輪, met at 57dcc2c1 and acted on the same round.
       See `note` below for what the named guard proves and what it does not.
@@ -100,12 +131,17 @@ entries:
 
   - round: 80
     item: "`finalize_gate`(1150)/`cmd_run_fr_step`(940)/`cmd_advance_phase`(845)/`_advance_prechecks`(818) 的**分解**"
-    verdict: MET
+    verdict: ALREADY_DONE
     evidence: >-
-      Met in part, and the `note` below records exactly which part: 3753 ->
-      2326 lines, with the three unmet remainders carried as their own rows in
-      Round 81's table (Tier C/D, the two blocks with no safe cut point, and
-      `cmd_run_fr_step`'s other 588 lines — 872 as of 2026-09-08).
+      條件是「有一支能釘住 `finalize_gate` 在 gate 矩陣上的 verdict / exit code /
+      BLOCK 文字的行為 golden,且其覆蓋被實測」。2026-09-09(R112 站6)重驗:**那支
+      golden 從來沒有被建過** —— 同列 `note` 自己就寫著 "that is NOT what was
+      built"。被做掉的是分解本身(Round 81 站6-站9,3753 → 2326 行),而且用的是比
+      行為 golden 更強的性質:把 helper 放回呼叫點後逐敘述等於原函式,對所有輸入成立
+      而非對一組 fixture 成立。所以判定是 ALREADY_DONE(工作已完成)而不是 MET
+      (再開條件成立)—— 條件沒有成立過。三個未完成的餘量仍以獨立列留在 Round 81
+      的表裡(Tier C/D、兩個沒有安全切點的區塊、`cmd_run_fr_step` 其餘 588 行 ——
+      2026-09-08 為 872 行)。
     guard: "tests/test_extraction_moved_not_rewrote.py::test_undoing_the_extraction_gives_back_the_original_function"
     resolved_in: "Round 81 站6-站9(部分:3753 → 2326 行)"
     note: >-
@@ -125,6 +161,7 @@ entries:
   - round: 80
     item: "`_crg_enrich_gate_findings` 搬出 harness_bridge"
     verdict: MET
+    condition_met_in: "Round 81 站2(harness/gate_io.py)"
     evidence: >-
       共用寫入器先被移到中立模組 — done by Round 81 站2 (harness/gate_io.py),
       which unblocked 站3. Both moves are proved to be moves by AST
@@ -140,6 +177,7 @@ entries:
   - round: 80
     item: "「明列不做」抽成機讀索引"
     verdict: MET
+    condition_met_in: "Round 81 站5"
     evidence: >-
       有人願意逐條與原文對照地做一次提取 — Round 81 站5 did it, and the named
       guard is what makes the comparison a property instead of an intention.
@@ -359,6 +397,7 @@ entries:
   - round: 86
     item: "omnibot-new 的 341KB / 28 FR 是否該拆成多個 milestone"
     verdict: MET
+    condition_met_in: "2026-09-08(omnibot-new .methodology/state.json:phase_completed 有 \"1\"/\"2\",current_phase 3)"
     guard: "manual"
     evidence: >-
       2026-09-08: omnibot-new's `.methodology/state.json` records `phase_completed` for "1" and
@@ -438,6 +477,7 @@ entries:
   - round: 83
     item: "讓 `performance` 讀專案宣告的 p95 預算"
     verdict: MET
+    condition_met_in: "2026-09-08(tts-new .methodology/quality_manifest.json:quality_targets.latency_p95_ms — 第一個機器可讀來源)"
     guard: "manual"
     evidence: >-
       2026-09-08: the first disjunct holds. tts-new declares `latency_p50_ms` and
@@ -499,6 +539,7 @@ entries:
   - round: 82
     item: "賬本每一條的 `guard:` 逐條補齊"
     verdict: MET
+    condition_met_in: "Round 109 站7"
     guard: "tests/test_deferred_index.py::test_every_recorded_decision_has_a_verdict"
     resolved_in: "Round 109 站7"
     evidence: >-
@@ -549,6 +590,7 @@ entries:
   - round: 81
     item: "賬本每一條的 `guard:` 逐條補齊"
     verdict: MET
+    condition_met_in: "Round 109 站7"
     guard: "tests/test_deferred_index.py::test_every_recorded_decision_has_a_verdict"
     resolved_in: "Round 109 站7"
     evidence: >-
@@ -611,6 +653,7 @@ entries:
   - round: 79
     item: "`test_amend_sab_appears_once_per_generated_workflow` 數字串不數 dispatch"
     verdict: MET
+    condition_met_in: "Round 100 站1(`phantom_abort` —— 第三個正當 mention)"
     guard: "tests/test_workflowgen.py::test_amend_sab_appears_once_per_generated_workflow"
     evidence: >-
       2026-09-08: a third legitimate mention appeared. tests/test_workflowgen.py's
@@ -793,6 +836,7 @@ entries:
   - round: 105
     item: "用 `srs_acceptance_criteria` 對調 `_split_ac_clauses`"
     verdict: MET
+    condition_met_in: "Round 109 站1(兩個 parser 的 AC id 交集 0 → 410)"
     guard: "tests/test_the_ac_label_carries_its_whole_number.py::test_both_parsers_name_the_same_criteria"
     evidence: >-
       Met by Round 109 站1, this round. The two parsers' AC id shapes are now the same:
@@ -805,6 +849,7 @@ entries:
   - round: 105
     item: "`_FR_HEADER_RE` 的 label 在點號截斷"
     verdict: MET
+    condition_met_in: "Round 109 站1(條件是「與上一列同一輪」)"
     guard: "tests/test_the_ac_label_carries_its_whole_number.py::test_no_body_swallowed_its_neighbour"
     resolved_in: "Round 109 站1"
     evidence: >-
@@ -825,6 +870,7 @@ entries:
   - round: 105
     item: "P2 檢查改讀 `quality_manifest.json`(與 finalize_gate 同源)"
     verdict: MET
+    condition_met_in: "2026-09-08(第二個 disjunct「manifest 提早落盤」:taskq-sn d06f41fa / taskq-done dbe2620f / taskq-new 94ee34d1 的 P2 exit commit 皆已追蹤)"
     guard: "manual"
     evidence: >-
       2026-09-08: the second disjunct holds — the manifest DOES land early. At the commit each
@@ -846,6 +892,7 @@ entries:
   - round: 105
     item: "`DEFAULT_MIN_COVERAGE = 80.0` 改成「沒宣告就拒絕」"
     verdict: MET
+    condition_met_in: "Round 109 站6(條件是「單獨一輪」,站6 就是那一站)"
     guard: "tests/test_the_coverage_floor_is_the_projects_to_declare.py::test_an_undeclared_floor_is_not_a_number"
     resolved_in: "Round 109 站6"
     evidence: >-
@@ -873,6 +920,7 @@ entries:
   - round: 105
     item: "`canonical_diff --mode testspec_vs_srs / verification_vs_srs`"
     verdict: MET
+    condition_met_in: "Round 109 站3(條件是「另一輪的減法」)"
     guard: "tests/test_the_report_mode_is_not_a_promise.py::test_the_caller_cannot_choose_the_label"
     resolved_in: "Round 109 站3"
     evidence: >-
@@ -1039,6 +1087,7 @@ entries:
   - round: 35
     item: "### 一項計畫偏離（不做，記在此）"
     verdict: MET
+    condition_met_in: "6e3abf17(R80 站2 —— 條件是「下一輪若處理分母保護」,那個 commit 就是)"
     guard: "tests/test_the_prompt_and_the_framework_agree_on_zero_mutants.py::test_the_mutation_section_does_not_teach_a_zero_for_an_unmeasured_run"
     evidence: >-
       2026-09-09: R35 記「零分母該算 0 還是未量測,這兩條必須放在一起裁決,不能只改一邊」。裁決由 R80 站2 `6e3abf17` 下了 —— `_compute_mutation_score` 零分母回 `(False, None, 'nothing was measured, so there is no score')` —— 而那個 commit 只動了 `mutation_enforcer.py` 一個檔,`harness/ssi/prompts/evaluate_dimension.md` 的 `### mutation_testing` 段仍教 agent `score = 0`。R110 站1 把那段改成與同檔 `### readability` / `### performance` 同語意並立守衛。
@@ -1660,6 +1709,7 @@ entries:
   - round: 98
     item: "`corpus_verdict_baseline.json` 隨語料根目錄變動而紅"
     verdict: MET
+    condition_met_in: "ca99aa82(2026-09-08 —— 第三次因語料目錄變動而紅)"
     guard: "manual"
     evidence: >-
       2026-09-09: 條件是「第三次因語料目錄變動而紅」。R98 記的兩次是 taskq-wow 出現、taskq-done 消失(`bec4f96a`,2026-09-05);第三次是 `ca99aa82`(2026-09-08)「語料 baseline 補上本機新出現的 taskq-opus / taskq-sol」。條件已滿足。**MET 不等於本輪該做**:R88 是刻意把 baseline 建成隨語料變動的,改它是換掉一個機制而不是修一個缺陷 —— 那是一輪的裁決,不是一列判定的。
@@ -1987,6 +2037,7 @@ entries:
   - round: 64
     item: "不改 SAB prompt 的 14/18 硬寫數字"
     verdict: MET
+    condition_met_in: "2026-09-09 實測(詞彙表已變兩次:SABSpec 15 欄 vs sab_parser.py:10 的 14;gate2/3/4 dimensions 12/17/16 vs 同檔 :119 的 14)"
     guard: "tests/test_sab_field_producer_parity.py::test_the_parser_docstring_names_every_field_it_parses"
     evidence: >-
       2026-09-09: 條件是「詞彙表變動」,已經變了兩次。`core/quality_gate/sab_parser.py:10` 寫 「14 fields, mirroring the SABSpec dataclass」而 `SABSpec` 今天是 **15** 個欄位;同檔 :119 寫「must exist in the gate config 14-dimension set」而 gate2/3/4 的 dimensions 今天是 **12 / 17 / 16**。兩句都已是假陳述。(:244 那句提到的 14-name literal 是**已經拿掉**的東西的歷史記述,不動 —— R44。)
@@ -2018,6 +2069,7 @@ entries:
   - round: 99
     item: "`spec_tracking_checker.py:410` 的 `# noqa: F841` 丟棄 exit code"
     verdict: MET
+    condition_met_in: "Round 99 站2(條件是「站2 落地後」)"
     guard: "manual"
     evidence: >-
       2026-09-09: 條件是「站2 落地後單獨評估 4b 的 could-not-measure 表示法」,R99 站2 已落地。`core/quality_gate/spec_tracking_checker.py:410` 的 `# noqa: F841` 今天仍在,四條返回路徑仍在該站點塌成 `4b = 0.0`。**MET 不等於本輪該做**:賬本自己寫的理由 —— 動它要改 `4b_test_spec_pct` 的欄位語意,影響 3 條既有返回路徑與所有 4b 消費者 —— 整條都還成立,那是一輪的工作量,不是一列判定的。

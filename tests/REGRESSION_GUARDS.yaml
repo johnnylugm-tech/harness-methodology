@@ -3903,6 +3903,22 @@
   bug: "ALREADY_DONE claims the ledger is stale — the thing was built rounds ago — which is the easiest of the five verdicts to be wrong about and the hardest to re-check, because there is no diff to point at. Round 45 again: it has to name the test that would go red if the claim were false. Counter-proof run 2026-09-08: flipping the one ALREADY_DONE row (R101's required_artifacts, closed by R102 站1) to `manual` turns this red"
   fixed_in: "Round 109 站7"
 
+- test: tests/test_deferred_index.py::test_a_met_verdict_names_where_the_condition_came_true
+  bug: "the verdict token restated in one word a fact that existed only as prose in `evidence`, and nothing bound them — so MET and ALREADY_DONE were field-identical (both carry `resolved_in`, both name a real test) and any token could be swapped for any other with the suite green. Round 112 站1 is the cost: a row whose condition measured FALSE carrying MET, and the counter-proof for that fix was green in all nine assertions. `condition_met_in` makes the token derived rather than declared. Counter-proofs run 2026-09-09: flipping either ALREADY_DONE row that has no condition_met_in (R111's parse_srs_fr_sections, R80's 分解) to MET turns this red, and so does putting condition_met_in on a NOT_MET row"
+  fixed_in: "Round 112 站6"
+
+- test: tests/test_deferred_index.py::test_already_done_claims_the_work_and_not_the_condition
+  bug: "ALREADY_DONE means the work happened whether or not the obstacle ever went away, so it has to name who did it and must not also claim the condition came true. Without this the two halves of the derivation are unenforced and a row can say neither or both. Counter-proofs run 2026-09-09: removing `resolved_in` from R48's core/doctor.py row turns this red, and so does adding `condition_met_in` to it"
+  fixed_in: "Round 112 站6"
+
+- test: tests/test_deferred_index.py::test_only_a_resolvable_verdict_carries_resolved_in
+  bug: "`resolved_in` records the round that acted on a decision, which only happens once the decision closes — NOT_MET with a round that resolved it is Round 24's shape, the field present and its content not what the name says. This is also what makes the derivation total: with the other two rules, a row carrying resolved_in and no condition_met_in can only be ALREADY_DONE. Counter-proof run 2026-09-09: putting `resolved_in` on a NOT_MET row turns this red"
+  fixed_in: "Round 112 站6"
+
+- test: tests/test_deferred_index.py::test_no_condition_is_not_written_over_a_stated_reopen_cell
+  bug: "NO_CONDITION is the one verdict that is not a reading — it claims the decision states no condition to re-open under, and for a table row the ledger says so itself in a column the index already carries byte-exact. 131 of 178 table rows state a condition and none was NO_CONDITION, but nothing held that. Counter-proof run 2026-09-09: flipping a NOT_MET row whose ledger table states a re-open condition to NO_CONDITION turns this red"
+  fixed_in: "Round 112 站6"
+
 - test: tests/test_deferred_index.py::test_the_index_covers_every_round_that_recorded_a_decision
   bug: "the 不做 headings are spelled at least eight ways across 80 rounds, at four heading depths. tests/test_ledger_has_no_holes.py learned this the hard way — its first pass grepped `^## Round` and manufactured three false holes — so this extractor matches on heading TEXT rather than enumerating spellings, and this pins that it keeps working"
   fixed_in: "Round 81 站5"

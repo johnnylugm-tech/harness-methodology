@@ -10890,6 +10890,16 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
   2. 首版在 `passed` 判定加上 `sc_code == 0` 在現行 gate 門檻下(4b 塌為 0.0 即已因小於門檻而判 False)為死條件,配套測試在拿掉條件時亦不會變紅(不鑑別);且透過壓縮相鄰無關行數規避 201 行天花板亦違反 ratchet 規範。
   3. 拿掉標記卻未做工作即為 R56 母體。正式退回 GAP-4 之代碼修改,還原相鄰行數與 `# noqa: F841` 錨點,留待單獨一輪專題評估 4b 表示法。
 
+### 站6: verdict 詞彙從宣告改為導出
+
+- **缺陷**: `docs/deferred_guards.yaml` 的 verdict token 在一個字裡**重述**一件只存在於 `evidence` 散文裡的事實,兩者之間沒有任何束縛。既有九條判定只驗「token 屬於那五個之一」與「evidence 非空」。實測 317 列:`MET` 與 `ALREADY_DONE` **形狀完全相同** —— 兩者都帶 `resolved_in`(18/18 零例外)、都指名真測試。所以站5 的反證 CP-3(把站1 那列的 `ALREADY_DONE` 翻回 `MET`)九條全綠。一份事實兩個陳述,正是 R33 / R84 的母體,出現在專門偵測這個形狀的檔案裡。
+- **正解**: 加欄位 `condition_met_in` —— 再開條件是在**哪裡**成立的(一個 commit、一輪、或一次有日期的量測),token 由它導出而非另行宣告:`condition_met_in` 有值 ⟺ `MET`;`resolved_in` 有值且 `condition_met_in` 空 ⟹ `ALREADY_DONE`(由三條規則相加得出,不需另立)。同時修掉 schema 自己的假陳述:`resolved_in` 原寫「set when the condition has since been met and acted on」,而全部 8 個 `ALREADY_DONE` 列的條件都沒成立過 —— 改為「the round that ACTED on the decision」。
+- **回填是重讀不是重測**: 18 個 MET 列每一列的 evidence 本來就已經寫了那個點(`57dcc2c1` / `Round 109 站1` / `ca99aa82` / `2026-09-08` …),只是它沒有欄位。
+- **重讀當場抓到第二個同形實例**: Round 80 的 `finalize_gate` 等四函式**分解**列,再開條件是「有一支能釘住 verdict / exit code / BLOCK 文字的行為 golden,且其覆蓋被實測」,而**同一列的 `note` 自己就寫著 "that is NOT what was built"**。被做掉的是分解本身(Round 81 站6-站9,3753 → 2326 行),用的是更強的性質。條件從未成立,判定由 `MET` 改為 `ALREADY_DONE`。兩輪之內同一個缺陷的第二例,這是這條守衛值不值得建的答案。
+- **守衛(4 支,全部反證過)**: `tests/test_deferred_index.py::test_a_met_verdict_names_where_the_condition_came_true`(雙向:MET ⟺ `condition_met_in`)、`::test_already_done_claims_the_work_and_not_the_condition`、`::test_only_a_resolvable_verdict_carries_resolved_in`、`::test_no_condition_is_not_written_over_a_stated_reopen_cell`(131/178 表格列明寫條件,零列被判 `NO_CONDITION`)。後三條出生即綠,因此逐條注入違例看它紅過 —— 出生即綠而沒人看它紅過的規則就是 R19。
+- **誠實邊界(寫進 schema 與測試,不留沉默)**: 擋的是**漏寫**不是**說謊** —— 硬填一個假的 `condition_met_in` 仍然綠,這與 `evidence` 同一個標準(R45);增益是那個主張變得具體且可被反駁,而不是一個字換一個字。`NOT_MET` 與 `PREMISE_FALSE` 兩者都不設任何欄位,**導不出來**,維持是一個閱讀判斷。
+- **R44**: `deferred_guards.yaml` 是判定索引不是歷史敘述,改 Round 80 那列的 token 不動 Round 80 賬本原文;`note` 裡那句原始論證原封保留,新 evidence 疊在它之上。
+
 ### §9 明列不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |

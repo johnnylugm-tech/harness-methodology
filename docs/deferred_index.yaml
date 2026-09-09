@@ -2008,13 +2008,13 @@ entries:
     reason: "全樹零讀者,但無關 dead code:CLAUDE.md 告知不刪"
     reopen: "老闆裁定"
   - round: 112
-    line: 10897
+    line: 10907
     kind: table_row
     item: "4b 的 could-not-measure 表示法(站4 退回 GAP-4)"
     reason: "首版在 `passed` 加 `sc_code == 0` 是死條件:`_run_spec_coverage_check` 四條非零返回路徑的 pct 都是 0.0,而 `SPEC_COV_THRESHOLDS` 最低 60.0,`passed` 早已為 False;反證把該條件拿掉,配套測試 8 支全綠(不鑑別)。且為塞進 201 行天花板壓縮了相鄰無關的兩行。拿掉 `# noqa: F841` 標記卻沒做工作是 R56"
     reopen: "單獨一輪處理 4b 表示法:讓 `4b_test_spec_pct` 能區分四條返回路徑與真正的 0%,並同步改所有 4b 消費者"
   - round: 112
-    line: 10898
+    line: 10908
     kind: table_row
     item: "`implementation_modules` / `acceptance_criteria` 的鍵名與框架自己的模板不符,不改名"
     reason: "`_parse_srs_fr_block_json` 原封讀這兩個鍵,而 `templates/SRS.md:91` 與 `R-SRS-FR-BLOCK-001.md` 教 agent 寫的是 `implementation_functions`,`acceptance_criteria` 兩處都沒有。實測 21 專案 300 個 FR dict:兩鍵非空 0 個,`verification_method` 276 個。AST 掃過兩個真實消費者(`phase_tasks.py` / `project_cmds.py`),三個欄位都零讀者、動態鍵存取為零 —— 接上別名只會填滿沒有消費者的欄位(R30)"

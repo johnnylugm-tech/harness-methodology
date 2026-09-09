@@ -354,3 +354,148 @@ def test_already_done_names_the_test_that_proves_it():
         "proves it, which is a verdict whose proof has to be re-derived by "
         "hand every time someone doubts it:\n  " + "\n  ".join(unproven)
     )
+
+
+# ── the token, derived rather than declared (Round 112 站6) ──────────────────
+#
+# Everything above checks that a verdict EXISTS, that its token is one of five,
+# and that it carries evidence. None of it checks that the token says what the
+# evidence says. Round 112 站1 is what that costs: a row whose re-open condition
+# ("those three fields get a first reader") was measured FALSE and whose verdict
+# read `MET`. The counter-proof for the fix — flip it back to `MET` — was green
+# in every one of the nine assertions, because `MET` and `ALREADY_DONE` were
+# field-identical: both carry `resolved_in`, both name a real test.
+#
+# The shape is this repository's most-repaired one (Round 33, Round 84): ONE
+# fact, TWO statements — the condition's truth lived in `evidence` as prose and
+# again in `verdict` as a token, and nothing bound them. The answer is the same
+# as it was there: derive the token instead of restating it. `condition_met_in`
+# names where the re-open condition came true, and the token follows from it:
+#
+#     condition_met_in set              <=>  MET          (below + rule 3)
+#     resolved_in set, condition absent  =>  ALREADY_DONE (follows)
+#
+# WHAT THIS DOES NOT DO, said here rather than discovered later. It catches an
+# omission, not a lie: `condition_met_in: "Round 999"` on a false condition is
+# still green. That is the standard `evidence` is already held to (Round 45) —
+# the gain is that the claim is now specific and falsifiable rather than a
+# single word swapped for another. And `NOT_MET` vs `PREMISE_FALSE` sets no
+# field either way, so those two remain a reading. Neither is written as if it
+# were measured.
+
+
+def _has(row: dict, field: str) -> bool:
+    return bool(str(row.get(field, "") or "").strip())
+
+
+def test_a_met_verdict_names_where_the_condition_came_true():
+    """`MET` <=> `condition_met_in`, in both directions.
+
+    A re-open condition answers "has the obstacle gone?" (the schema header's
+    Round 110 站4 note). `MET` asserts the answer is yes, and an assertion with
+    no place attached to it is the one Round 45 named: a verdict whose proof has
+    to be re-derived by hand. All eighteen rows carrying `MET` when this landed
+    already named that place inside their prose — a commit, a round, a date.
+    This moves it into a field so the token stops being the only thing that
+    says it.
+    """
+    wrong = []
+    for g in _guards():
+        key = f"R{g['round']} {g['item'][:55]!r}"
+        met, named = g.get("verdict") == "MET", _has(g, "condition_met_in")
+        if met and not named:
+            wrong.append(f"{key}: MET with no `condition_met_in`")
+        elif named and not met:
+            wrong.append(
+                f"{key}: names condition_met_in "
+                f"{str(g['condition_met_in'])[:40]!r} but the verdict is "
+                f"{g.get('verdict')!r}")
+    assert not wrong, (
+        f"{len(wrong)} rows disagree with themselves about whether the re-open "
+        f"condition came true. `condition_met_in` is where it did — a commit, a "
+        f"round, or a dated measurement — and `MET` is the word for exactly "
+        f"that:\n  " + "\n  ".join(wrong)
+    )
+
+
+def test_already_done_claims_the_work_and_not_the_condition():
+    """`ALREADY_DONE` names the round that acted, and claims no condition.
+
+    This is the pair that had no daylight between them. `ALREADY_DONE` means the
+    ledger is stale — the work happened, whether or not the obstacle ever went
+    away. Round 112 站1 is the case in point: the condition is false today and
+    the work was done anyway. So it must name who did it, and must NOT claim the
+    condition came true.
+    """
+    wrong = []
+    for g in _guards():
+        if g.get("verdict") != "ALREADY_DONE":
+            continue
+        key = f"R{g['round']} {g['item'][:55]!r}"
+        if not _has(g, "resolved_in"):
+            wrong.append(f"{key}: ALREADY_DONE naming no round that did it")
+        if _has(g, "condition_met_in"):
+            wrong.append(
+                f"{key}: ALREADY_DONE and `condition_met_in` together — if the "
+                f"condition came true the verdict is MET")
+    assert not wrong, (
+        "ALREADY_DONE says the work is done and says nothing about the "
+        "condition. These rows say neither or both:\n  " + "\n  ".join(wrong)
+    )
+
+
+def test_only_a_resolvable_verdict_carries_resolved_in():
+    """`resolved_in` => the row is closed, so the verdict has to be one that closes.
+
+    `NOT_MET` with a round that resolved it is the field present and its content
+    not what the name says (Round 24). Eighteen rows carry `resolved_in` and all
+    eighteen are MET or ALREADY_DONE; this is the ratchet on that, and it is what
+    makes the derivation total — with the two rules above, a row carrying
+    `resolved_in` and no `condition_met_in` can only be ALREADY_DONE.
+    """
+    closing = {"MET", "ALREADY_DONE"}
+    wrong = [
+        f"R{g['round']} {g['item'][:55]!r}: verdict {g.get('verdict')!r} with "
+        f"resolved_in {str(g['resolved_in'])[:40]!r}"
+        for g in _guards()
+        if _has(g, "resolved_in") and g.get("verdict") not in closing
+    ]
+    assert not wrong, (
+        f"`resolved_in` records the round that acted on a decision, which only "
+        f"happens once the decision is closed. {sorted(closing)} are the "
+        f"verdicts that close one:\n  " + "\n  ".join(wrong)
+    )
+
+
+def test_no_condition_is_not_written_over_a_stated_reopen_cell():
+    """`NO_CONDITION` is a claim about the ledger that the ledger can refute.
+
+    The other four verdicts are readings. This one is not: it says the decision
+    states no condition to re-open under, and for a table row the ledger says so
+    itself, in a column the extractor already carries byte-exact. 131 of the 178
+    table rows state a condition and none of them is NO_CONDITION today.
+
+    The ledger writes "no condition" two ways and only two, both verified over
+    all 178 rows: no re-open column at all (29), or the column holding `—` (18).
+    `同上`, `單獨一輪` and `老闆裁定` are conditions — by reference, by schedule,
+    and by whose call it is — so they are not on this list. Round 55's rule: the
+    shape is read off the corpus once and stated, not widened until it fits.
+    """
+    no_condition = {(g["round"], g["item"]) for g in _guards()
+                    if g.get("verdict") == "NO_CONDITION"}
+    refuted = []
+    for e in _index():
+        if e.get("kind") != "table_row" or _key(e) not in no_condition:
+            continue
+        cell = str(e.get("reopen") or "").strip()
+        if cell and cell != "—":
+            refuted.append(f"R{e['round']} line {e['line']}: "
+                           f"{str(e.get('item'))[:45]!r} is verdicted "
+                           f"NO_CONDITION, but its re-open cell reads "
+                           f"{cell[:55]!r}")
+    assert not refuted, (
+        f"{len(refuted)} rows are verdicted NO_CONDITION over a re-open "
+        f"condition the ledger states in its own table. The verdict is about "
+        f"the wrong sentence, or the condition needs one of the other four "
+        f"tokens:\n  " + "\n  ".join(refuted)
+    )
