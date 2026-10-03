@@ -384,6 +384,8 @@ async function abLoop(cfg) {
       if (b2) return { ok: false, content, b2, budget_exhausted: true }
       return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true })
     }
+    let a = null
+    if (!(cfg.reviewOnly && round === 1)) {
     let aResult
     try { aResult = await dispatch(cfg.buildAPrompt(round, b2), {
       label: 'a-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',
@@ -395,9 +397,9 @@ async function abLoop(cfg) {
       if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ': A no result (terminal API failure)' })
       continue
     }
-    let a
     try { a = parseAgentJson(aResult, 'A-' + cfg.key + '-r' + round) }
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
+    }
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)
     if (content.startsWith('ERROR:') || content.length < 50) {
       if (round === MAX_B_ROUNDS) return halt('sbr-deliverable-missing', { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })
@@ -447,7 +449,7 @@ async function abLoop(cfg) {
       // halt).
       let persistErr = null
       try {
-        await persistApproval(cfg.deliverable, b2)
+        await persistApproval(cfg.deliverable, b2, cfg.diskPath)
       } catch (e) {
         persistErr = e
       }
@@ -494,7 +496,7 @@ const GATE_VERIFY_SCHEMA = {
 // ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----
 // v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-
 // phase PASS) + workflow JS outer-level try/catch retry.
-async function persistApproval(deliverableId, b2) {
+async function persistApproval(deliverableId, b2, diskPath) {
   // v31: SINGLE-LINE JSON (no indent) — multi-line indented JSON gets
   // word-split by shell when the LLM agent emits the command without
   // single-quoting the JSON payload, breaking `--json` argparse.
@@ -509,6 +511,8 @@ async function persistApproval(deliverableId, b2) {
     citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],
     docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],
     confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,
+    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],
+    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,
   })
   const cliPath = REPO + '/harness/harness_cli.py'
   // v31: explicit single-quote wrap around the JSON payload (zsh glob safety —
@@ -547,6 +551,25 @@ async function persistApproval(deliverableId, b2) {
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
 }
 
+// ---- reReviewStaleApprovals (Round 113 站1) ----
+const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+let __staleCalls = 0
+async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
+  let reviewed = 0
+  for (let pass = 1; pass <= 2; pass++) {
+    const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO
+      + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+      { label: 'stale-approvals-' + (++__staleCalls), phase: phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })
+    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })
+    if (!res.stale.length) return reviewed
+    log('  re-review (edited after B approved): ' + res.stale.join(', '))
+    const r = await rerun(res.stale)
+    if (r && r.halt_step) return r
+    reviewed += res.stale.length
+  }
+  return halt('stale-approvals', { error: 'approvals still stale after re-review' })
+}
+
 function firstLineHasAnchor(text, expectPrefix) {
   // An empty anchor means the CALLER decided one applies but supplied nothing.
   // file_loader treats "" as "no anchor configured" and skips its check; here
@@ -570,7 +593,7 @@ function parseRelayFrame(text) {
   // A relay claiming whole content for a file read-file refuses to send
   // whole contradicts the framework's own rule. Reject, do not believe.
   if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null
-  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),
+  return { mode: m[1], sha: m[2], bytes: Number(m[3]), lines: Number(m[4]),
     payload: body.slice(0, body.length - end.length).replace(/\n$/, '') }
 }
 // An index payload names the file and its first line; that second field
@@ -590,6 +613,7 @@ function relayAnchorTarget(frame) {
 // read-file` + `cat` relay, which does not depend on an MCP server in a
 // headless run. read-file's prefix check is a first-line startswith() (file_
 // loader Bug v8 guard), so all expectPrefix values passed in must lead with "#".
+const RELAYED_SHA = {}
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -666,6 +690,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       continue
     }
     log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')
+    RELAYED_SHA[relPath] = frame.sha
     return frame.payload
   }
   return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
@@ -735,7 +760,7 @@ log('  harness/templates/ADR.md loaded: ' + adrTemplateContent.length + ' chars'
 
 phase('Sub-Task 1/3 — SAD.md')
 log('abLoop: SAD authoring (ARCHITECT A + TECH_LEAD B; max 5 rounds; HR-12 escalate)')
-const sad = await abLoop({
+const sadCfg = {
   phaseName: 'Sub-Task 1/3 — SAD.md', key: 'sad', deliverable: 'SAD.md', diskPath: '02-architecture/SAD.md', diskPrefix: '# Software Architecture Document',
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 1/3 SAD.md). ROUND ' + round + '.\n'
@@ -765,7 +790,8 @@ const sad = await abLoop({
     + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: "2"`\n- All NFR `type` values from legal values (documentation/integration/layering/licensing/maintainability/mutation/performance/reliability/security/testability/verifiability/deployability/scalability/usability)? `type:` is independently derived to satisfy this vocabulary — it does NOT need to textually match the `type:` field SRS.md itself states, only `dimension:` (next clause) must match SRS.md verbatim. Do not reject an otherwise-legal `type:` value merely because it differs from the wording SRS.md uses; if the `type:` SRS.md itself states happens to be illegal, that is a Phase 1 defect to flag separately, not a reason to force SAD.md to repeat it.\n- Every NFR that SRS.md gives a `dimension:` for carries that same value in nfr_traceability?\n- Every NFR whose spec text limits it to particular layers carries `scope_layers` naming them?\n'
     + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\n- ≤15 files/dir, no god-module, no flat dump?\n'
     + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?\n- Each threat\'s `verified_by` is a single test name (no comma-separated list) — split into a separate T-NN entry per additional test?',
-})
+}
+const sad = await abLoop(sadCfg)
 if (!sad.ok) return sad
 let sadContent = sad.content, sadB2 = sad.b2
 
@@ -776,7 +802,7 @@ let sadContent = sad.content, sadB2 = sad.b2
 
 phase('Sub-Task 2/3 — ADR.md')
 log('abLoop: ADR authoring (extract decisions from APPROVED SAD.md; downstream ADR-Constitution gate)')
-const adr = await abLoop({
+const adrCfg = {
   phaseName: 'Sub-Task 2/3 — ADR.md', key: 'adr', deliverable: 'ADR.md', diskPath: '02-architecture/adr/ADR.md', diskPrefix: '# Architecture Decision Records',
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 2/3 ADR.md). ROUND ' + round + '.\n'
@@ -802,7 +828,8 @@ const adr = await abLoop({
     '- Upstream SAD review caveats addressed?\n- All major decisions documented (tech stack, patterns, interfaces)?\n'
     + '- Each ADR has clear context, decision, consequences?\n- Alternatives considered documented?\n- Decision aligns with SAD.md architecture?\n'
     + '- ADR format matches harness/templates/ADR.md (template format)? See embedded DOC 5',
-})
+}
+const adr = await abLoop(adrCfg)
 if (!adr.ok) return adr
 let adrContent = adr.content, adrB2 = adr.b2
 
@@ -858,7 +885,7 @@ if (aciVerify === null || aciVerify === undefined || typeof aciVerify !== 'objec
 
 phase('Sub-Task 3/3 — TEST_SPEC.md')
 log('abLoop: TEST_SPEC authoring (per-FR test catalog; v2.9.1 B.3 table-row shape; check-test-spec-consistency)')
-const testSpec = await abLoop({
+const testSpecCfg = {
   phaseName: 'Sub-Task 3/3 — TEST_SPEC.md', key: 'test-spec', deliverable: 'TEST_SPEC.md', diskPath: '02-architecture/TEST_SPEC.md', diskPrefix: '# TEST_SPEC.md',
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 3/3 TEST_SPEC.md). ROUND ' + round + '.\n'
@@ -904,7 +931,8 @@ const testSpec = await abLoop({
     + '- Each `### FR-XX:` header followed by TABLE ROWS (not prose-only)?\n- Summary table populated with counts per type?\n'
     + '- Self-consistency gate passes? (`check-test-spec-consistency`)?\n- Direction B property gate passes? (python3 harness_cli.py check-property-spec --project . --no-require-execution)\n- Cross-cutting NFRs validated? (Integration-level NFRs MUST have concrete Inputs/Sub-assertions; Unit/Static NFRs MUST be moved to a Deferred table)?\n'
     + '- All upstream deliverables consistent with each other? No contradictory decisions?',
-})
+}
+const testSpec = await abLoop(testSpecCfg)
 if (!testSpec.ok) return testSpec
 let testSpecContent = testSpec.content
 
@@ -1184,7 +1212,23 @@ phase('Advance')
 // Approval JSONs (SAD.md/ADR.md/TEST_SPEC.md) are now persisted by abLoop exit
 // (persistApproval helper) — not here. See bc913a0 / pending P2 parity commit.
 log('advance-phase --completed 2 + confirm HANDOVER.md reflects Phase 3 entry')
-const advanceReport = await dispatch(
+// Round 113 站1: re-review what changed after B approved it (stale-approvals).
+const P2_CFGS = { 'SAD.md': sadCfg, 'ADR.md': adrCfg, 'TEST_SPEC.md': testSpecCfg }
+const rerunP2 = async (ids) => {
+  for (const id of ids) {
+    const c = P2_CFGS[id]
+    if (!c) return halt('stale-approvals', { error: id + ' has no review loop' })
+    const r = await abLoop(Object.assign({}, c, { phaseName: 'Advance', key: c.key + '-final', reviewOnly: true }))
+    if (!r.ok) return r
+  }
+  return null
+}
+let advanceReport = ''
+for (let advRound = 1; advRound <= 2; advRound++) {
+const stale = await reReviewStaleApprovals(2, 'Advance', rerunP2)
+if (stale && stale.halt_step) return stale
+if (advRound === 2 && !stale) break
+advanceReport = await dispatch(
   'YOU ARE THE PHASE-2 ADVANCE ORCHESTRATOR.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 2 --project ' + REPO + '`\n'
@@ -1192,8 +1236,10 @@ const advanceReport = await dispatch(
   + 'Step 2: Read ' + REPO + '/.methodology/state.json; confirm current_phase = 3 (advance-phase writes atomically).\n'
   + 'Report: "ADVANCE: PASS|FAIL — <details>". PHASE_3_PLAN: ' + REPO + '/.methodology/phase3_plan.md\n\n'
   + 'SCOPE RULES:\n- DO NOT re-do P2.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md.',
-  { label: 'advance', phase: 'Advance', agentType: 'general-purpose' },
+  { label: advRound === 1 ? 'advance' : 'advance-r' + advRound, phase: 'Advance', agentType: 'general-purpose' },
 )
+if (typeof advanceReport !== 'string' || !advanceReport || /ADVANCE:\s*PASS/.test(advanceReport)) break
+}
 // F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth
 // (<90%); do NOT report "complete" when P3 was never entered.
 if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {

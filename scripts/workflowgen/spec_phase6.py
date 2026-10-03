@@ -142,7 +142,11 @@ def _render_phase6_peer_review() -> str:
         + "// v22-era 4 deliverables advanced-phase expects (harness_cli.py:_PHASE_DELIVERABLES[6]).\n"
         + "const peerDeliverables = ['QUALITY_REPORT.md', 'RELEASE_NOTES.md', 'FINAL_SIGN_OFF.md', 'quality_manifest']\n"
         + "\n"
-        + "let peerVerdict = null\n"
+
+        + "let peerVerdict = null, __peerRuns = 0\n"
+        + "async function p6PeerReview() {\n"
+        + "peerVerdict = null\n"
+        + "const __run = ++__peerRuns\n"
         + "for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {\n"
         + "  const peerReport = await agent(\n"
         + "    'YOU ARE AGENT B (TECH_LEAD reviewer) for the Phase 6 Gate 4 deliverables (HR-01).\\n'\n"
@@ -163,7 +167,7 @@ def _render_phase6_peer_review() -> str:
         + "    + 'Each \"reason\" must be ≥100 chars of substantive justification (not \"APPROVE\" or one-word). Each \"gaps\" array is empty when review_status is APPROVE. Each \"citations\" must include ≥1 file:line you actually cat-ed.\\n'\n"
         + "    + '\"review_status\" MUST be exactly \"APPROVE\" or \"REJECT\" (case-sensitive) — no other spelling or synonym (e.g. \"APPROVED\", \"Approve\", \"PASS\") is accepted.\\n\\n'\n"
         + "    + 'SCOPE RULES:\\n- DO NOT run advance-phase / git tag / run-gate.\\n- DO NOT modify harness/ (HR-17).\\n- DO NOT write any files (workflow writes approval JSON; you only review content).',\n"
-        + "    { label: 'peer-review-r' + attempt, phase: 'Peer Review', agentType: 'general-purpose' },\n"
+        + "    { label: 'peer-review-r' + attempt + (__run > 1 ? '-x' + __run : ''), phase: 'Peer Review', agentType: 'general-purpose' },\n"
         + "  )\n"
         + "  // parseAgentJson lives at top of file (same pattern as phase1+phase2)\n"
         + "  try {\n"
@@ -223,6 +227,9 @@ def _render_phase6_peer_review() -> str:
         + "for (const v of peerVerdict.verdicts) {\n"
         + "  await persistApproval(v.deliverable, v)\n"
         + "}\n"
+        + "return null\n"
+        + "}\n"
+        + "{ const __pr = await p6PeerReview(); if (__pr) return __pr }\n"
     )
 
 
@@ -244,6 +251,8 @@ def _render_phase6_tag_advance() -> str:
         + "const ADVANCE_MAX_ROUNDS = 5\n"
         + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
         + "  log('  Tag & Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
+
+        + "  { const st = await reReviewStaleApprovals(6, 'Tag & Advance', () => p6PeerReview()); if (st && st.halt_step) return st }\n"
         + "  // Manifest integrity: enforced by advance-phase itself since Round 22 站2\n"
         + "  // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command\n"
         + "  // in its [BLOCKED] message). It runs first, before any other precheck, and\n"
@@ -321,7 +330,8 @@ def generate_phase6() -> str:
         + B.render_persist_approval(
             synthesize_reason=False, use_schema_verdict=True,
             label_prefix="write-approval", phase_label="Peer Review",
-        ) + "const MAX_OUTER_ATTEMPTS_PEER = 3  // peer-review dispatch retry at orchestrator level\n"
+        ) + B.render_stale_rereview()
+        + "const MAX_OUTER_ATTEMPTS_PEER = 3  // peer-review dispatch retry at orchestrator level\n"
         + B.BUDGET_GUARD_BLOCK,
         B.WRITE_SCOPE_BLOCK,
         "",

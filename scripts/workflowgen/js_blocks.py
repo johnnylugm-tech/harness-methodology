@@ -2003,7 +2003,7 @@ def render_persist_approval(
         "// ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----\n"
         "// v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-\n"
         "// phase PASS) + workflow JS outer-level try/catch retry.\n"
-        "async function persistApproval(deliverableId, b2) {\n"
+        "async function persistApproval(deliverableId, b2, diskPath) {\n"
         "  // v31: SINGLE-LINE JSON (no indent) — multi-line indented JSON gets\n"
         "  // word-split by shell when the LLM agent emits the command without\n"
         "  // single-quoting the JSON payload, breaking `--json` argparse.\n"
@@ -2015,6 +2015,8 @@ def render_persist_approval(
         "    citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],\n"
         "    docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],\n"
         "    confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,\n"
+        "    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],\n"
+        "    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,\n"
         "  })\n"
         "  const cliPath = REPO + '/harness/harness_cli.py'\n"
         "  // v31: explicit single-quote wrap around the JSON payload (zsh glob safety —\n"
@@ -2038,6 +2040,44 @@ def render_persist_approval(
         + "    log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)\n"
         "  }\n"
         "  throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)\n"
+        "}\n"
+    )
+
+
+def render_stale_rereview() -> str:
+    """Round 113 站1 — re-review what changed after B approved it, then advance.
+
+    An approval now carries the sha of the bytes B reviewed, and advance-phase
+    refuses one whose file has changed since. Steps after the review loops
+    edit deliverables by design (P2's SAB generation writes SAD §5; fixers;
+    advance retries), so without a re-review the refusal would be a dead end
+    (R103). `harness_cli.py stale-approvals` names exactly the stale ids, and
+    the phase's own `rerun(ids)` reviews those again — a B-first pass, so a
+    re-review never asks an author to re-write a file that is merely stale.
+
+    Returns a halt object, or the number of deliverables re-reviewed (0 when
+    nothing was stale). The label carries a counter: the runtime may serve an
+    identical (prompt, opts) dispatch from cache, and the answer here changes
+    between calls.
+    """
+    return (
+        "// ---- reReviewStaleApprovals (Round 113 站1) ----\n"
+        "const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }\n"
+        "let __staleCalls = 0\n"
+        "async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {\n"
+        "  let reviewed = 0\n"
+        "  for (let pass = 1; pass <= 2; pass++) {\n"
+        "    const res = await agent('Run EXACTLY this command via the Bash tool:\\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO\n"
+        "      + '\\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',\n"
+        "      { label: 'stale-approvals-' + (++__staleCalls), phase: phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })\n"
+        "    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })\n"
+        "    if (!res.stale.length) return reviewed\n"
+        "    log('  re-review (edited after B approved): ' + res.stale.join(', '))\n"
+        "    const r = await rerun(res.stale)\n"
+        "    if (r && r.halt_step) return r\n"
+        "    reviewed += res.stale.length\n"
+        "  }\n"
+        "  return halt('stale-approvals', { error: 'approvals still stale after re-review' })\n"
         "}\n"
     )
 
@@ -2090,7 +2130,7 @@ def render_relay_frame() -> str:
         "  // A relay claiming whole content for a file read-file refuses to send\n"
         "  // whole contradicts the framework's own rule. Reject, do not believe.\n"
         "  if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null\n"
-        "  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),\n"
+        "  return { mode: m[1], sha: m[2], bytes: Number(m[3]), lines: Number(m[4]),\n"
         "    payload: body.slice(0, body.length - end.length).replace(/\\n$/, '') }\n"
         "}\n"
         "// An index payload names the file and its first line; that second field\n"
@@ -2118,6 +2158,8 @@ def render_load_file_via_python() -> str:
         "// read-file` + `cat` relay, which does not depend on an MCP server in a\n"
         "// headless run. read-file's prefix check is a first-line startswith() (file_\n"
         "// loader Bug v8 guard), so all expectPrefix values passed in must lead with \"#\".\n"
+
+        "const RELAYED_SHA = {}\n"
         "async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {\n"
         "  opts = opts || {}\n"
         "  const maxAttempts = opts.maxAttempts || 3\n"
@@ -2194,6 +2236,7 @@ def render_load_file_via_python() -> str:
         "      continue\n"
         "    }\n"
         "    log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')\n"
+        "    RELAYED_SHA[relPath] = frame.sha\n"
         "    return frame.payload\n"
         "  }\n"
         "  return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'\n"
@@ -2236,6 +2279,9 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "      if (b2) return { ok: false, content, b2, budget_exhausted: true }\n"
         "      return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true })\n"
         "    }\n"
+        "    let a = null\n"
+
+        "    if (!(cfg.reviewOnly && round === 1)) {\n"
         "    let aResult\n"
         "    try { aResult = await agent(cfg.buildAPrompt(round, b2), {\n"
         "      label: 'a-' + cfg.key + '-r' + round, phase: cfg.phaseName, agentType: 'general-purpose',\n"
@@ -2247,9 +2293,9 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "      if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ': A no result (terminal API failure)' })\n"
         "      continue\n"
         "    }\n"
-        "    let a\n"
         "    try { a = parseAgentJson(aResult, 'A-' + cfg.key + '-r' + round) }\n"
         "    catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }\n"
+        "    }\n"
         "    content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)\n"
         "    if (content.startsWith('ERROR:') || content.length < 50) {\n"
         "      if (round === MAX_B_ROUNDS) return halt('sbr-deliverable-missing', { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })\n"
@@ -2299,7 +2345,7 @@ def render_generic_ab_loop(*, b_role: str, phase_num: int) -> str:
         "      // halt).\n"
         "      let persistErr = null\n"
         "      try {\n"
-        "        await persistApproval(cfg.deliverable, b2)\n"
+        "        await persistApproval(cfg.deliverable, b2, cfg.diskPath)\n"
         "      } catch (e) {\n"
         "        persistErr = e\n"
         "      }\n"

@@ -10963,3 +10963,14 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **守衛(5 支,反證過)**: `tests/test_decision_issues_bind_and_recur.py`;`91fd4ba9` 的 `test_resolved_issue_requires_durable_evidence` fixture 改用 `path:line`(其意圖「決議要有可存證據」不變,只是證據變精確)。
 - **taskq-sol 實測**: 7 條發現(未登記;TEST_SPEC 依賴的同 id 不重複報)。
 - **誠實邊界**: 沒有 `-deferred` id 的 ADR 未決項(taskq-sol 的限流排序)要讀散文才看得到,不做(R87)。字串形式的 import 約束只驗「有某個 forbidden 合約」(審計 I 的剩餘),HEAD 已擋 taskq-sol 這一例,不擴大。
+
+### 站1/站2: 核准綁定 Agent B 實際讀到的位元組;B 的 gaps 進記錄
+
+- **缺陷**: approval 記錄只有 `fr / review_status / reason / citations / docs_embedded / confidence`,與內容零綁定。taskq-sol 的 SAD 核准寫「the full 565-line SAD.md」,現檔 755 行 —— 差的 190 行**恰好**是 P2 `sab-generation`(12:51)在 B 核准(11:50)之後寫進 SAD §5 的 SAB block;其 citation `SAD.md:443-563` 現在指進 SAB YAML 仍判有效(只驗範圍)。P2 peer review 判定只存在 JS 變數。站2:`persistApproval` 丟掉 `gaps`,P1 四份核准自述的「three non-blocking documentation defects」只活在 `reason` 散文裡。
+- **第一版藥方被驗證推翻**: 「write-approval 自算 sha、advance 比對」——①P1/P2/P6 在核准**之後**仍有 SAB generation、constitution、peer fixer、preview fixer、push/advance 重試、sync 會改檔(`precheck_p2_transition` 的補救文字本身就叫 agent 改 SAD),只擋不重審 = R103 死結;②重跑 write-approval 就重算 sha,等於沒綁。
+- **正解**: (a) 記錄 `reviewed_sha256` = relay frame 對 B 被給的位元組報的 sha(`read-file` 算整檔 sha;JS `RELAYED_SHA[relPath]`);沒有 relay 時(P6 reviewer 自己讀檔、CLI 手寫)= 寫入當下的檔案。`.methodology/` 不綁(gate 每次重寫 quality_manifest)、`FR-*` 不綁(P3 已有 criteria_review AST digest)。(b) `verify_agent_b_approvals_core` 對 sha 不符(或無綁定的舊記錄)報錯並指名 `stale-approvals`。(c) P1/P2/P6 在 advance 前跑 `reReviewStaleApprovals`:`harness_cli.py stale-approvals` 列出的 id,用該 phase **自己的**審查迴圈重審(P1 runSubTask、P2 abLoop、P6 peer review 包成函式),且**B 先讀現檔**(`reviewOnly`:檔案是 stale 不是錯,A 回合會叫作者重寫一份可能不需改的文件 —— P2 的 A prompt 寫的是「Author SAD」,會抹掉 SAB block);advance 自己的修補若又動了交付物,重審一次再試一次;P6 在 Tag & Advance 每一輪開頭問。(d) payload 帶 `gaps`(≤20)。
+- **與計畫的偏離(誠實記錄)**: 計畫的 1a「P2 peer review 後重寫三份核准」**未做** —— (c) 使之多餘且較弱:SAD 被 SAB generation 改過後,會在 advance 前由它自己的 B 逐份重審,比 peer review 的整體判定更嚴。
+- **觀測到的代價**: run-all.js +6086 bytes(三個 phase 各內嵌一份機制;run-all 本已剝註解,沒有更短的寫法而不丟掉某 phase 的那份),RUNALL_MAX_BYTES 420065 → 426451(實測 426151 + 慣例 300)。
+- **守衛(5 支,反證過)**: Python 4 支(`tests/test_an_approval_is_bound_to_what_b_read.py`)+ sim 6 個情境(`sim_runner.test.mjs` round113,經 `test_sim_testbed_passes`)。反證:拿掉 verify 的 stale 列、write-time fallback、`.methodology/` 排除、reviewOnly 守衛、P2 advance 前呼叫、RELAYED_SHA 記錄、P6 每輪呼叫 —— 各自轉紅。
+- **既有測試的處置**: e2e fixture 與兩支 CLI fixture 改為綁定磁碟上的位元組(它們先寫核准後寫檔);`test_unresolved_entry_obligation_refuses_exit_37` 在刪 FR Block 後重綁 SRS 核准(該 journey 測的是 entry obligation,不是 stale)。
+- **誠實邊界**: 核准仍由 LLM shell wrapper 執行的指令寫入,蓄意偽造的 sha 擋不住 —— 與 relay frame 自述的限制相同(Round 86)。擋的是「改了沒人重審」。

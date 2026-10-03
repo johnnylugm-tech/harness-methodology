@@ -592,6 +592,7 @@ class TestAdvancePreChecksAgentB:
         )
         # Round 24 站2c: the cited position must exist.
         (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
+        _bind_approvals_to_disk(tmp_path, 1)
         (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE"}))
         self._mock_p1_prechecks(monkeypatch)
         rc = _advance_prechecks(tmp_path, completed_phase=1)
@@ -624,6 +625,7 @@ class TestAdvancePreChecksAgentB:
         )
         # Round 24 站2c: the cited position must exist.
         (tmp_path / "SRS.md").write_text("fixture line 1\n", encoding="utf-8")
+        _bind_approvals_to_disk(tmp_path, 1)
         # Stale/False — must NOT leak into STAGE_PASS.md now that truth_override wins.
         (method_dir / "state.json").write_text(json.dumps({"state": "ACTIVE", "phase_truth_passed": False}))
         self._mock_p1_prechecks(monkeypatch)
@@ -2441,3 +2443,19 @@ class TestAdvancePrechecksSubtraction:
                 "dependencies, with no evidence behind it and no consequence "
                 "attached, is noise in the agent's instruction stream"
             )
+
+
+def _bind_approvals_to_disk(project, phase):
+    """Round 113 站1: an approval names the bytes B reviewed. These fixtures
+    write the deliverables after the approvals, so bind each approval to the
+    file as it now stands — what write-approval does when no relay preceded it."""
+    import json
+    from core.quality_gate.agent_b_approvals import bound_deliverable_path, file_sha256
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+    for did in PHASE_DELIVERABLES[phase]:
+        record = project / ".methodology" / "agent_b_approvals" / f"{did}.json"
+        path = bound_deliverable_path(project, did)
+        if record.is_file() and path is not None and path.is_file():
+            data = json.loads(record.read_text(encoding="utf-8"))
+            data["reviewed_sha256"] = file_sha256(path)
+            record.write_text(json.dumps(data), encoding="utf-8")

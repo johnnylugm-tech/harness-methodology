@@ -1455,3 +1455,85 @@ test('round86: a DOC that is an index says so in its label', async () => {
       `${c.label} presents an index under a label that claims it is the whole file`)
   }
 })
+
+// ---- Round 113 站1/站2: an approval binds what B read; stale ones are re-reviewed ----
+// taskq-sol's SAD approval reviewed 565 lines; SAB Generation then wrote the
+// 190-line SAB block into SAD §5. advance-phase now refuses such an approval,
+// so the workflow must re-review exactly what `stale-approvals` names before it
+// advances — and must do it B-first: the file is stale, not wrong, and an A
+// round would ask an author to rewrite a deliverable that may need nothing.
+
+function staleOnce(ids) {
+  let served = false
+  return { match: /^stale-approvals-/, respond: () => {
+    if (served) return { stale: [] }
+    served = true
+    return { stale: ids }
+  } }
+}
+
+test('round113: a stale SAD is re-reviewed B-first, before advance', async () => {
+  const { result, events } = await runWorkflow(
+    WF('phase2-architecture.js'), makeHappyResponder([staleOnce(['SAD.md']), ...happyOverrides()]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 300))
+  const labels = events.agents.map((a) => a.label)
+  assert.ok(!labels.includes('a-sad-final-r1'),
+    'a re-review must not ask Agent A to re-author a merely stale file')
+  const b = labels.indexOf('b-sad-final-r1')
+  assert.ok(b >= 0, `Agent B never re-reviewed SAD (labels: ${labels.slice(-12).join(', ')})`)
+  assert.ok(b < labels.indexOf('advance'), 'the re-review must precede advance-phase')
+  assert.ok(!labels.includes('b-adr-final-r1'), 'only what stale-approvals named is re-reviewed')
+})
+
+test('round113: nothing stale costs one stale-approvals dispatch and no re-review', async () => {
+  const { events } = await runWorkflow(WF('phase2-architecture.js'), makeHappyResponder(happyOverrides()))
+  const labels = events.agents.map((a) => a.label)
+  assert.equal(labels.filter((l) => /^stale-approvals-/.test(l)).length, 1)
+  assert.ok(!labels.some((l) => /-final-r\d/.test(l)))
+  assert.ok(!labels.includes('advance-r2'))
+})
+
+test('round113: an advance whose own fix staled a deliverable re-reviews it and retries once', async () => {
+  let advances = 0, staleCalls = 0
+  const overrides = [
+    { match: /^stale-approvals-/, respond: () => ({ stale: ++staleCalls === 2 ? ['TEST_SPEC.md'] : [] }) },
+    { match: /^advance/, respond: () => (++advances === 1 ? 'ADVANCE: FAIL — fixed TEST_SPEC row' : 'ADVANCE: PASS') },
+    ...happyOverrides(),
+  ]
+  const { result, events } = await runWorkflow(WF('phase2-architecture.js'), makeHappyResponder(overrides))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 300))
+  const labels = events.agents.map((a) => a.label)
+  const reReview = labels.indexOf('b-testspec-final-r1') >= 0
+    ? labels.indexOf('b-testspec-final-r1') : labels.findIndex((l) => /^b-.*final-r1$/.test(l))
+  assert.ok(reReview > labels.indexOf('advance'), 'the re-review follows the failed advance')
+  assert.ok(labels.indexOf('advance-r2') > reReview, 'and advance is retried after it')
+})
+
+test('round113: an approval carries the relayed sha and B gaps', async () => {
+  const { events } = await runWorkflow(WF('phase2-architecture.js'), makeHappyResponder(happyOverrides()))
+  const persist = events.agents.find((a) => /^persist-SAD\.md-try1$/.test(a.label))
+  assert.ok(persist, 'SAD approval was never persisted')
+  assert.ok(persist.prompt.includes('"reviewed_sha256":"' + 'a'.repeat(64) + '"'),
+    'the approval must bind the sha the relay frame reported for the bytes B read')
+  assert.ok(persist.prompt.includes('"gaps":['), "B's gaps must reach the record")
+})
+
+test('round113: phase1 re-reviews a stale SRS B-first, before advance', async () => {
+  const { result, events } = await runWorkflow(
+    WF('phase1-requirements.js'), makeHappyResponder([staleOnce(['SRS.md']), ...happyOverrides()]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 300))
+  const labels = events.agents.map((a) => a.label)
+  assert.ok(!labels.some((l) => /^a-.*-final-r1$/.test(l)), 'no A round in a re-review')
+  const b = labels.findIndex((l) => /^b-.*-final-r1$/.test(l))
+  assert.ok(b >= 0 && b < labels.indexOf('advance'), `labels: ${labels.slice(-12).join(', ')}`)
+})
+
+test('round113: phase6 re-runs Peer Review when a release document went stale', async () => {
+  const { result, events } = await runWorkflow(
+    WF('phase6-quality.js'), makeHappyResponder([staleOnce(['QUALITY_REPORT.md']), ...sweepOverrides('phase6-quality.js')]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 300))
+  const labels = events.agents.map((a) => a.label)
+  const rerun = labels.findIndex((l) => /^peer-review-r1-x2$/.test(l))
+  assert.ok(rerun >= 0, `peer review was not re-run (labels: ${labels.slice(-12).join(', ')})`)
+  assert.ok(rerun < labels.findIndex((l) => /^tag-advance-r1$/.test(l)), 'before Tag & Advance asks advance-phase')
+})

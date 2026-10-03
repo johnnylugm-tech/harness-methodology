@@ -250,7 +250,7 @@ function parseRelayFrame(text) {
   // A relay claiming whole content for a file read-file refuses to send
   // whole contradicts the framework's own rule. Reject, do not believe.
   if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null
-  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),
+  return { mode: m[1], sha: m[2], bytes: Number(m[3]), lines: Number(m[4]),
     payload: body.slice(0, body.length - end.length).replace(/\n$/, '') }
 }
 // An index payload names the file and its first line; that second field
@@ -270,6 +270,7 @@ function relayAnchorTarget(frame) {
 // read-file` + `cat` relay, which does not depend on an MCP server in a
 // headless run. read-file's prefix check is a first-line startswith() (file_
 // loader Bug v8 guard), so all expectPrefix values passed in must lead with "#".
+const RELAYED_SHA = {}
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -346,6 +347,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       continue
     }
     log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')
+    RELAYED_SHA[relPath] = frame.sha
     return frame.payload
   }
   return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
@@ -538,6 +540,8 @@ async function runSubTask(cfg) {
     }
 
     // --- A: REQUIREMENTS_ENGINEER ---
+    let a = null
+    if (!(cfg.reviewOnly && round === 1)) {
     const aPrompt = cfg.buildAPrompt(round, b2)
     // v15: wrap agent() in try/catch (Bug #2 mitigation)
     let aResult
@@ -553,9 +557,9 @@ async function runSubTask(cfg) {
       if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A: no result (terminal API failure)', sub_task: cfg.name })
       continue
     }
-    let a = null
     try { a = parseAgentJson(aResult, 'A-' + cfg.idx + '-r' + round) }
     catch (e) { log('  A JSON parse fail: ' + e.message.slice(0, 80)) }
+    }
 
     // Load content from disk (A wrote the file; its JSON does not embed content per plan A-2)
     // F part 2b: use loadFileViaPython for deterministic I/O (Python file_loader.py
@@ -599,7 +603,7 @@ async function runSubTask(cfg) {
     if (sbrResult.escalation_action === 'approve') {
       log('  APPROVED (all gaps low)')
       const approvalId = cfg.name
-      await persistApproval(approvalId, b2)
+      await persistApproval(approvalId, b2, cfg.diskPath)
       return { content: content, b2: b2 }
     }
     if (sbrResult.escalation_action === 'escalate_human') {
@@ -632,7 +636,7 @@ const VERDICT_SCHEMA = {
 // ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----
 // v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-
 // phase PASS) + workflow JS outer-level try/catch retry.
-async function persistApproval(deliverableId, b2) {
+async function persistApproval(deliverableId, b2, diskPath) {
   // v31: SINGLE-LINE JSON (no indent) — multi-line indented JSON gets
   // word-split by shell when the LLM agent emits the command without
   // single-quoting the JSON payload, breaking `--json` argparse.
@@ -643,6 +647,8 @@ async function persistApproval(deliverableId, b2) {
     citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],
     docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],
     confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,
+    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],
+    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,
   })
   const cliPath = REPO + '/harness/harness_cli.py'
   // v31: explicit single-quote wrap around the JSON payload (zsh glob safety —
@@ -679,6 +685,25 @@ async function persistApproval(deliverableId, b2) {
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
+}
+
+// ---- reReviewStaleApprovals (Round 113 站1) ----
+const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+let __staleCalls = 0
+async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
+  let reviewed = 0
+  for (let pass = 1; pass <= 2; pass++) {
+    const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO
+      + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+      { label: 'stale-approvals-' + (++__staleCalls), phase: phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })
+    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })
+    if (!res.stale.length) return reviewed
+    log('  re-review (edited after B approved): ' + res.stale.join(', '))
+    const r = await rerun(res.stale)
+    if (r && r.halt_step) return r
+    reviewed += res.stale.length
+  }
+  return halt('stale-approvals', { error: 'approvals still stale after re-review' })
 }
 
 // ---- runPeerReview: holistic B review of all 4 deliverables + fixer agent ----
@@ -765,7 +790,7 @@ async function runPeerReview(approvedDocs) {
       let persistError = null
       for (const d of approvedDocs) {
         try {
-          await persistApproval(d.diskPath.split('/').pop(), b2)
+          await persistApproval(d.diskPath.split('/').pop(), b2, d.diskPath)
         } catch (e) {
           persistError = e
           break
@@ -1394,13 +1419,32 @@ if (!/PUSH:\s*PASS/.test(pushResult)) {
 phase('Advance')
 log('advance-phase --completed 1 + confirm HANDOVER.md reflects Phase 2 entry')
 
-const advanceReport = await dispatch(
+// Round 113 站1: re-review what changed after B approved it (stale-approvals).
+const P1_CFGS = {}
+for (const c of [srsCfg, specTrackCfg, traceCfg, testInvCfg]) P1_CFGS[c.name] = c
+const rerunP1 = async (ids) => {
+  for (const id of ids) {
+    const c = P1_CFGS[id]
+    if (!c) return halt('stale-approvals', { error: id + ' has no review loop' })
+    const r = await runSubTask(Object.assign({}, c, { phaseName: 'Advance', idx: c.idx + '-final', reviewOnly: true }))
+    if (r && r.halt_step) return r
+  }
+  return null
+}
+let advanceReport = ''
+for (let advRound = 1; advRound <= 2; advRound++) {
+const stale = await reReviewStaleApprovals(1, 'Advance', rerunP1)
+if (stale && stale.halt_step) return stale
+if (advRound === 2 && !stale) break
+advanceReport = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 1 --project ' + REPO + '\n\n'
   + 'Then verify ' + REPO + '/HANDOVER.md exists and reflects Phase 2 entry.\n\n'
   + 'Report final outcome as plain text: "ADVANCE: PASS" or "ADVANCE: FAIL — <one-line reason>".',
-  { label: 'advance', phase: 'Advance', agentType: 'general-purpose' },
+  { label: advRound === 1 ? 'advance' : 'advance-r' + advRound, phase: 'Advance', agentType: 'general-purpose' },
 )
+if (typeof advanceReport !== 'string' || !advanceReport || /ADVANCE:\s*PASS/.test(advanceReport)) break
+}
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return halt('advance-phase', { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) })
 }

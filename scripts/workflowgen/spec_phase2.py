@@ -142,7 +142,7 @@ def _render_phase2_subtask1_sad() -> str:
     return (
         B.render_phase_header("Sub-Task 1/3 — SAD.md")
         + "log('abLoop: SAD authoring (ARCHITECT A + TECH_LEAD B; max 5 rounds; HR-12 escalate)')\n"
-        + "const sad = await abLoop({\n"
+        + "const sadCfg = {\n"
         + "  phaseName: 'Sub-Task 1/3 — SAD.md', key: 'sad', deliverable: 'SAD.md', diskPath: '02-architecture/SAD.md', diskPrefix: '" + _A_SAD + "',\n"
         + "  buildAPrompt: (round, prevB2) =>\n"
         + "    'YOU ARE ARCHITECT (Agent A for Sub-Task 1/3 SAD.md). ROUND ' + round + '.\\n'\n"
@@ -172,7 +172,8 @@ def _render_phase2_subtask1_sad() -> str:
         + "    + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: \"2\"`\\n- All NFR `type` values from legal values (" + _NFR_TYPES + ")? `type:` is independently derived to satisfy this vocabulary — it does NOT need to textually match the `type:` field SRS.md itself states, only `dimension:` (next clause) must match SRS.md verbatim. Do not reject an otherwise-legal `type:` value merely because it differs from the wording SRS.md uses; if the `type:` SRS.md itself states happens to be illegal, that is a Phase 1 defect to flag separately, not a reason to force SAD.md to repeat it.\\n- Every NFR that SRS.md gives a `dimension:` for carries that same value in nfr_traceability?\\n- Every NFR whose spec text limits it to particular layers carries `scope_layers` naming them?\\n'\n"
         + "    + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\\n- ≤15 files/dir, no god-module, no flat dump?\\n'\n"
         + "    + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?\\n- Each threat\\'s `verified_by` is a single test name (no comma-separated list) — split into a separate T-NN entry per additional test?',\n"
-        + "})\n"
+        + "}\n"
+        + "const sad = await abLoop(sadCfg)\n"
         + "if (!sad.ok) return sad\n"
         + "let sadContent = sad.content, sadB2 = sad.b2\n"
     )
@@ -182,7 +183,7 @@ def _render_phase2_subtask2_adr() -> str:
     return (
         B.render_phase_header("Sub-Task 2/3 — ADR.md")
         + "log('abLoop: ADR authoring (extract decisions from APPROVED SAD.md; downstream ADR-Constitution gate)')\n"
-        + "const adr = await abLoop({\n"
+        + "const adrCfg = {\n"
         + "  phaseName: 'Sub-Task 2/3 — ADR.md', key: 'adr', deliverable: 'ADR.md', diskPath: '02-architecture/adr/ADR.md', diskPrefix: '" + _A_ADR + "',\n"
         + "  buildAPrompt: (round, prevB2) =>\n"
         + "    'YOU ARE ARCHITECT (Agent A for Sub-Task 2/3 ADR.md). ROUND ' + round + '.\\n'\n"
@@ -208,7 +209,8 @@ def _render_phase2_subtask2_adr() -> str:
         + "    '- Upstream SAD review caveats addressed?\\n- All major decisions documented (tech stack, patterns, interfaces)?\\n'\n"
         + "    + '- Each ADR has clear context, decision, consequences?\\n- Alternatives considered documented?\\n- Decision aligns with SAD.md architecture?\\n'\n"
         + "    + '- ADR format matches harness/templates/ADR.md (template format)? See embedded DOC 5',\n"
-        + "})\n"
+        + "}\n"
+        + "const adr = await abLoop(adrCfg)\n"
         + "if (!adr.ok) return adr\n"
         + "let adrContent = adr.content, adrB2 = adr.b2\n"
     )
@@ -268,7 +270,7 @@ def _render_phase2_subtask3_test_spec() -> str:
     return (
         B.render_phase_header("Sub-Task 3/3 — TEST_SPEC.md")
         + "log('abLoop: TEST_SPEC authoring (per-FR test catalog; v2.9.1 B.3 table-row shape; check-test-spec-consistency)')\n"
-        + "const testSpec = await abLoop({\n"
+        + "const testSpecCfg = {\n"
         + "  phaseName: 'Sub-Task 3/3 — TEST_SPEC.md', key: 'test-spec', deliverable: 'TEST_SPEC.md', diskPath: '02-architecture/TEST_SPEC.md', diskPrefix: '" + _A_TEST_SPEC + "',\n"
         + "  buildAPrompt: (round, prevB2) =>\n"
         + "    'YOU ARE ARCHITECT (Agent A for Sub-Task 3/3 TEST_SPEC.md). ROUND ' + round + '.\\n'\n"
@@ -314,7 +316,8 @@ def _render_phase2_subtask3_test_spec() -> str:
         + "    + '- Each `### FR-XX:` header followed by TABLE ROWS (not prose-only)?\\n- Summary table populated with counts per type?\\n'\n"
         + "    + '- Self-consistency gate passes? (`check-test-spec-consistency`)?\\n- Direction B property gate passes? (python3 harness_cli.py check-property-spec --project . --no-require-execution)\\n- Cross-cutting NFRs validated? (Integration-level NFRs MUST have concrete Inputs/Sub-assertions; Unit/Static NFRs MUST be moved to a Deferred table)?\\n'\n"
         + "    + '- All upstream deliverables consistent with each other? No contradictory decisions?',\n"
-        + "})\n"
+        + "}\n"
+        + "const testSpec = await abLoop(testSpecCfg)\n"
         + "if (!testSpec.ok) return testSpec\n"
         + "let testSpecContent = testSpec.content\n"
     )
@@ -542,7 +545,23 @@ def _render_phase2_advance() -> str:
         + "// Approval JSONs (SAD.md/ADR.md/TEST_SPEC.md) are now persisted by abLoop exit\n"
         + "// (persistApproval helper) — not here. See bc913a0 / pending P2 parity commit.\n"
         + "log('advance-phase --completed 2 + confirm HANDOVER.md reflects Phase 3 entry')\n"
-        + "const advanceReport = await agent(\n"
+        + "// Round 113 站1: re-review what changed after B approved it (stale-approvals).\n"
+        + "const P2_CFGS = { 'SAD.md': sadCfg, 'ADR.md': adrCfg, 'TEST_SPEC.md': testSpecCfg }\n"
+        + "const rerunP2 = async (ids) => {\n"
+        + "  for (const id of ids) {\n"
+        + "    const c = P2_CFGS[id]\n"
+        + "    if (!c) return halt('stale-approvals', { error: id + ' has no review loop' })\n"
+        + "    const r = await abLoop(Object.assign({}, c, { phaseName: 'Advance', key: c.key + '-final', reviewOnly: true }))\n"
+        + "    if (!r.ok) return r\n"
+        + "  }\n"
+        + "  return null\n"
+        + "}\n"
+        + "let advanceReport = ''\n"
+        + "for (let advRound = 1; advRound <= 2; advRound++) {\n"
+        + "const stale = await reReviewStaleApprovals(2, 'Advance', rerunP2)\n"
+        + "if (stale && stale.halt_step) return stale\n"
+        + "if (advRound === 2 && !stale) break\n"
+        + "advanceReport = await agent(\n"
         + "  'YOU ARE THE PHASE-2 ADVANCE ORCHESTRATOR.\\n'\n"
         + "  + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + "  + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 2 --project ' + REPO + '`\\n'\n"
@@ -550,8 +569,10 @@ def _render_phase2_advance() -> str:
         + "  + 'Step 2: Read ' + REPO + '/.methodology/state.json; confirm current_phase = 3 (advance-phase writes atomically).\\n'\n"
         + "  + 'Report: \"ADVANCE: PASS|FAIL — <details>\". PHASE_3_PLAN: ' + REPO + '/.methodology/phase3_plan.md\\n\\n'\n"
         + "  + 'SCOPE RULES:\\n- DO NOT re-do P2.\\n- DO NOT modify harness/ (HR-17).\\n- ONLY advance-phase + verify HANDOVER.md.',\n"
-        + "  { label: 'advance', phase: 'Advance', agentType: 'general-purpose' },\n"
+        + "  { label: advRound === 1 ? 'advance' : 'advance-r' + advRound, phase: 'Advance', agentType: 'general-purpose' },\n"
         + ")\n"
+        + "if (typeof advanceReport !== 'string' || !advanceReport || /ADVANCE:\\s*PASS/.test(advanceReport)) break\n"
+        + "}\n"
         + "// F1 (parity with phase1 advance 1079-1081): advance-phase can FAIL on Phase Truth\n"
         + "// (<90%); do NOT report \"complete\" when P3 was never entered.\n"
         + S.render_session_block_guard(
@@ -595,6 +616,7 @@ def generate_phase2() -> str:
         B.render_generic_ab_loop(b_role="TECH_LEAD", phase_num=2),
         B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA"]),
         B.render_persist_approval(synthesize_reason=True, use_schema_verdict=True),
+        B.render_stale_rereview(),
         B.render_load_file_via_python(),
         _render_phase2_entry_preflight(),
         _render_phase2_load_upstream(),

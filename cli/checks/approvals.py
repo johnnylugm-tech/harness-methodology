@@ -219,6 +219,29 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
                 )
                 return 1
 
+    # Round 113 站1/站2: what B reviewed, and what B found.
+    if isinstance(payload, dict):
+        _gaps = payload.get("gaps")
+        if _gaps is not None and not isinstance(_gaps, list):
+            print("[write-approval] BLOCKED: `gaps` must be a list of B's gap "
+                  f"objects; got {type(_gaps).__name__}.", file=sys.stderr)
+            return 1
+        _bound = agent_b_approvals.bound_deliverable_path(project, fr_id)
+        _sha = payload.get(agent_b_approvals.REVIEWED_SHA_FIELD)
+        if _sha is not None and not (
+                isinstance(_sha, str) and agent_b_approvals.SHA256_RE.fullmatch(_sha)):
+            print("[write-approval] BLOCKED: `reviewed_sha256` must be 64 lowercase "
+                  f"hex characters; got {_sha!r}.", file=sys.stderr)
+            return 1
+        if _bound is None:
+            payload.pop(agent_b_approvals.REVIEWED_SHA_FIELD, None)
+        elif _sha is None and _bound.is_file():
+            # No relay preceded this write (Phase 6's reviewer reads files
+            # itself; a CLI user writes approvals by hand): bind to the file
+            # as it stands now, which is what was just reviewed.
+            payload[agent_b_approvals.REVIEWED_SHA_FIELD] = \
+                agent_b_approvals.file_sha256(_bound)
+
     try:
         approval_path = _write_approval_file(project, fr_id, payload)
     except OSError as e:
@@ -235,6 +258,26 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
         return 2
 
     print(f"[write-approval] OK: {approval_path} ({size} bytes, written + verified)")
+    return 0
+
+
+def cmd_stale_approvals(args: argparse.Namespace) -> int:
+    """Print the phase's approvals whose reviewed bytes are not the file's now.
+
+    Round 113 站1. The phase workflows read the `STALE:` line before they
+    advance and re-run exactly those deliverables' reviews, so an edit made
+    after B approved — SAB generation, a fixer, an advance retry — is reviewed
+    instead of becoming a dead end at advance-phase.
+    """
+    import json as _json
+
+    project = Path(args.project).resolve()
+    rows = agent_b_approvals.stale_approvals(project, int(args.phase))
+    for row in rows:
+        print(f"[stale-approvals] {row['id']}: reviewed "
+              f"{(row['reviewed'] or 'unrecorded')[:12]} now {row['current'][:12]} "
+              f"({row['path']})", file=sys.stderr)
+    print("STALE: " + _json.dumps([row["id"] for row in rows]))
     return 0
 
 
@@ -498,6 +541,14 @@ def register(sub) -> None:
     gvr.set_defaults(func=cmd_generate_verification_report)
 
     # verify-agent-b-approvals
+    sta = sub.add_parser(
+        "stale-approvals",
+        help="List a phase's Agent B approvals whose reviewed file has changed since",
+    )
+    sta.add_argument("--project", default=".")
+    sta.add_argument("--phase", type=int, required=True)
+    sta.set_defaults(func=cmd_stale_approvals)
+
     vab = sub.add_parser(
         "verify-agent-b-approvals",
         help="Verify Agent B approval JSONs exist for all FRs (blocks if missing or non-APPROVE)",

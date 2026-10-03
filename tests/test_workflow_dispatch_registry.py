@@ -65,6 +65,10 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "Phase 1 would re-run requirements on an advanced project"),
     (r"^env-check$", "carrier", "schema",
      "run-env-check && finalize-env-check; RC= line transcribed to rc"),
+    (r"^stale-approvals-$", "carrier", "schema",
+     "Round 113 站1: harness_cli.py stale-approvals prints `STALE: <json>`, "
+     "transcribed into STALE_SCHEMA. The ids come from the CLI comparing each "
+     "approval's reviewed_sha256 with the file; the agent only copies them"),
     # ── Round 48 站4: harness-repair. Every verdict comes from a harness CLI
     #    exit code, never from the agent's prose — the ordinary rule, and it
     #    matters more here because the agent is editing the code that produces

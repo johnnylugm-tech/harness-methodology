@@ -26,7 +26,8 @@ HARNESS_CLI = Path(__file__).resolve().parents[2] / "harness_cli.py"
 # project does. The anchors are interpolated from DELIVERABLE_ANCHORS rather
 # than written out, so a registry change moves the fixture with it — the same
 # reason spec_phase1.py stopped hand-writing its diskPrefix literals.
-from core.quality_gate.legal_artifacts import anchor_for  # noqa: E402
+from core.quality_gate.agent_b_approvals import file_sha256  # noqa: E402
+from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS, anchor_for  # noqa: E402
 
 # Round 43 站2: advance-phase now refuses to leave a phase whose successor's
 # entry preflight reports blocking findings, and Round 42 站3 made a missing FR
@@ -170,6 +171,8 @@ def e2e_project(tmp_path):
                 "and status columns are complete and consistent."
             ),
             "citations": ["01-requirements/SRS.md:3"],
+            # Round 113 站1: the bytes B reviewed, as write-approval records them.
+            "reviewed_sha256": file_sha256(proj / PHASE_DELIVERABLE_PATHS[1][did]),
         }) + "\n", encoding="utf-8")
 
     _git(proj, "add", "-A")

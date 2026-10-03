@@ -6,6 +6,7 @@ substantive APPROVE (anti-rubber-stamp minimum reason length).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -237,6 +238,67 @@ def unresolvable_citations(project: Path, citations: "list") -> "list[str]":
     return bad
 
 
+#: Round 113 站1. The sha256 of the bytes Agent B reviewed — the relay frame's
+#: sha when the workflow relayed the file to B, else the file as it stood when
+#: the approval was written. advance-phase compares it with the file now.
+REVIEWED_SHA_FIELD = "reviewed_sha256"
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def bound_deliverable_path(project: Path, deliverable_id: str) -> "Path | None":
+    """Where an approval id's reviewed file lives, if its content is bindable.
+
+    The map is legal_artifacts.PHASE_DELIVERABLE_PATHS (one statement of where
+    each phase deliverable lives). `.methodology/` files are not bound: the
+    gates rewrite quality_manifest.json on every run, so binding it would make
+    every Phase 6 approval stale by construction. Per-FR ids are not here
+    either — Phase 3 binds those through criteria_review's AST digests.
+    """
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS
+
+    for paths in PHASE_DELIVERABLE_PATHS.values():
+        rel = paths.get(deliverable_id)
+        if rel is not None:
+            return None if rel.startswith(".methodology/") else Path(project) / rel
+    return None
+
+
+def stale_approvals(project: Path, phase: int) -> "list[dict]":
+    """APPROVE records of `phase` whose reviewed bytes are not the file's now.
+
+    Round 113 站1. One row per stale approval: {id, path, reviewed, current}.
+    `reviewed` is None for a record written before the binding existed — it
+    says nothing about what B saw, so it is as stale as a changed file. A
+    missing file or a missing/non-APPROVE record is not reported here; those
+    are verify_agent_b_approvals_core's own findings.
+    """
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS
+
+    project = Path(project)
+    approvals_dir = project / ".methodology" / "agent_b_approvals"
+    rows: list[dict] = []
+    for did, rel in PHASE_DELIVERABLE_PATHS.get(phase, {}).items():
+        path = bound_deliverable_path(project, did)
+        record = approvals_dir / f"{did}.json"
+        if path is None or not path.is_file() or not record.is_file():
+            continue
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get("review_status") != "APPROVE":
+            continue
+        current = file_sha256(path)
+        reviewed = data.get(REVIEWED_SHA_FIELD)
+        if reviewed != current:
+            rows.append({"id": did, "path": rel, "reviewed": reviewed, "current": current})
+    return rows
+
+
 def verify_agent_b_approvals_core(
     project: Path, phase: int, deliverable_ids: "list[str]"
 ) -> "tuple[bool, str]":
@@ -314,6 +376,22 @@ def verify_agent_b_approvals_core(
             errors.append(
                 f"{did}: docs_embedded missing {missing_docs} — "
                 "Agent B prompt must embed the required source documents."
+            )
+
+    # Round 113 站1: an approval describes the bytes B reviewed. A file that
+    # changed afterwards — taskq-sol's SAD.md grew the 190-line SAB block an
+    # hour after B approved 565 lines — has no review on record.
+    flagged = set(missing) | {r.split(":", 1)[0] for r in rejected + errors}
+    for row in stale_approvals(project, phase):
+        if row["id"] in deliverable_ids and row["id"] not in flagged:
+            reviewed = (row["reviewed"] or "")[:12] or "unrecorded"
+            errors.append(
+                f"{row['id']}: Agent B reviewed {reviewed}…, but {row['path']} is now "
+                f"{row['current'][:12]}… — the file changed after Agent B reviewed it "
+                f"(or the approval predates review binding). Re-run that "
+                f"deliverable's review; the phase workflow re-reviews exactly "
+                f"these before it advances (`harness_cli.py stale-approvals "
+                f"--phase {phase}` lists them)."
             )
 
     passed = not (missing or rejected or errors)

@@ -436,6 +436,12 @@
       "--threshold",
       "-h"
     ],
+    "stale-approvals": [
+      "--help",
+      "--phase",
+      "--project",
+      "-h"
+    ],
     "status": [
       "--full",
       "--help",
@@ -540,7 +546,7 @@
     "cli.check_cmds::cmd_verify_gate": "182bd72a429c4247",
     "cli.check_cmds::cmd_verify_spec": "d849969a2639708b",
     "cli.check_cmds::cmd_verify_trace": "a69351f714ce3397",
-    "cli.check_cmds::cmd_write_approval": "709b93d64cc92988",
+    "cli.check_cmds::cmd_write_approval": "9788ddf29021ffe3",
     "cli.fr_cmds::_abort_dispatch_structurally_broken": "1e446834b394f8b8",
     "cli.fr_cmds::_fr_step_already_done": "8d727a1da62d6143",
     "cli.fr_cmds::_fr_step_lineage_boundary": "9e34f00a1257279a",

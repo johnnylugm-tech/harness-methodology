@@ -113,6 +113,15 @@ class TestAdvanceJourneys:
         head, sep, _ = text.partition("## 7. FR Block (machine-readable)")
         assert sep, "fixture premise: the SRS carries the FR Block"
         srs.write_text(head, encoding="utf-8")
+        # Round 113 站1: an edit after review leaves the SRS approval stale,
+        # which advance-phase refuses first (exit 13). This journey is about
+        # the entry obligation, so the edit is re-reviewed — the approval is
+        # re-bound to the bytes now on disk — before advancing.
+        from core.quality_gate.agent_b_approvals import file_sha256
+        approval = e2e_project / ".methodology" / "agent_b_approvals" / "SRS.md.json"
+        record = json.loads(approval.read_text(encoding="utf-8"))
+        record["reviewed_sha256"] = file_sha256(srs)
+        approval.write_text(json.dumps(record) + "\n", encoding="utf-8")
         git(e2e_project, "add", "-A")
         git(e2e_project, "commit", "-m", "drop the FR Block")
 

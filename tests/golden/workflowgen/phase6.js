@@ -156,7 +156,7 @@ const MAX_OUTER_ATTEMPTS = 3
 // ---- persistApproval: write .methodology/agent_b_approvals/<id>.json ----
 // v22 single-line Bash + harness_cli.py write-approval (proven 6/6 advance-
 // phase PASS) + workflow JS outer-level try/catch retry.
-async function persistApproval(deliverableId, b2) {
+async function persistApproval(deliverableId, b2, diskPath) {
   // v31: SINGLE-LINE JSON (no indent) — multi-line indented JSON gets
   // word-split by shell when the LLM agent emits the command without
   // single-quoting the JSON payload, breaking `--json` argparse.
@@ -167,6 +167,8 @@ async function persistApproval(deliverableId, b2) {
     citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],
     docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],
     confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,
+    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],
+    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,
   })
   const cliPath = REPO + '/harness/harness_cli.py'
   // v31: explicit single-quote wrap around the JSON payload (zsh glob safety —
@@ -203,6 +205,24 @@ async function persistApproval(deliverableId, b2) {
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
+}
+// ---- reReviewStaleApprovals (Round 113 站1) ----
+const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+let __staleCalls = 0
+async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
+  let reviewed = 0
+  for (let pass = 1; pass <= 2; pass++) {
+    const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO
+      + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+      { label: 'stale-approvals-' + (++__staleCalls), phase: phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })
+    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })
+    if (!res.stale.length) return reviewed
+    log('  re-review (edited after B approved): ' + res.stale.join(', '))
+    const r = await rerun(res.stale)
+    if (r && r.halt_step) return r
+    reviewed += res.stale.length
+  }
+  return halt('stale-approvals', { error: 'approvals still stale after re-review' })
 }
 const MAX_OUTER_ATTEMPTS_PEER = 3  // peer-review dispatch retry at orchestrator level
 // v15: budget guard (Bug #3 — port from phase2-architecture)
@@ -437,7 +457,10 @@ log('Agent B reviews 4 deliverables; workflow writes 4 approval JSON via persist
 // v22-era 4 deliverables advanced-phase expects (harness_cli.py:_PHASE_DELIVERABLES[6]).
 const peerDeliverables = ['QUALITY_REPORT.md', 'RELEASE_NOTES.md', 'FINAL_SIGN_OFF.md', 'quality_manifest']
 
-let peerVerdict = null
+let peerVerdict = null, __peerRuns = 0
+async function p6PeerReview() {
+peerVerdict = null
+const __run = ++__peerRuns
 for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
   const peerReport = await dispatch(
     'YOU ARE AGENT B (TECH_LEAD reviewer) for the Phase 6 Gate 4 deliverables (HR-01).\n'
@@ -458,7 +481,7 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
     + 'Each "reason" must be ≥100 chars of substantive justification (not "APPROVE" or one-word). Each "gaps" array is empty when review_status is APPROVE. Each "citations" must include ≥1 file:line you actually cat-ed.\n'
     + '"review_status" MUST be exactly "APPROVE" or "REJECT" (case-sensitive) — no other spelling or synonym (e.g. "APPROVED", "Approve", "PASS") is accepted.\n\n'
     + 'SCOPE RULES:\n- DO NOT run advance-phase / git tag / run-gate.\n- DO NOT modify harness/ (HR-17).\n- DO NOT write any files (workflow writes approval JSON; you only review content).',
-    { label: 'peer-review-r' + attempt, phase: 'Peer Review', agentType: 'general-purpose' },
+    { label: 'peer-review-r' + attempt + (__run > 1 ? '-x' + __run : ''), phase: 'Peer Review', agentType: 'general-purpose' },
   )
   // parseAgentJson lives at top of file (same pattern as phase1+phase2)
   try {
@@ -518,6 +541,9 @@ if (!allApproved) {
 for (const v of peerVerdict.verdicts) {
   await persistApproval(v.deliverable, v)
 }
+return null
+}
+{ const __pr = await p6PeerReview(); if (__pr) return __pr }
 
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -588,6 +614,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Tag & Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const st = await reReviewStaleApprovals(6, 'Tag & Advance', () => p6PeerReview()); if (st && st.halt_step) return st }
   // Manifest integrity: enforced by advance-phase itself since Round 22 站2
   // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command
   // in its [BLOCKED] message). It runs first, before any other precheck, and

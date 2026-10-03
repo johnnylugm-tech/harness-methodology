@@ -5971,3 +5971,23 @@
 - test: tests/test_decision_issues_bind_and_recur.py::test_the_p2_prompt_does_not_invite_a_phase_3_spec_gap
   bug: "the P2 prompt told agents to mark an ambiguous case `skip_reason: spec_gap_resolved_in_p3` and promised check-test-spec-consistency would reject a case lacking one — no check reads either. Counter-proof run 2026-10-03: restoring the invitation turns this red"
   fixed_in: "Round 113 站9"
+
+- test: tests/test_an_approval_is_bound_to_what_b_read.py::test_an_edit_after_review_makes_the_approval_stale
+  bug: "an Agent B approval carried no binding to content, so taskq-sol's SAD.md approval ('the full 565-line SAD.md') stood for a 755-line file — Phase 2's sab-generation wrote the 190-line SAB block into SAD §5 an hour after B approved. Counter-proof run 2026-10-03: dropping the staleness rows from verify_agent_b_approvals_core turns this red"
+  fixed_in: "Round 113 站1"
+
+- test: tests/test_an_approval_is_bound_to_what_b_read.py::test_without_a_relay_the_file_at_write_time_is_recorded
+  bug: "Phase 6's reviewer reads files itself and CLI users write approvals by hand — with no relay sha, the record binds the file as it stood when the approval was written. Counter-proof run 2026-10-03: skipping that fallback turns this and two siblings red"
+  fixed_in: "Round 113 站1"
+
+- test: tests/test_an_approval_is_bound_to_what_b_read.py::test_a_file_the_gates_rewrite_is_not_bound
+  bug: "quality_manifest.json is rewritten by every gate run; binding it would make every Phase 6 approval stale by construction. Counter-proof run 2026-10-03: binding .methodology/ paths turns this red"
+  fixed_in: "Round 113 站1"
+
+- test: tests/test_an_approval_is_bound_to_what_b_read.py::test_b_gaps_reach_the_record
+  bug: "persistApproval dropped B's `gaps`, so the three 'non-blocking documentation defects' taskq-sol's P1 approvals name existed nowhere but inside the prose of `reason`"
+  fixed_in: "Round 113 站2"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "Round 113 站1 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: a stale deliverable is re-reviewed B-first before advance (no A round on a merely stale file), an advance whose own fix staled a deliverable re-reviews it and retries once, the approval carries the relayed sha and gaps, and Phase 6 re-runs Peer Review. Counter-proofs run 2026-10-03: removing the reviewOnly guard, the P2 pre-advance call, the RELAYED_SHA record, or the P6 per-round call each turns a scenario red"
+  fixed_in: "Round 113 站1"

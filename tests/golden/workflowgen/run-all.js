@@ -408,7 +408,7 @@ function parseRelayFrame(text) {
   const body = text.slice(nl + 1).replace(/\s+$/, '')
   if (!body.endsWith(end)) return null
   if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null
-  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),
+  return { mode: m[1], sha: m[2], bytes: Number(m[3]), lines: Number(m[4]),
     payload: body.slice(0, body.length - end.length).replace(/\n$/, '') }
 }
 function isFileIndex(s) {
@@ -420,6 +420,7 @@ function relayAnchorTarget(frame) {
   return m ? m[1] : ''
 }
 
+const RELAYED_SHA = {}
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -487,6 +488,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       continue
     }
     log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')
+    RELAYED_SHA[relPath] = frame.sha
     return frame.payload
   }
   return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
@@ -626,6 +628,8 @@ async function runSubTask(cfg) {
       return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.name, budget_exhausted: true })
     }
 
+    let a = null
+    if (!(cfg.reviewOnly && round === 1)) {
     const aPrompt = cfg.buildAPrompt(round, b2)
     let aResult
     try { aResult = await dispatch(aPrompt, {
@@ -640,9 +644,9 @@ async function runSubTask(cfg) {
       if (round === MAX_B_ROUNDS) return halt('agent-a-review', { error: 'A: no result (terminal API failure)', sub_task: cfg.name })
       continue
     }
-    let a = null
     try { a = parseAgentJson(aResult, 'A-' + cfg.idx + '-r' + round) }
     catch (e) { log('  A JSON parse fail: ' + e.message.slice(0, 80)) }
+    }
 
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix, cfg.phaseName)
     if (content.startsWith('FILE_MISSING') || content.startsWith('ERROR:') || content.length < 50) {
@@ -679,7 +683,7 @@ async function runSubTask(cfg) {
     if (sbrResult.escalation_action === 'approve') {
       log('  APPROVED (all gaps low)')
       const approvalId = cfg.name
-      await persistApproval(approvalId, b2)
+      await persistApproval(approvalId, b2, cfg.diskPath)
       return { content: content, b2: b2 }
     }
     if (sbrResult.escalation_action === 'escalate_human') {
@@ -698,7 +702,7 @@ async function runSubTask(cfg) {
 
 
 
-async function persistApproval(deliverableId, b2) {
+async function persistApproval(deliverableId, b2, diskPath) {
   const approvalPayload = JSON.stringify({
     fr: deliverableId,
     review_status: b2.review_status ?? 'APPROVE',
@@ -706,6 +710,8 @@ async function persistApproval(deliverableId, b2) {
     citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],
     docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],
     confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,
+    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],
+    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,
   })
   const cliPath = REPO + '/harness/harness_cli.py'
   const escapedPayload = approvalPayload.replace(/'/g, "'\\''")
@@ -739,6 +745,24 @@ async function persistApproval(deliverableId, b2) {
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
+}
+
+const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+let __staleCalls = 0
+async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
+  let reviewed = 0
+  for (let pass = 1; pass <= 2; pass++) {
+    const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO
+      + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+      { label: 'stale-approvals-' + (++__staleCalls), phase: 'P1 · ' + phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })
+    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })
+    if (!res.stale.length) return reviewed
+    log('  re-review (edited after B approved): ' + res.stale.join(', '))
+    const r = await rerun(res.stale)
+    if (r && r.halt_step) return r
+    reviewed += res.stale.length
+  }
+  return halt('stale-approvals', { error: 'approvals still stale after re-review' })
 }
 
 async function runPeerReview(approvedDocs) {
@@ -801,7 +825,7 @@ async function runPeerReview(approvedDocs) {
       let persistError = null
       for (const d of approvedDocs) {
         try {
-          await persistApproval(d.diskPath.split('/').pop(), b2)
+          await persistApproval(d.diskPath.split('/').pop(), b2, d.diskPath)
         } catch (e) {
           persistError = e
           break
@@ -1376,13 +1400,31 @@ if (!/PUSH:\s*PASS/.test(pushResult)) {
 phase('P1 · Advance')
 log('advance-phase --completed 1 + confirm HANDOVER.md reflects Phase 2 entry')
 
-const advanceReport = await dispatch(
+const P1_CFGS = {}
+for (const c of [srsCfg, specTrackCfg, traceCfg, testInvCfg]) P1_CFGS[c.name] = c
+const rerunP1 = async (ids) => {
+  for (const id of ids) {
+    const c = P1_CFGS[id]
+    if (!c) return halt('stale-approvals', { error: id + ' has no review loop' })
+    const r = await runSubTask(Object.assign({}, c, { phaseName: 'Advance', idx: c.idx + '-final', reviewOnly: true }))
+    if (r && r.halt_step) return r
+  }
+  return null
+}
+let advanceReport = ''
+for (let advRound = 1; advRound <= 2; advRound++) {
+const stale = await reReviewStaleApprovals(1, 'Advance', rerunP1)
+if (stale && stale.halt_step) return stale
+if (advRound === 2 && !stale) break
+advanceReport = await dispatch(
   'Run EXACTLY this command via Bash:\n'
   + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 1 --project ' + REPO + ' --push\n\n'
   + 'Then verify ' + REPO + '/HANDOVER.md exists and reflects Phase 2 entry.\n\n'
   + 'Report final outcome as plain text: "ADVANCE: PASS" or "ADVANCE: FAIL — <one-line reason>".',
-  { label: 'advance', phase: 'P1 · Advance', agentType: 'general-purpose' },
+  { label: advRound === 1 ? 'advance' : 'advance-r' + advRound, phase: 'P1 · Advance', agentType: 'general-purpose' },
 )
+if (typeof advanceReport !== 'string' || !advanceReport || /ADVANCE:\s*PASS/.test(advanceReport)) break
+}
 if (!/ADVANCE:\s*PASS/.test(String(advanceReport ?? ''))) {
   return halt('advance-phase', { error: 'advance-phase did not PASS', raw: String(advanceReport ?? '').slice(-800) })
 }
@@ -1558,6 +1600,8 @@ async function abLoop(cfg) {
       if (b2) return { ok: false, content, b2, budget_exhausted: true }
       return halt('budget-exhausted', { error: 'Budget exhausted during ' + cfg.deliverable, budget_exhausted: true })
     }
+    let a = null
+    if (!(cfg.reviewOnly && round === 1)) {
     let aResult
     try { aResult = await dispatch(cfg.buildAPrompt(round, b2), {
       label: 'a-' + cfg.key + '-r' + round, phase: 'P2 · ' + cfg.phaseName, agentType: 'general-purpose',
@@ -1569,9 +1613,9 @@ async function abLoop(cfg) {
       if (round === MAX_B_ROUNDS) return halt('sbr-a-review', { error: cfg.deliverable + ': A no result (terminal API failure)' })
       continue
     }
-    let a
     try { a = parseAgentJson(aResult, 'A-' + cfg.key + '-r' + round) }
     catch (e) { log('  A JSON parse fail (likely truncated): ' + e.message.slice(0, 80)); a = null }
+    }
     content = await loadFileViaPython(cfg.diskPath, cfg.diskPrefix || '', cfg.phaseName)
     if (content.startsWith('ERROR:') || content.length < 50) {
       if (round === MAX_B_ROUNDS) return halt('sbr-deliverable-missing', { error: cfg.deliverable + ' not found on disk after A — exhausted ' + MAX_B_ROUNDS + ' rounds', loader_preview: content.slice(0, 200) })
@@ -1606,7 +1650,7 @@ async function abLoop(cfg) {
       log('  APPROVED')
       let persistErr = null
       try {
-        await persistApproval(cfg.deliverable, b2)
+        await persistApproval(cfg.deliverable, b2, cfg.diskPath)
       } catch (e) {
         persistErr = e
       }
@@ -1631,7 +1675,7 @@ async function abLoop(cfg) {
 
 
 
-async function persistApproval(deliverableId, b2) {
+async function persistApproval(deliverableId, b2, diskPath) {
   const rawReason = String(b2.reason ?? '').trim()
   const synthReason = 'Agent B approved ' + deliverableId + ' (review_status=' + (b2.review_status ?? 'APPROVE')
     + '); the reviewer returned no substantive reason text, so the workflow synthesized this justification to satisfy the harness _verify_agent_b_approvals_core minimum-length (100 char) contract.'
@@ -1643,6 +1687,8 @@ async function persistApproval(deliverableId, b2) {
     citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],
     docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],
     confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,
+    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],
+    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,
   })
   const cliPath = REPO + '/harness/harness_cli.py'
   const escapedPayload = approvalPayload.replace(/'/g, "'\\''")
@@ -1678,6 +1724,24 @@ async function persistApproval(deliverableId, b2) {
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
 }
 
+const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+let __staleCalls = 0
+async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
+  let reviewed = 0
+  for (let pass = 1; pass <= 2; pass++) {
+    const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO
+      + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+      { label: 'stale-approvals-' + (++__staleCalls), phase: 'P2 · ' + phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })
+    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })
+    if (!res.stale.length) return reviewed
+    log('  re-review (edited after B approved): ' + res.stale.join(', '))
+    const r = await rerun(res.stale)
+    if (r && r.halt_step) return r
+    reviewed += res.stale.length
+  }
+  return halt('stale-approvals', { error: 'approvals still stale after re-review' })
+}
+
 function firstLineHasAnchor(text, expectPrefix) {
   if (!expectPrefix) return false
   const nl = text.indexOf('\n')
@@ -1695,7 +1759,7 @@ function parseRelayFrame(text) {
   const body = text.slice(nl + 1).replace(/\s+$/, '')
   if (!body.endsWith(end)) return null
   if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null
-  return { mode: m[1], bytes: Number(m[3]), lines: Number(m[4]),
+  return { mode: m[1], sha: m[2], bytes: Number(m[3]), lines: Number(m[4]),
     payload: body.slice(0, body.length - end.length).replace(/\n$/, '') }
 }
 function isFileIndex(s) {
@@ -1707,6 +1771,7 @@ function relayAnchorTarget(frame) {
   return m ? m[1] : ''
 }
 
+const RELAYED_SHA = {}
 async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
   opts = opts || {}
   const maxAttempts = opts.maxAttempts || 3
@@ -1774,6 +1839,7 @@ async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
       continue
     }
     log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')
+    RELAYED_SHA[relPath] = frame.sha
     return frame.payload
   }
   return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
@@ -1834,7 +1900,7 @@ log('  harness/templates/ADR.md loaded: ' + adrTemplateContent.length + ' chars'
 
 phase('P2 · Sub-Task 1/3 — SAD.md')
 log('abLoop: SAD authoring (ARCHITECT A + TECH_LEAD B; max 5 rounds; HR-12 escalate)')
-const sad = await abLoop({
+const sadCfg = {
   phaseName: 'Sub-Task 1/3 — SAD.md', key: 'sad', deliverable: 'SAD.md', diskPath: '02-architecture/SAD.md', diskPrefix: '# Software Architecture Document',
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 1/3 SAD.md). ROUND ' + round + '.\n'
@@ -1864,7 +1930,8 @@ const sad = await abLoop({
     + '- SAB block present in §5 (<!-- SAB:START --> marker exists)?\n- `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: "2"`\n- All NFR `type` values from legal values (documentation/integration/layering/licensing/maintainability/mutation/performance/reliability/security/testability/verifiability/deployability/scalability/usability)? `type:` is independently derived to satisfy this vocabulary — it does NOT need to textually match the `type:` field SRS.md itself states, only `dimension:` (next clause) must match SRS.md verbatim. Do not reject an otherwise-legal `type:` value merely because it differs from the wording SRS.md uses; if the `type:` SRS.md itself states happens to be illegal, that is a Phase 1 defect to flag separately, not a reason to force SAD.md to repeat it.\n- Every NFR that SRS.md gives a `dimension:` for carries that same value in nfr_traceability?\n- Every NFR whose spec text limits it to particular layers carries `scope_layers` naming them?\n'
     + '- Directory structure follows CRG cohesion principles (SAD.md §2.1)? See embedded DOC 3\n- ≤15 files/dir, no god-module, no flat dump?\n'
     + '- SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?\n- Each threat\'s `verified_by` is a single test name (no comma-separated list) — split into a separate T-NN entry per additional test?',
-})
+}
+const sad = await abLoop(sadCfg)
 if (!sad.ok) return sad
 let sadContent = sad.content, sadB2 = sad.b2
 
@@ -1872,7 +1939,7 @@ let sadContent = sad.content, sadB2 = sad.b2
 
 phase('P2 · Sub-Task 2/3 — ADR.md')
 log('abLoop: ADR authoring (extract decisions from APPROVED SAD.md; downstream ADR-Constitution gate)')
-const adr = await abLoop({
+const adrCfg = {
   phaseName: 'Sub-Task 2/3 — ADR.md', key: 'adr', deliverable: 'ADR.md', diskPath: '02-architecture/adr/ADR.md', diskPrefix: '# Architecture Decision Records',
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 2/3 ADR.md). ROUND ' + round + '.\n'
@@ -1898,7 +1965,8 @@ const adr = await abLoop({
     '- Upstream SAD review caveats addressed?\n- All major decisions documented (tech stack, patterns, interfaces)?\n'
     + '- Each ADR has clear context, decision, consequences?\n- Alternatives considered documented?\n- Decision aligns with SAD.md architecture?\n'
     + '- ADR format matches harness/templates/ADR.md (template format)? See embedded DOC 5',
-})
+}
+const adr = await abLoop(adrCfg)
 if (!adr.ok) return adr
 let adrContent = adr.content, adrB2 = adr.b2
 
@@ -1945,7 +2013,7 @@ if (aciVerify === null || aciVerify === undefined || typeof aciVerify !== 'objec
 
 phase('P2 · Sub-Task 3/3 — TEST_SPEC.md')
 log('abLoop: TEST_SPEC authoring (per-FR test catalog; v2.9.1 B.3 table-row shape; check-test-spec-consistency)')
-const testSpec = await abLoop({
+const testSpecCfg = {
   phaseName: 'Sub-Task 3/3 — TEST_SPEC.md', key: 'test-spec', deliverable: 'TEST_SPEC.md', diskPath: '02-architecture/TEST_SPEC.md', diskPrefix: '# TEST_SPEC.md',
   buildAPrompt: (round, prevB2) =>
     'YOU ARE ARCHITECT (Agent A for Sub-Task 3/3 TEST_SPEC.md). ROUND ' + round + '.\n'
@@ -1991,7 +2059,8 @@ const testSpec = await abLoop({
     + '- Each `### FR-XX:` header followed by TABLE ROWS (not prose-only)?\n- Summary table populated with counts per type?\n'
     + '- Self-consistency gate passes? (`check-test-spec-consistency`)?\n- Direction B property gate passes? (python3 harness_cli.py check-property-spec --project . --no-require-execution)\n- Cross-cutting NFRs validated? (Integration-level NFRs MUST have concrete Inputs/Sub-assertions; Unit/Static NFRs MUST be moved to a Deferred table)?\n'
     + '- All upstream deliverables consistent with each other? No contradictory decisions?',
-})
+}
+const testSpec = await abLoop(testSpecCfg)
 if (!testSpec.ok) return testSpec
 let testSpecContent = testSpec.content
 
@@ -2229,7 +2298,22 @@ if (!pushOk) return halt('push-checkpoint', { error: 'push-checkpoint --phase 2 
 
 phase('P2 · Advance')
 log('advance-phase --completed 2 + confirm HANDOVER.md reflects Phase 3 entry')
-const advanceReport = await dispatch(
+const P2_CFGS = { 'SAD.md': sadCfg, 'ADR.md': adrCfg, 'TEST_SPEC.md': testSpecCfg }
+const rerunP2 = async (ids) => {
+  for (const id of ids) {
+    const c = P2_CFGS[id]
+    if (!c) return halt('stale-approvals', { error: id + ' has no review loop' })
+    const r = await abLoop(Object.assign({}, c, { phaseName: 'Advance', key: c.key + '-final', reviewOnly: true }))
+    if (!r.ok) return r
+  }
+  return null
+}
+let advanceReport = ''
+for (let advRound = 1; advRound <= 2; advRound++) {
+const stale = await reReviewStaleApprovals(2, 'Advance', rerunP2)
+if (stale && stale.halt_step) return stale
+if (advRound === 2 && !stale) break
+advanceReport = await dispatch(
   'YOU ARE THE PHASE-2 ADVANCE ORCHESTRATOR.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 2 --project ' + REPO + ' --push`\n'
@@ -2237,8 +2321,10 @@ const advanceReport = await dispatch(
   + 'Step 2: Read ' + REPO + '/.methodology/state.json; confirm current_phase = 3 (advance-phase writes atomically).\n'
   + 'Report: "ADVANCE: PASS|FAIL — <details>". PHASE_3_PLAN: ' + REPO + '/.methodology/phase3_plan.md\n\n'
   + 'SCOPE RULES:\n- DO NOT re-do P2.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md.',
-  { label: 'advance', phase: 'P2 · Advance', agentType: 'general-purpose' },
+  { label: advRound === 1 ? 'advance' : 'advance-r' + advRound, phase: 'P2 · Advance', agentType: 'general-purpose' },
 )
+if (typeof advanceReport !== 'string' || !advanceReport || /ADVANCE:\s*PASS/.test(advanceReport)) break
+}
 if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
   log('  advance-phase agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 2, step: 'advance-phase', message: 'Agent hit session/rate limit during advance-phase. Resume after quota reset — state.json is untouched.' }
@@ -3744,7 +3830,7 @@ async function runPhase6() {
 log('REPO = ' + REPO + ' | PY = ' + PY)
 
 const MAX_OUTER_ATTEMPTS = 3
-async function persistApproval(deliverableId, b2) {
+async function persistApproval(deliverableId, b2, diskPath) {
   const approvalPayload = JSON.stringify({
     fr: deliverableId,
     review_status: b2.review_status ?? 'APPROVE',
@@ -3752,6 +3838,8 @@ async function persistApproval(deliverableId, b2) {
     citations: Array.isArray(b2.citations) ? b2.citations.slice(0, 20) : [],
     docs_embedded: Array.isArray(b2.docs_embedded) ? b2.docs_embedded : [],
     confidence: typeof b2.confidence === 'number' ? b2.confidence : 0.9,
+    gaps: Array.isArray(b2.gaps) ? b2.gaps.slice(0, 20) : [],
+    reviewed_sha256: (diskPath && typeof RELAYED_SHA !== 'undefined') ? RELAYED_SHA[diskPath] : undefined,
   })
   const cliPath = REPO + '/harness/harness_cli.py'
   const escapedPayload = approvalPayload.replace(/'/g, "'\\''")
@@ -3785,6 +3873,23 @@ async function persistApproval(deliverableId, b2) {
     log('  persistApproval ' + deliverableId + ' attempt ' + attempt + '/' + MAX_OUTER_ATTEMPTS + ': ' + lastErr)
   }
   throw new Error('persistApproval FAILED for ' + deliverableId + ' after ' + MAX_OUTER_ATTEMPTS + ' attempts. Last error: ' + lastErr)
+}
+const STALE_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+let __staleCalls = 0
+async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
+  let reviewed = 0
+  for (let pass = 1; pass <= 2; pass++) {
+    const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --phase ' + phaseNum + ' --project ' + REPO
+      + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+      { label: 'stale-approvals-' + (++__staleCalls), phase: 'P6 · ' + phaseName, agentType: 'general-purpose', schema: STALE_SCHEMA })
+    if (!res || !Array.isArray(res.stale)) return halt('stale-approvals', { error: 'stale-approvals reported no list' })
+    if (!res.stale.length) return reviewed
+    log('  re-review (edited after B approved): ' + res.stale.join(', '))
+    const r = await rerun(res.stale)
+    if (r && r.halt_step) return r
+    reviewed += res.stale.length
+  }
+  return halt('stale-approvals', { error: 'approvals still stale after re-review' })
 }
 const MAX_OUTER_ATTEMPTS_PEER = 3  // peer-review dispatch retry at orchestrator level
 
@@ -3962,7 +4067,10 @@ log('Agent B reviews 4 deliverables; workflow writes 4 approval JSON via persist
 
 const peerDeliverables = ['QUALITY_REPORT.md', 'RELEASE_NOTES.md', 'FINAL_SIGN_OFF.md', 'quality_manifest']
 
-let peerVerdict = null
+let peerVerdict = null, __peerRuns = 0
+async function p6PeerReview() {
+peerVerdict = null
+const __run = ++__peerRuns
 for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
   const peerReport = await dispatch(
     'YOU ARE AGENT B (TECH_LEAD reviewer) for the Phase 6 Gate 4 deliverables (HR-01).\n'
@@ -3983,7 +4091,7 @@ for (let attempt = 1; attempt <= MAX_OUTER_ATTEMPTS_PEER; attempt++) {
     + 'Each "reason" must be ≥100 chars of substantive justification (not "APPROVE" or one-word). Each "gaps" array is empty when review_status is APPROVE. Each "citations" must include ≥1 file:line you actually cat-ed.\n'
     + '"review_status" MUST be exactly "APPROVE" or "REJECT" (case-sensitive) — no other spelling or synonym (e.g. "APPROVED", "Approve", "PASS") is accepted.\n\n'
     + 'SCOPE RULES:\n- DO NOT run advance-phase / git tag / run-gate.\n- DO NOT modify harness/ (HR-17).\n- DO NOT write any files (workflow writes approval JSON; you only review content).',
-    { label: 'peer-review-r' + attempt, phase: 'P6 · Peer Review', agentType: 'general-purpose' },
+    { label: 'peer-review-r' + attempt + (__run > 1 ? '-x' + __run : ''), phase: 'P6 · Peer Review', agentType: 'general-purpose' },
   )
   try {
     const parsed = parseAgentJson(peerReport, 'PeerB-r' + attempt)
@@ -4029,6 +4137,9 @@ if (!allApproved) {
 for (const v of peerVerdict.verdicts) {
   await persistApproval(v.deliverable, v)
 }
+return null
+}
+{ const __pr = await p6PeerReview(); if (__pr) return __pr }
 
 
 
@@ -4083,6 +4194,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Tag & Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const st = await reReviewStaleApprovals(6, 'Tag & Advance', () => p6PeerReview()); if (st && st.halt_step) return st }
   advanceReport = await dispatch(
     'YOU ARE THE PHASE-6 EXIT ORCHESTRATOR. Tag the Gate 4 release + advance to Phase 7. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
