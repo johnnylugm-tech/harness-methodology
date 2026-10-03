@@ -5899,3 +5899,11 @@
 - test: tests/test_degradation_ledger_reaches_git.py::test_the_ledger_stays_volatile
   bug: "committing the ledger must not mean digesting it: 2245e64 measured that an append after the digest makes a verdict never match itself. The fix stages it the way gate_timestamps.jsonl is staged — volatile and committed"
   fixed_in: "Round 113 站8"
+
+- test: tests/test_legal_artifact_locations_agree.py::test_every_phase_deliverable_is_legal_exactly_where_it_lives
+  bug: "LEGAL_ARTIFACTS listed the root-level TEST_INVENTORY.yaml under 01-requirements, and that table is printed into the Phase 1 author prompt as STAGE → {FILE…} — so the framework taught agents `01-requirements/TEST_INVENTORY.yaml` (taskq-sol ×2, six corpus projects ×8). Counter-proof run 2026-10-03: putting it back under 01-requirements turns this red"
+  fixed_in: "Round 113 站3"
+
+- test: tests/test_legal_artifact_locations_agree.py::test_release_documents_live_at_the_project_root
+  bug: "PHASE_DELIVERABLE_PATHS[6] and LEGAL_ARTIFACTS['06-quality'] placed RELEASE_NOTES.md / FINAL_SIGN_OFF.md under 06-quality/, while the P6 workflow, generate_release_notes.py, the P6→P7 handoff and the phase auditor all write or read them at the project root — and all 13 corpus projects that reached Phase 6 have them only there. Counter-proof run 2026-10-03: restoring 06-quality/RELEASE_NOTES.md turns this red"
+  fixed_in: "Round 113 站3"

@@ -10918,3 +10918,11 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **正解**: 照 `.methodology/gate_timestamps.jsonl` 的既有前例:保持 volatile,由 `_advance_commit_targets` 在**檔案存在時** stage(8/23 個語料專案沒有 ledger,無條件 `git add` 會讓整個 commit 失敗)。
 - **守衛(3 支)**: `tests/test_degradation_ledger_reaches_git.py`;反證:拿掉 `cli/advance_steps.py` 的呼叫端參數 → 整合測試紅。
 - **誠實邊界**: handover commit **之後**才寫的列(doctor ERROR、phase_completed 記錄失敗)留到下一個 commit 帶走,與 gate_timestamps 相同。
+
+### 站3: 合法產物位置由一張表說錯,而那張表被印進 prompt
+
+- **缺陷**: `LEGAL_ARTIFACTS["01-requirements"]` 含根目錄的 `TEST_INVENTORY.yaml`;這張表經 `print-legal-artifacts` 渲染成 Phase 1 作者 prompt 的 `LEGAL_HINT`,所以是**框架教**出 `01-requirements/TEST_INVENTORY.yaml`(taskq-sol TRACEABILITY_MATRIX ×2,語料 6 專案 ×8)。同形第二例:P6 的 `RELEASE_NOTES.md` / `FINAL_SIGN_OFF.md` 在 `PHASE_DELIVERABLE_PATHS[6]` 與 `LEGAL_ARTIFACTS["06-quality"]` 被放在 `06-quality/`,而 P6 workflow、`generate_release_notes.py`、P6→P7 handoff、phase auditor 全寫根目錄,語料 13/13 個到過 P6 的專案也只在根目錄有。
+- **第一版藥方被驗證改寫**: 「從表裡拿掉就會被抓到」不成立 —— 語料 8 處錯誤引用全在反引號裡,而 `check_forward_refs` 刻意剝除行內 code(`07985be5`:P1 的警告文字引用 `` `01-requirements/SPEC.md` `` 被自己的檢查判 FAIL)。所以本站修的是**來源**(教錯的那張表),不是偵測。
+- **正解**: 兩張表各改一處;`tests/test_test_legal_artifacts.py` 那支把錯誤事實釘死的測試改成釘「P1 交付物、位於根目錄」;新增一致性測試 —— 兩張表涵蓋的領域不同(依 stage 的 forward-ref 合法性 vs phase 1/2/6 的 approval id → 路徑),無法互相導出,所以在重疊處釘住一致。
+- **守衛(2 支,反證過)**: `tests/test_legal_artifact_locations_agree.py`。
+- **誠實邊界**: 反引號內的錯誤路徑照樣看不見(`07985be5` 的取捨不動)。語料零新增違規(實測)。

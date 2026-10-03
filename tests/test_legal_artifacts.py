@@ -74,9 +74,16 @@ def test_legal_artifacts_has_p1_p2_p4_to_p8() -> None:
 def test_p1_includes_test_inventory() -> None:
     """TEST_INVENTORY.yaml is a real P1 deliverable per harness_cli and per
     agent_b_approvals/*.  Pin it explicitly so a future edit cannot silently
-    drop it (the previous project_layout copy omitted it — audit evidence)."""
+    drop it (the previous project_layout copy omitted it — audit evidence).
+
+    Round 113 站3: it is pinned as a P1 *deliverable*, at the project root.
+    This test used to pin it into LEGAL_ARTIFACTS["01-requirements"], which is
+    the table that says what LIVES in that directory — and that table is
+    printed into the Phase 1 author prompt, so the pin taught the wrong path."""
     mod = importlib.import_module("core.quality_gate.legal_artifacts")
-    assert "TEST_INVENTORY.yaml" in mod.LEGAL_ARTIFACTS["01-requirements"]
+    assert "TEST_INVENTORY.yaml" in mod.PHASE_DELIVERABLES[1]
+    assert mod.PHASE_DELIVERABLE_PATHS[1]["TEST_INVENTORY.yaml"] == "TEST_INVENTORY.yaml"
+    assert "TEST_INVENTORY.yaml" not in mod.LEGAL_ARTIFACTS["01-requirements"]
 
 
 def test_p2_includes_sad_adr_test_spec() -> None:

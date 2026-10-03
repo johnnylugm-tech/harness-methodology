@@ -108,12 +108,20 @@ TEMPLATE_EXAMPLE_VALUES: dict[str, tuple[str, ...]] = {
 # reference in a P1/P2 artifact. Catches invented filenames (e.g. an agent
 # writing ``02-architecture/ARCHITECTURE.md`` when the real P2 deliverable
 # is ``SAD.md``).
+#
+# Round 113 站3: a file belongs here only if it LIVES in that stage directory.
+# This table is printed into the Phase 1 author prompt ("STAGE → {FILE…}"), so
+# listing the root-level TEST_INVENTORY.yaml under 01-requirements taught
+# agents to write `01-requirements/TEST_INVENTORY.yaml` (taskq-sol ×2, six
+# corpus projects ×8). The Phase 6 release documents were placed the same
+# wrong way. tests/test_legal_artifact_locations_agree.py pins this table
+# against PHASE_DELIVERABLE_PATHS below.
 LEGAL_ARTIFACTS: dict[str, set[str]] = {
-    "01-requirements": {"SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"},
+    "01-requirements": {"SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"},
     "02-architecture": {"SAD.md", "ADR.md", "TEST_SPEC.md"},
     "04-testing": {"TEST_PLAN.md", "TEST_RESULTS.md"},
     "05-verification": {"BASELINE.md", "VERIFICATION_REPORT.md"},
-    "06-quality": {"QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md"},
+    "06-quality": {"QUALITY_REPORT.md"},
     "07-risk": {"RISK_REGISTER.md", "RISK_MITIGATION_PLANS.md", "RISK_STATUS_REPORT.md"},
     "08-config": {"CONFIG_RECORDS.md", "RELEASE_CHECKLIST.md"},
 }
@@ -150,8 +158,10 @@ PHASE_DELIVERABLE_PATHS: dict[int, dict[str, str]] = {
     },
     6: {
         "QUALITY_REPORT.md": "06-quality/QUALITY_REPORT.md",
-        "RELEASE_NOTES.md": "06-quality/RELEASE_NOTES.md",
-        "FINAL_SIGN_OFF.md": "06-quality/FINAL_SIGN_OFF.md",
+        # Project root: where the P6 workflow, generate_release_notes.py, the
+        # P6→P7 handoff and the phase auditor all put them (Round 113 站3).
+        "RELEASE_NOTES.md": "RELEASE_NOTES.md",
+        "FINAL_SIGN_OFF.md": "FINAL_SIGN_OFF.md",
         "quality_manifest": ".methodology/quality_manifest.json",
     },
 }
