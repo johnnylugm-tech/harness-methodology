@@ -34,6 +34,7 @@ def _advance_commit_targets(
     plan_exists: bool = True,
     attestation_exists: bool = False,
     setup_cfg_written: bool = False,
+    degradation_ledger_exists: bool = False,
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -59,6 +60,12 @@ def _advance_commit_targets(
     path is symmetric") — advance-phase was the one caller that skipped it,
     landing a handover commit with a stale attestation SHA that only surfaces
     as a blocking failure at the next P5+ pre-push.
+
+    .methodology/degradations.jsonl (Round 113 站8) is evidence a clone needs —
+    `unfinished_scaffolded_manifest` reads it to prove the harness wrote a
+    manifest — and the advance's own prechecks append to it. Staged the way
+    gate_timestamps.jsonl is: when present, while staying volatile so an
+    append never moves the delivered-tree digest (2245e64).
     """
     targets = [
         ".methodology/state.json", "HANDOVER.md",
@@ -74,6 +81,8 @@ def _advance_commit_targets(
         targets.append(".methodology/fr_progress.json")
     if gate_timestamps_exists:
         targets.append(".methodology/gate_timestamps.jsonl")
+    if degradation_ledger_exists:
+        targets.append(".methodology/degradations.jsonl")
     if manifest_regenerated:
         targets.append(".methodology/quality_manifest.json")
     if stage_pass_exists:
@@ -144,6 +153,7 @@ def _uncommitted_deliverables(
         manifest_regenerated=True, fr_progress_exists=True,
         gate_timestamps_exists=True, stage_pass_exists=True,
         plan_exists=True, attestation_exists=True, setup_cfg_written=True,
+        degradation_ledger_exists=True,
     ))
 
     dirty: set[str] = set()

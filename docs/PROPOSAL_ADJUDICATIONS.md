@@ -10906,3 +10906,15 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 |---|---|---|
 | 4b 的 could-not-measure 表示法(站4 退回 GAP-4) | 首版在 `passed` 加 `sc_code == 0` 是死條件:`_run_spec_coverage_check` 四條非零返回路徑的 pct 都是 0.0,而 `SPEC_COV_THRESHOLDS` 最低 60.0,`passed` 早已為 False;反證把該條件拿掉,配套測試 8 支全綠(不鑑別)。且為塞進 201 行天花板壓縮了相鄰無關的兩行。拿掉 `# noqa: F841` 標記卻沒做工作是 R56 | 單獨一輪處理 4b 表示法:讓 `4b_test_spec_pct` 能區分四條返回路徑與真正的 0%,並同步改所有 4b 消費者 |
 | `implementation_modules` / `acceptance_criteria` 的鍵名與框架自己的模板不符,不改名 | `_parse_srs_fr_block_json` 原封讀這兩個鍵,而 `templates/SRS.md:91` 與 `R-SRS-FR-BLOCK-001.md` 教 agent 寫的是 `implementation_functions`,`acceptance_criteria` 兩處都沒有。實測 21 專案 300 個 FR dict:兩鍵非空 0 個,`verification_method` 276 個。AST 掃過兩個真實消費者(`phase_tasks.py` / `project_cmds.py`),三個欄位都零讀者、動態鍵存取為零 —— 接上別名只會填滿沒有消費者的欄位(R30) | 那兩個欄位出現第一個讀者 |
+
+## Round 113 — taskq-sol P1/P2 審計:根源修復 (2026-10-03)
+
+老闆提供一份 taskq-sol(P1/P2 完成、停在 P3 入口,harness `642ed7ec`)的審計報告,令逐條重驗真實性與根源(harness 或 workflow JS)、只採正解、不破壞共通性。重驗把報告分成四類:屬實且根源在框架(9 項)、屬實但要裁定的(4 項,老闆令一次處理)、誇大或前提為假(必備工件「全缺」是時點錯 —— SAB `required_artifacts` 已宣告、`finalize_gate` 從 gate≥2 才擋;ADR-004「自相矛盾」是同一句裡的範圍限定)、以及屬實但屬專案設計品質(Alembic/SQLite DDL、SRS 漏列、sync Session 等 —— 任何通用檢查只能比關鍵字,R101)。每個藥方在動手前先在語料 23 個專案上唯讀驗證;驗證推翻了第一版六個藥方(見各站)。
+
+### 站8: degradation ledger 進 git
+
+- **缺陷**: `core/degradation_ledger.py` 自述住在「consuming project commits 的 .methodology 產物旁邊」,`unfinished_scaffolded_manifest` 拿它當「這個 manifest 是 harness 寫的」的第一證據,但 advance commit 從不 stage 它 —— taskq-sol P2 exit 寫了兩列,handover commit 落地後它仍是 `??`(R90:記錄留在工作樹)。
+- **第一版藥方被驗證推翻**: 「移出 `HARNESS_VOLATILE_PATHS`」會重演 `2245e64` —— append 改動 delivered-tree digest,verdict 永遠對不上自己(`tests/test_verdict_digest_scope.py:182-194` 守著)。
+- **正解**: 照 `.methodology/gate_timestamps.jsonl` 的既有前例:保持 volatile,由 `_advance_commit_targets` 在**檔案存在時** stage(8/23 個語料專案沒有 ledger,無條件 `git add` 會讓整個 commit 失敗)。
+- **守衛(3 支)**: `tests/test_degradation_ledger_reaches_git.py`;反證:拿掉 `cli/advance_steps.py` 的呼叫端參數 → 整合測試紅。
+- **誠實邊界**: handover commit **之後**才寫的列(doctor ERROR、phase_completed 記錄失敗)留到下一個 commit 帶走,與 gate_timestamps 相同。

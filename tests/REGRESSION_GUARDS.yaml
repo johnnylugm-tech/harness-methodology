@@ -5887,3 +5887,15 @@
 - test: tests/test_p2_decision_issue_gate.py::test_required_artifact_deadline_prevents_early_or_late_enforcement
   bug: "Required artifacts had no enforceable delivery deadline: checking all of them at P2 demanded later-phase outputs, while checking none allowed due P2 artifacts to leak. Typed required_by_phase entries must be enforced only when due while legacy strings retain gate-time semantics."
   fixed_in: "91fd4ba9"
+
+- test: tests/test_degradation_ledger_reaches_git.py::test_an_advance_commits_rows_written_before_it
+  bug: "the degradation ledger is evidence a clone needs (unfinished_scaffolded_manifest reads it to prove the harness wrote requirements.txt) and the advance's own prechecks append to it, yet the advance commit staged it nowhere — taskq-sol's P2 exit wrote two rows and the handover commit left the file `??`. Counter-proof run 2026-10-03: dropping the call-site argument in cli/advance_steps.py turns this red"
+  fixed_in: "Round 113 站8"
+
+- test: tests/test_degradation_ledger_reaches_git.py::test_a_missing_ledger_is_not_staged
+  bug: "an explicit `git add` of a missing pathspec fails the whole handover commit; 8 of 23 corpus projects have no ledger, so staging it unconditionally would strand every one of them"
+  fixed_in: "Round 113 站8"
+
+- test: tests/test_degradation_ledger_reaches_git.py::test_the_ledger_stays_volatile
+  bug: "committing the ledger must not mean digesting it: 2245e64 measured that an append after the digest makes a verdict never match itself. The fix stages it the way gate_timestamps.jsonl is staged — volatile and committed"
+  fixed_in: "Round 113 站8"

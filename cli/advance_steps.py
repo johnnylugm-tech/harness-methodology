@@ -405,6 +405,7 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
             (project / ".methodology" / f"phase{args.completed_phase}_plan.md").exists(),
             attestation_exists=(project / ".methodology" / "trace" / "attestation.json").exists(),
             setup_cfg_written=_setup_cfg_written,
+            degradation_ledger_exists=(project / ".methodology" / "degradations.jsonl").exists(),
         )
         _commit_failure: Optional[str] = None
         add_result = subprocess.run(

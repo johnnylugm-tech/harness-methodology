@@ -154,7 +154,11 @@ _CEILINGS: dict[str, int] = {
     # the read-back above does: its position relative to the handover
     # commit and to --push is the whole of what makes it correct, and a
     # helper would move that ordering out of the reader's sight.
-    "cli/advance_steps.py::_advance_step_commit_and_push": 392,
+    # 2026-10-03 Round 113 站8: 392 → 393 (+1) — the handover commit now
+    # stages .methodology/degradations.jsonl when present, one keyword
+    # argument at the existing _advance_commit_targets call, beside the
+    # gate_timestamps one it mirrors.
+    "cli/advance_steps.py::_advance_step_commit_and_push": 393,
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same

@@ -28,7 +28,10 @@ from pathlib import Path
 # was simply absent afterwards, leaving no way to tell "nothing was written"
 # apart from "it was written and then removed". A cross-run audit record has to
 # outlive the work directory it was recording, so it lives beside the other
-# .methodology artefacts a consuming project commits.
+# .methodology artefacts a consuming project commits. Round 113 站8: until
+# then nothing committed it — the advance commit stages it now (when present),
+# and it stays in HARNESS_VOLATILE_PATHS so an append never moves the
+# delivered-tree digest a verdict was recorded against.
 LEDGER_RELPATH = ".methodology/degradations.jsonl"
 
 # Warn once per (component, what) per process — a hot loop hitting the same
