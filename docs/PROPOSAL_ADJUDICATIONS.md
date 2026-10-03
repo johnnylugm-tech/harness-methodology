@@ -10974,3 +10974,12 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **守衛(5 支,反證過)**: Python 4 支(`tests/test_an_approval_is_bound_to_what_b_read.py`)+ sim 6 個情境(`sim_runner.test.mjs` round113,經 `test_sim_testbed_passes`)。反證:拿掉 verify 的 stale 列、write-time fallback、`.methodology/` 排除、reviewOnly 守衛、P2 advance 前呼叫、RELAYED_SHA 記錄、P6 每輪呼叫 —— 各自轉紅。
 - **既有測試的處置**: e2e fixture 與兩支 CLI fixture 改為綁定磁碟上的位元組(它們先寫核准後寫檔);`test_unresolved_entry_obligation_refuses_exit_37` 在刪 FR Block 後重綁 SRS 核准(該 journey 測的是 entry obligation,不是 stale)。
 - **誠實邊界**: 核准仍由 LLM shell wrapper 執行的指令寫入,蓄意偽造的 sha 擋不住 —— 與 relay frame 自述的限制相同(Round 86)。擋的是「改了沒人重審」。
+
+### 站D: 測試放在哪裡,只由 gate 強制的那條規則陳述
+
+- **審計主張**: 21 個整合測試平鋪一個目錄,違反 NFR-11 ≤15(與 SAD 規劃的 `integration/{http,migrations,runtime}/` 衝突)。
+- **驗證改寫了第一版藥方**: 第一版要讓 TEST_INVENTORY 的 `test_file` 成為唯一擁有者。實測推翻:①`test_file` 在框架內**零讀者**(inventory 解析器只讀 tc_id/nfr/layer/test_function;requirement_traceability 用自己的 state);②語料宣告的路徑幾乎從不是測試實際所在(taskq-final 0/28、taskq-new 0/29、taskq-redo 0/46、taskq-cc 2/48);③真正決定放置的是 Gate 1 —— `_check_fr_test_file_exists` 要求 `<test dir>/test_frNN.py`,`test_suite_run.select_fr_outcomes` 以 `test_frNN` 名稱前綴歸屬其餘測試;Gate 1、spec_coverage、test_suite_run、fr_test_scope 都依此運作且正常。把一個沒人讀的欄位升格成權威,要重寫四個正常運作的機制 —— 那是錯誤的方向。審計數到的 21 個檔,是從這個 P3 從不遵循的欄位數出來的。
+- **另一處矛盾**: P3 prompt 說「TEST_SPEC.md §FR-NN (test file list) 是測試放置的 canonical source」(TEST_SPEC 沒有這一節),並說 `test_frNN.py` 慣例「no longer required」—— Gate 1 仍然會擋(R17 prompt↔gate 漂移)。
+- **正解**: 模板拿掉 `test_file`(在任何架構存在前就問放置,而且沒人讀);P3 prompt 改述 Gate 1 實際強制的規則。既有專案 YAML 留著該欄位無害(沒有讀者)。
+- **守衛(3 支,反證過)**: `tests/test_test_placement_has_one_statement.py`,第三支直接釘 gate 的行為,讓 prompt 與 gate 不能再無聲漂開。run-all 縮 191 bytes,上限隨之下修到 426260。
+- **誠實邊界**: 「≤15 檔/目錄」仍只是 P2 的 LLM 審查清單項;測試目錄的實際檔數由專案自己的 NFR(taskq 的 NFR-11)負責,框架不另設數值規則。

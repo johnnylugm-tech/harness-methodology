@@ -5991,3 +5991,15 @@
 - test: tests/test_workflow_sim.py::test_sim_testbed_passes
   bug: "Round 113 站1 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: a stale deliverable is re-reviewed B-first before advance (no A round on a merely stale file), an advance whose own fix staled a deliverable re-reviews it and retries once, the approval carries the relayed sha and gaps, and Phase 6 re-runs Peer Review. Counter-proofs run 2026-10-03: removing the reviewOnly guard, the P2 pre-advance call, the RELAYED_SHA record, or the P6 per-round call each turns a scenario red"
   fixed_in: "Round 113 站1"
+
+- test: tests/test_test_placement_has_one_statement.py::test_the_template_asks_for_no_placement_nobody_reads
+  bug: "TEST_INVENTORY's `test_file` asked P1 — before any architecture exists — where each test 'will live'; nothing in the framework reads it, and the corpus shows the declared paths are almost never where tests end up (taskq-final 0/28, taskq-new 0/29, taskq-redo 0/46). The audit's '21 files flat in one directory' was counted off this field. Counter-proof run 2026-10-03: restoring a test_file example turns this red"
+  fixed_in: "Round 113 站D"
+
+- test: tests/test_test_placement_has_one_statement.py::test_the_phase_3_prompt_states_the_rule_gate_1_enforces
+  bug: "the Phase 3 prompt named 'TEST_SPEC.md §FR-NN (test file list)' — a section TEST_SPEC does not have — as the canonical source of test placement and said the test_frNN.py convention 'is no longer required', while Gate 1 still blocks without it (prompt↔gate drift, R17). Counter-proof run 2026-10-03: restoring the TEST_SPEC claim turns this red"
+  fixed_in: "Round 113 站D"
+
+- test: tests/test_test_placement_has_one_statement.py::test_gate_1_still_requires_the_fr_test_file
+  bug: "pins the rule the prompt now states, read off the gate itself, so the two cannot drift apart silently again"
+  fixed_in: "Round 113 站D"

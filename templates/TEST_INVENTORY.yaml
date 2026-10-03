@@ -29,7 +29,10 @@ format_version: "1.1"
 #   layer          unit | static | integration | e2e — what runs it, and the
 #                  field the NFR Layering Hard Rule reads
 #   test_function  the name, identical to TEST_SPEC.md's `Test Function` cell
-#   test_file      where it will live
+#
+# No placement field (Round 113 站D): placement is not decided here, before any
+# architecture exists. Gate 1 requires `<test dir>/test_frNN.py`, and any other
+# test is attributed to its FR by the `test_frNN` prefix of its name.
 test_inventory:
   tests:
     - tc_id: TC-FR01-01
@@ -37,13 +40,11 @@ test_inventory:
       ac: AC-1.1
       layer: integration
       test_function: test_fr01_example_integration  # EXAMPLE — replace
-      test_file: tests/integration/test_fr01.py
     - tc_id: TC-FR01-02
       fr: FR-01
       ac: AC-1.2
       layer: unit
       test_function: test_fr01_example_unit  # EXAMPLE — replace
-      test_file: tests/unit/test_fr01.py
       cross_ref_nfrs: [NFR-02]
     # An NFR whose verifier is a unit or static check belongs here with its
     # layer, and in TEST_SPEC.md's "Deferred to Downstream Phases" section.
@@ -52,13 +53,11 @@ test_inventory:
       ac: AC-N2.1
       layer: static
       test_function: test_security_example  # EXAMPLE — replace
-      test_file: tests/static/test_nfr02.py
     - tc_id: TC-N09-01
       nfr: NFR-09
       ac: AC-N9.1
       layer: integration
       test_function: test_deployment_example  # EXAMPLE — replace
-      test_file: tests/integration/test_nfr09.py
   coverage_summary:
     total_test_cases: 4
     by_fr:
