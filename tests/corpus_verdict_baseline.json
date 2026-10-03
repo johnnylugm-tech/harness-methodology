@@ -155,6 +155,9 @@
     "spec_undelivered": 52,
     "spec_unread_rows": 0
   },
+  "taskq-open": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
   "taskq-opus": {
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
