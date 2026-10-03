@@ -218,6 +218,14 @@ activated NFR still needs this for its uncovered ids):
   layer contract (NFR-06)") — never invent a placeholder tool, and never
   fabricate a TEST_SPEC test-function row just to force a citation; a
   disposition line is not a test case and must not be dressed as one.
+- A criterion that IS a run of the whole suite or of the verification target
+  ("pytest reports 0 skipped", "`make verify-system` exits 0") is always a
+  `Deferred:` line naming the harness executor that already runs it — the
+  harness's own suite run (phase_truth_verifier's zero-skip check), or
+  `make verify-system` (the system-verification tool at Gates 2-4). It is never
+  a test: a test that runs the suite it belongs to runs itself again, and
+  every finalize-gate refuses one (Round 113 站F). Drop such a name if
+  TEST_INVENTORY.yaml carried it — a retraction is recorded, not blocked.
 - This is a citation-completeness step, not a new test-authoring
   obligation — it costs one line per NFR, not a Q1-Q8 pass.
 

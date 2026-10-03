@@ -6019,3 +6019,19 @@
 - test: tests/test_a_case_observes_the_product.py::test_the_template_example_observes_the_product
   bug: "the TEST_SPEC template's only sub-assertion example was `\" \" in expected` — an Input — and it applied to a case number the template's own case table does not have"
   fixed_in: "Round 113 站5"
+
+- test: tests/test_a_test_does_not_run_its_own_suite.py::test_running_pytest_over_its_own_directory_is_named
+  bug: "taskq-sol's TEST_SPEC declares a test that runs `pytest 03-development/tests` from inside that suite; the corpus versions all broke — taskq-advance skips whenever PYTEST_CURRENT_TEST is set, which pytest sets for every test, so its zero-skip test skipped itself every run. Counter-proof run 2026-10-03: accusing every pytest call regardless of path turns test_running_pytest_on_a_fixture_elsewhere_is_not_named red"
+  fixed_in: "Round 113 站F"
+
+- test: tests/test_a_test_does_not_run_its_own_suite.py::test_running_the_verification_target_is_named
+  bug: "`make verify-system` runs the suite; a test that runs it re-enters the run measuring it, and the harness already runs it at Gates 2-4. Six corpus projects carry one (taskq-advance, -api, -cc, -new, -redo, -renew). Counter-proof run 2026-10-03: dropping the verify-target rule turns this red"
+  fixed_in: "Round 113 站F"
+
+- test: tests/test_a_test_does_not_run_its_own_suite.py::test_collect_only_does_not_execute_and_is_not_named
+  bug: "`--collect-only` executes nothing — taskq-cc counts skips that way without re-entering. Counter-proof run 2026-10-03: ignoring --collect-only turns this red"
+  fixed_in: "Round 113 站F"
+
+- test: tests/test_a_test_does_not_run_its_own_suite.py::test_the_finalize_gate_refuses_it
+  bug: "R30: the read has no effect unless finalize-gate asks it, at every gate. Counter-proof run 2026-10-03: replacing the call with an empty list turns this red"
+  fixed_in: "Round 113 站F"

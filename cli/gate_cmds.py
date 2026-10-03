@@ -1895,6 +1895,23 @@ def _finalize_gate_fr_checks(args: argparse.Namespace, project_path: Path) -> "i
     fr_id = getattr(args, "fr_id", None) or None
     _active_tests = ProjectLayout(project_path).active_test_dir
 
+    # Round 113 站F: a test that launches the suite it belongs to (or
+    # `make verify-system`) re-enters the run that is measuring it — at every
+    # gate, for every FR. The harness runs both itself.
+    if _active_tests.is_dir():
+        from core.quality_gate.self_invoking_tests import self_invoking_tests
+        _reentrant = self_invoking_tests(project_path)
+        if _reentrant:
+            print("[BLOCKED] test(s) that launch the suite they belong to:")
+            for _row in _reentrant:
+                print(f"  {_row}")
+            print("  → the harness runs both itself: its own suite run feeds the "
+                  "zero-skip check (phase_truth_verifier), and `make verify-system` "
+                  "runs at Gates 2-4. Record the criterion in TEST_SPEC.md as "
+                  "`Deferred: AC-… — <that executor>, not a TEST_SPEC case.` and "
+                  "remove the test.")
+            return 1
+
     # I-2: FR test file existence
     if args.gate == 1 and fr_id and _active_tests.is_dir():
         _fr_ok, _fr_msg = _check_fr_test_file_exists(project_path, fr_id)

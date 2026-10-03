@@ -10992,3 +10992,12 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **語料實測**: taskq-sol 84(與先前量的純輸入 case 數逐筆相符)、taskq-api 0。只影響新的 P2 執行;語料專案都已過 P2。
 - **守衛(4 支,反證過)**: `tests/test_a_case_observes_the_product.py`;`test_spec_assertion_parser.py::test_cli_consistency_gate` 的「已修好」fixture 補一條產品述詞(FR-01 原本對產品沒有任何斷言)。
 - **誠實邊界**: `result is not None` 這種弱斷言仍算觀測產品(斷言品質屬 test_assertion_quality 維度)。mirror 內的恆真偵測(斷言名字只綁到參數)見本輪 §不做。
+
+### 站F: 測試不得啟動它所屬的那個套件
+
+- **缺陷**: taskq-sol 的 TEST_SPEC 宣告 `test_nfr09_full_pytest_suite_passes_with_zero_skips`(跑 `pytest 03-development/tests`,含它自己)與 `test_nfr12_verify_system_exits_zero_with_pass_marker`(跑 `make verify-system`,其步驟 2 跑全套)。任一在套件中執行就會再執行自己。語料裡 agent 發明的每一種解法都壞:taskq-advance 在 `PYTEST_CURRENT_TEST` 存在時 skip —— pytest 對**每支**測試都設它,所以那支零 skip 測試每次都 skip 自己;taskq-renew 在 `--cov` 下 skip(harness 就是這樣跑套件);taskq-api 在套件內跑 verify-system;taskq-cc 用 sentinel 擋住無限遞迴,但仍在 harness 的 120 秒套件執行裡再跑一整套(其自訂 timeout 900 秒)。
+- **根源**: 這兩條驗收**已經有不是測試的執行者** —— harness 自己的套件執行餵給 `phase_truth_verifier` 的零 skip 檢查;toolchain 的 `system-verification` 在 Gate 2-4 跑 `make verify-system`。P1 的「每條 AC 都要有測試」沒有給「整套層級的 AC」路由到這些執行者的路。
+- **正解**: `core/quality_gate/self_invoking_tests.py` 以 Python AST 讀測試原始碼:subprocess 的**字面** argv 跑 `make verify-system`,或對包含自身的目錄(或不給路徑)跑 pytest,而且不是 `--collect-only` → 列出;計算出來的參數不指控。`_finalize_gate_fr_checks` 在**每個** gate 問(一支重入的測試會破壞每個 FR 的 harness 執行)。`derive_test_cases.md` 指示這類準則一律寫 `Deferred:` 並點名 harness 執行者。
+- **語料實測**: 6 個專案 9 處(taskq-advance 2、api 1、cc 1、new 1、redo 2、renew 2);taskq-cc 的 `--collect-only` 那支不被點名。
+- **守衛(4 支,反證過)**: `tests/test_a_test_does_not_run_its_own_suite.py`。
+- **誠實邊界**: 只讀 Python;JS/TS 測試樹不判。字面 argv 以外(動態組出的指令)不指控。
