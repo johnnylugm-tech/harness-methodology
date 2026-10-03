@@ -352,6 +352,23 @@ def install_project_dependencies(
             f"{(getattr(proc, 'stderr', '') or '')[-400:]}"
         )
         return outcome
+
+    # Round 113 站7: the test suite this environment exists to run needs the
+    # dev manifest too, and nothing installed one — not the scaffolded one,
+    # not one the project wrote itself. It sits beside the runtime manifest.
+    dev_manifest = manifest.parent / "requirements-dev.txt"
+    if manifest.name in ("requirements.txt", "requirements.lock") and dev_manifest.is_file():
+        proc = run(
+            [_installer_python(root), "-m", "pip", "install", "-r", str(dev_manifest)],
+            capture_output=True,
+            text=True,
+        )
+        if getattr(proc, "returncode", 1) != 0:
+            outcome.blocked_reason = (
+                f"installing from {dev_manifest.name} failed:\n"
+                f"{(getattr(proc, 'stderr', '') or '')[-400:]}"
+            )
+            return outcome
     outcome.installed = True
     return outcome
 
@@ -396,29 +413,34 @@ def _record_scaffold(project: Path, scaffold: "ScaffoldOutcome") -> None:
     entry makes the action visible in the audit trail (who scaffolded, what
     was scaffolded, which SSOTs were parsed, which tokens were filtered out).
     """
-    # Narrowing for type-checkers: callers gate on `manifest_path is not None`.
-    manifest_path = scaffold.manifest_path
-    if manifest_path is None:
-        return
-    try:
-        from core.degradation_ledger import record_degradation
+    # One row per file written: the row is unfinished_scaffolded_manifest's
+    # first witness of authorship, and it names the file (Round 113 站7).
+    written = [
+        (scaffold.manifest_path, scaffold.dependencies),
+        (scaffold.dev_manifest_path, scaffold.dev_dependencies),
+    ]
+    for manifest_path, deps in written:
+        if manifest_path is None:
+            continue
+        try:
+            from core.degradation_ledger import record_degradation
 
-        record_degradation(
-            project,
-            "gate:env-repair",
-            f"SSOT scaffold wrote {manifest_path.name} "
-            f"({len(scaffold.dependencies)} deps from "
-            f"{len(scaffold.source_files)} SSOT file(s))",
-            why=("; ".join(scaffold.warnings)[:300] if scaffold.warnings else ""),
-            data={
-                "manifest_path": str(manifest_path),
-                "source_files": scaffold.source_files,
-                "dependencies": scaffold.dependencies,
-                "warnings": scaffold.warnings[:20],  # cap to keep ledger small
-                "installer_python": _installer_python(project),
-                "ci": bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
-            }, owner="harness"
-        )
-    except Exception as exc:  # pylint: disable=broad-exception-caught
-        print(f"[WARN] env-repair: could not write scaffold ledger entry: {exc}",
-              file=sys.stderr)
+            record_degradation(
+                project,
+                "gate:env-repair",
+                f"SSOT scaffold wrote {manifest_path.name} "
+                f"({len(deps)} deps from "
+                f"{len(scaffold.source_files)} SSOT file(s))",
+                why=("; ".join(scaffold.warnings)[:300] if scaffold.warnings else ""),
+                data={
+                    "manifest_path": str(manifest_path),
+                    "source_files": scaffold.source_files,
+                    "dependencies": deps,
+                    "warnings": scaffold.warnings[:20],  # cap to keep ledger small
+                    "installer_python": _installer_python(project),
+                    "ci": bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS")),
+                }, owner="harness"
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            print(f"[WARN] env-repair: could not write scaffold ledger entry: {exc}",
+                  file=sys.stderr)

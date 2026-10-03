@@ -115,9 +115,11 @@ FRAMEWORK_WRITES: dict[str, WriteSpec] = {
     "ssot:manifest": WriteSpec(
         kind=KIND_DELIVERABLE,
         owner="harness",
-        what="harness/ssot_manifest.py scaffolds requirements.txt from the "
-             "SSOT documents when the project has none; the file is meant to "
-             "be committed, and the ledger row names its inputs",
+        what="harness/ssot_manifest.py scaffolds requirements.txt — and "
+             "requirements-dev.txt when the SSOT declares that file's row "
+             "(Round 113 站7) — from the SSOT documents when the project has "
+             "none; both are meant to be committed, and one ledger row per "
+             "file names its inputs",
     ),
 }
 

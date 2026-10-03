@@ -43,13 +43,17 @@ class ScaffoldOutcome:
 
     - `manifest_path`: where the skeleton was written, or None if nothing was.
     - `source_files`: SSOT files that were actually parsed.
-    - `dependencies`: dep names extracted from SSOT (in encounter order, deduped).
+    - `dependencies`: runtime dep names extracted from SSOT (encounter order, deduped).
+    - `dev_manifest_path` / `dev_dependencies`: the same for `requirements-dev.txt`,
+      written only when the SSOT declares that file's row (Round 113 站7).
     - `warnings`: parse failures / non-fatal issues.
     """
 
     manifest_path: Optional[Path] = None
     source_files: list[str] = field(default_factory=list)
     dependencies: list[str] = field(default_factory=list)
+    dev_manifest_path: Optional[Path] = None
+    dev_dependencies: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -386,7 +390,17 @@ def unfinished_scaffolded_manifest(project: "str | Path") -> "str | None":
     witness.
     """
     project = Path(project)
-    manifest = project / "requirements.txt"
+    reasons = [r for r in (_unfinished(project, project / name)
+                           for name in SCAFFOLDED_MANIFESTS) if r]
+    return "\n".join(reasons) or None
+
+
+#: Every manifest the scaffold can write (Round 113 站7 added the dev one);
+#: the completeness check above asks about each.
+SCAFFOLDED_MANIFESTS = ("requirements.txt", "requirements-dev.txt")
+
+
+def _unfinished(project: Path, manifest: Path) -> "str | None":
     if not manifest.is_file():
         return None
     if not _framework_scaffolded_the_manifest(project, manifest):
@@ -404,16 +418,15 @@ def unfinished_scaffolded_manifest(project: "str | Path") -> "str | None":
         return None
     shown = ", ".join(unpinned[:8]) + ("…" if len(unpinned) > 8 else "")
     return (
-        f"{len(unpinned)} dependenc(ies) in requirements.txt carry no "
+        f"{len(unpinned)} dependenc(ies) in {manifest.name} carry no "
         f"version. This framework scaffolded that file from the project's "
         f"own SSOTs and marked it 'REVIEW AND PIN VERSIONS BEFORE COMMIT'; "
         f"nothing has reviewed it since: {shown}\n"
         f"    → read the extracted list against SAD.md / SPEC.md / SRS.md — "
         f"a runtime the SSOT declares and the scaffold could not name is "
         f"missing from it, not just unpinned — then pin each line "
-        f"(`pip-compile --output-file=requirements.lock requirements.txt`, "
-        f"or by hand) and re-run. Deleting the banner comment does not "
-        f"clear this."
+        f"(`pip-compile` or by hand) and re-run. Deleting the banner "
+        f"comment does not clear this."
     )
 
 
@@ -676,6 +689,7 @@ def scaffold_project_manifest_from_ssot(
     srs_path = layout.phase1_requirements_dir / "SRS.md"
 
     all_deps: list[str] = []
+    dev_deps: list[str] = []
 
     # SAD.md — targeted regex for known packages in specific contexts
     if sad_path.is_file():
@@ -704,56 +718,78 @@ def scaffold_project_manifest_from_ssot(
                 all_deps.append(d)
         outcome.warnings.extend(warns)
 
-        # SPEC.md §5.3 line 323 dev-deps
+        # SPEC.md §5.3 line 323 dev-deps — the SSOT's row for requirements-dev.txt
         deps, warns = _parse_spec_dev_deps_table(spec_path)
         for d in deps:
-            if d not in all_deps:
-                all_deps.append(d)
+            if d not in dev_deps:
+                dev_deps.append(d)
         outcome.warnings.extend(warns)
 
     # SRS.md §2.9 — restated manifest list (dev-deps)
     if srs_path.is_file():
         deps, warns = _parse_srs_section29(srs_path)
         for d in deps:
-            if d not in all_deps:
-                all_deps.append(d)
+            if d not in dev_deps:
+                dev_deps.append(d)
         if deps or not warns:
             outcome.source_files.append("SRS.md")
         outcome.warnings.extend(warns)
 
-    if not all_deps:
+    # Round 113 站7: the dev row is the SSOT's explicit declaration of what
+    # requirements-dev.txt contains; everything in all_deps is a mention the
+    # parsers inferred. A declaration outranks an inference, so a package the
+    # row names is a dev dependency only. Before this, the row was parsed on
+    # purpose and then poured into requirements.txt — taskq-sol shipped
+    # import-linter / mutmut / pytest-benchmark as runtime dependencies.
+    runtime = [d for d in all_deps if d not in dev_deps]
+    if not runtime and not dev_deps:
         outcome.warnings.append("no dependencies extracted from any SSOT")
         return outcome
 
-    outcome.dependencies = all_deps
+    outcome.dependencies = runtime
+    if not _write_skeleton(manifest, runtime, outcome):
+        return outcome
+    outcome.manifest_path = manifest
 
-    # Compose requirements.txt skeleton (no versions — SSOT did not declare them).
-    # Versions will be pinned by project author per SAD.md §4.7 (= pinned)
-    # via `pip-compile` or manual editing before commit.
+    dev_manifest = root / "requirements-dev.txt"
+    if dev_deps:
+        if dev_manifest.is_file():
+            outcome.warnings.append(
+                f"{dev_manifest.name} already exists; not overwriting "
+                "(user-authored manifest preserved)"
+            )
+        elif _write_skeleton(dev_manifest, dev_deps, outcome):
+            outcome.dev_manifest_path = dev_manifest
+            outcome.dev_dependencies = dev_deps
+    return outcome
+
+
+def _write_skeleton(path: Path, deps: "list[str]", outcome: ScaffoldOutcome) -> bool:
+    """Write one unpinned manifest skeleton; False (and a warning) if it cannot.
+
+    No versions — the SSOT did not declare them. The project pins them per its
+    own policy (`pip-compile` or by hand); `unfinished_scaffolded_manifest`
+    holds the Phase 3 exit until it has.
+    """
     sources = ", ".join(outcome.source_files) if outcome.source_files else "(none)"
     lines = [
-        f"# {root.name} — auto-scaffolded from SSOT",
+        f"# {path.parent.name} — auto-scaffolded from SSOT",
         "# Generated by harness.ssot_manifest.scaffold_project_manifest_from_ssot",
         f"# Sources parsed: {sources}",
-        f"# Dependencies extracted: {len(all_deps)}",
+        f"# Dependencies extracted: {len(deps)}",
         "#",
         "# WARNING: AUTO-SCAFFOLDED FROM SSOT - REVIEW AND PIN VERSIONS BEFORE COMMIT",
         "#",
-        "# Versions NOT pinned - SSOT did not declare versions. SAD.md section 4.7 requires",
-        "# `==` pinned. Run `pip-compile --output-file=requirements.lock requirements.txt`",
-        "# or pin manually. See NFR-07 in SPEC.md.",
+        "# Versions NOT pinned - SSOT did not declare versions. Pin each line",
+        f"# (`pip-compile --output-file=<lock> {path.name}`, or by hand) per the",
+        "# project's dependency policy.",
         "",
+        *deps,
+        "",  # trailing newline
     ]
-    for dep in all_deps:
-        lines.append(dep)
-    lines.append("")  # trailing newline
-
     try:
-        manifest.write_text("\n".join(lines), encoding="utf-8")
+        path.write_text("\n".join(lines), encoding="utf-8")
     except OSError as exc:
-        outcome.warnings.append(f"could not write {manifest}: {exc}")
-        outcome.manifest_path = None
-        return outcome
-
-    outcome.manifest_path = manifest
-    return outcome
+        outcome.warnings.append(f"could not write {path}: {exc}")
+        return False
+    return True

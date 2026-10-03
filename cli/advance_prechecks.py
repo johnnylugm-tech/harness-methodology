@@ -1133,7 +1133,7 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
             # finding (Round 87 站2), and it arrives as a runtime value, so
             # the literal line below names where it is — Round 87 站8's
             # shape, and what `test_blocked_message_contract` reads.
-            print("\n[BLOCKED] requirements.txt is this framework's scaffold, "
+            print("\n[BLOCKED] a dependency manifest is this framework's scaffold, "
                   "not a reviewed manifest:")
             print(f"  {_manifest_why}")
             print("  → the unpinned lines and what closes them are named "

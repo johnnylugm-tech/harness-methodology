@@ -10934,3 +10934,11 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **語料實測(與計畫預估逐筆相符)**: 三種格式共 972 處引用,規則點名 61 處 —— taskq-sol 58、taskq-wow 3,全是偏一行;其餘 21 專案零誤報。
 - **守衛(4 支,反證過)**: 空白行規則、look-behind(`TEST_SPEC.md:12` 不是 SPEC 引用)、advance 出口、AST 讀 `_advance_prechecks` 的呼叫。
 - **誠實邊界**: 偏到**另一行內容行**的引用看不見。
+
+### 站7: SSOT 宣告兩個依賴檔,scaffold 就寫兩個
+
+- **缺陷**: taskq-sol 的 SPEC §5.3 把 `requirements.txt` 與 `requirements-dev.txt` 列為兩個必備檔。`harness/ssot_manifest.py` **特地**解析 dev 那一列(`_parse_spec_dev_deps_table` 只匹配它),再把結果倒進 `requirements.txt`;全樹沒有任何程式寫 `requirements-dev.txt`,env-repair 也從不安裝專案自己寫的那份。審計看到的「開發工具混入生產依賴」是框架寫的,不是 agent。
+- **正解**: dev 列是 SSOT 對 dev 檔內容的**明確宣告**,其餘(SAD 的 `pip-licenses` 指令、SPEC §0 意圖表)是 parser **推斷**的提及;宣告優先於推斷,所以 dev 列點名的套件只進 dev 檔。dev 檔不存在才寫,絕不覆寫;env-repair 在 runtime manifest 之後安裝同目錄的 `requirements-dev.txt`(含專案自寫的);每個寫出的檔一列 ledger(作者身分的第一證人);`unfinished_scaffolded_manifest` 與 tree custody 涵蓋兩個檔;exit 41 的文字跟著改。
+- **副作用查證**: scaffold 只在專案沒有 manifest 時跑,語料既有檔零影響;框架內沒有任何消費者要求 dev 工具在 `requirements.txt`(license 維度走 scancode)。專案自寫的 dev 檔現在會被安裝 —— 那正是它存在的理由;安裝失敗以檔名阻擋。
+- **守衛(3 支,反證過)**: `tests/test_the_scaffold_writes_what_the_ssot_declares.py`。
+- **誠實邊界**: SRS 那列用 `、` 分隔仍解析不出來 —— 框架從沒定義那個格式,再加一個猜測的分隔符是 R55,不做。

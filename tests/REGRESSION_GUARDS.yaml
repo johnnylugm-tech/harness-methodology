@@ -5923,3 +5923,15 @@
 - test: tests/test_a_spec_citation_lands_on_content.py::test_advance_phase_runs_the_check
   bug: "R30: a check advance-phase does not call has no live effect. Counter-proof run 2026-10-03: replacing the call in _advance_prechecks with `_pre_rc = None` turns this red"
   fixed_in: "Round 113 站4"
+
+- test: tests/test_the_scaffold_writes_what_the_ssot_declares.py::test_runtime_and_dev_land_in_their_own_files
+  bug: "the scaffold parsed the SSOT's `requirements-dev.txt` row on purpose and poured it into requirements.txt — taskq-sol shipped import-linter / mutmut / pytest-benchmark as runtime dependencies, and nothing anywhere wrote requirements-dev.txt. Counter-proof run 2026-10-03: merging the dev row back into the runtime list turns this red"
+  fixed_in: "Round 113 站7"
+
+- test: tests/test_the_scaffold_writes_what_the_ssot_declares.py::test_an_unpinned_scaffolded_dev_manifest_is_unfinished
+  bug: "unfinished_scaffolded_manifest was hard-wired to requirements.txt, so a scaffolded, unpinned dev manifest would pass the Phase 3 exit the runtime one is held at. Counter-proof run 2026-10-03: dropping requirements-dev.txt from SCAFFOLDED_MANIFESTS turns this red"
+  fixed_in: "Round 113 站7"
+
+- test: tests/test_the_scaffold_writes_what_the_ssot_declares.py::test_env_repair_installs_both_and_records_both
+  bug: "env-repair installed exactly one manifest and never a requirements-dev.txt — scaffolded or project-written — though the test suite the environment exists for needs it; and authorship is witnessed by one ledger row per file. Counter-proof run 2026-10-03: skipping the dev install turns this and two siblings red"
+  fixed_in: "Round 113 站7"
