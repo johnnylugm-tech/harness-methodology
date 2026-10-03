@@ -42,6 +42,7 @@ STRING and never resolved it against a filesystem.
 from __future__ import annotations
 
 import configparser
+import os
 import shlex
 from pathlib import Path
 from typing import Optional
@@ -84,27 +85,8 @@ def resolve_mutation_scope(
     record a degradation naming what is missing.
     """
     # 1. Find the mutation_testing NFR
-    nfr_traceability: dict = sab.get("nfr_traceability", {})
-    nfr_dim_mapping: dict = sab.get("nfr_dimension_mapping", {})
-
-    mutation_nfr_id: Optional[str] = None
-    for nfr_id, dim in nfr_dim_mapping.items():
-        if dim == "mutation_testing":
-            mutation_nfr_id = nfr_id
-            break
-
-    if mutation_nfr_id is None:
-        # Try to find it by dimension field on the NFR entry itself
-        for nfr_id, nfr_entry in nfr_traceability.items():
-            if isinstance(nfr_entry, dict) and nfr_entry.get("dimension") == "mutation_testing":
-                mutation_nfr_id = nfr_id
-                break
-
-    if mutation_nfr_id is None:
-        return None
-
-    nfr_entry = nfr_traceability.get(mutation_nfr_id, {})
-    if not isinstance(nfr_entry, dict):
+    nfr_entry = _mutation_nfr(sab)
+    if nfr_entry is None:
         return None
 
     scope_layers: list[str] = nfr_entry.get("scope_layers", [])
@@ -112,22 +94,7 @@ def resolve_mutation_scope(
         return None
 
     # 2. Resolve layer names → module prefixes
-    layers: list[dict] = sab.get("layers", [])
-    layer_by_name: dict[str, dict] = {lyr.get("name", ""): lyr for lyr in layers}
-
-    module_prefixes: list[str] = []
-    for layer_name in scope_layers:
-        layer = layer_by_name.get(layer_name)
-        if layer is None:
-            continue
-        for mod in layer.get("modules", []):
-            if isinstance(mod, dict):
-                mod_name = mod.get("name", "")
-            else:
-                mod_name = str(mod)
-            if mod_name:
-                module_prefixes.append(mod_name)
-
+    module_prefixes, packages = _scope_modules(sab, scope_layers)
     if not module_prefixes:
         return None
 
@@ -162,6 +129,10 @@ def resolve_mutation_scope(
     for prefix in module_prefixes:
         path = prefix.replace(".", "/")
         candidate = f"{_root}/{path}" if _root else path
+        if prefix in packages:
+            # A package by the SAB's own declaration — no tree needed.
+            unique_paths.add(candidate)
+            continue
         if _base is not None and not (_base / candidate).is_dir():
             # Try the shapes a leaf module can have before giving up on it.
             resolved = next(
@@ -185,6 +156,91 @@ def resolve_mutation_scope(
             result.append(p)
 
     return ", ".join(result)
+
+
+def _module_names(layer: dict) -> "list[str]":
+    names = []
+    for mod in layer.get("modules", []):
+        name = mod.get("name", "") if isinstance(mod, dict) else str(mod)
+        if name:
+            names.append(name)
+    return names
+
+
+def _layer_package(mods: "list[str]", others: "list[str]") -> "str | None":
+    """The package a layer IS, read off the SAB alone — or None.
+
+    Round 113 站6. The common dotted prefix of the layer's modules is that
+    layer's package when (a) some module is declared beneath it, which makes it
+    a package and not a leaf file, and (b) no other layer declares a module at
+    or beneath it, which makes it this layer's and not a shared parent. Every
+    scoped layer in the corpus has this shape; taskq-sol's lists only leaves.
+    """
+    common = os.path.commonprefix([m.split(".") for m in mods])
+    if not common:
+        return None
+    pkg = ".".join(common)
+    if not any(m.startswith(pkg + ".") for m in mods):
+        return None
+    if any(o == pkg or o.startswith(pkg + ".") for o in others):
+        return None
+    return pkg
+
+
+def _scope_modules(sab: dict, scope_layers: "list[str]") -> "tuple[list[str], set[str]]":
+    """(module names to resolve, the subset that are packages by declaration)."""
+    layers: list[dict] = [lyr for lyr in sab.get("layers", []) if isinstance(lyr, dict)]
+    layer_by_name: dict[str, dict] = {lyr.get("name", ""): lyr for lyr in layers}
+    names: list[str] = []
+    packages: set[str] = set()
+    for layer_name in scope_layers:
+        layer = layer_by_name.get(layer_name)
+        if layer is None:
+            continue
+        mods = _module_names(layer)
+        others = [m for lyr in layers if lyr is not layer for m in _module_names(lyr)]
+        pkg = _layer_package(mods, others) if mods else None
+        if pkg:
+            names.append(pkg)
+            packages.add(pkg)
+        else:
+            names.extend(mods)
+    return names, packages
+
+
+def unresolved_scope_modules(
+    sab: dict, src_root: str, project_root: "str | Path",
+) -> "list[str]":
+    """Scope modules that only the tree could place, and the tree cannot yet.
+
+    A module that is not a package by the SAB's own declaration may be a `.py`
+    leaf or a package directory; before Phase 3 writes the code nothing can
+    tell, and writing a guess would make Gate 2 abort pointing at mutmut.
+    """
+    from detection.drift_detector import sab_module_to_path_variants
+
+    nfr = _mutation_nfr(sab)
+    if not nfr:
+        return []
+    names, packages = _scope_modules(sab, nfr.get("scope_layers") or [])
+    base = Path(project_root)
+    _root = src_root.strip("/")
+    return [
+        n for n in names if n not in packages
+        and not any((base / v).exists()
+                    for v in sab_module_to_path_variants(n, _root))
+    ]
+
+
+def _mutation_nfr(sab: dict) -> "dict | None":
+    traceability = sab.get("nfr_traceability", {}) or {}
+    for nfr_id, dim in (sab.get("nfr_dimension_mapping", {}) or {}).items():
+        if dim == "mutation_testing" and isinstance(traceability.get(nfr_id), dict):
+            return traceability[nfr_id]
+    for entry in traceability.values():
+        if isinstance(entry, dict) and entry.get("dimension") == "mutation_testing":
+            return entry
+    return None
 
 
 def mutate_dirs(cwd: Path, paths_to_mutate: str) -> list[Path]:
@@ -256,7 +312,10 @@ def scope_drift(project_root: "str | Path") -> Optional[str]:
     layout = ProjectLayout(root)
     src_root = layout.get_relative_str(layout.phase3_development_dir / "src")
 
-    derived = resolve_mutation_scope(sab, src_root)
+    # Round 113 站6: the same derivation, called the same way, as the
+    # generator — with project_root, so a leaf the generator wrote as `.py`
+    # does not read as drift forever.
+    derived = resolve_mutation_scope(sab, src_root, project_root=root)
     if not derived:
         return None
 
@@ -264,14 +323,17 @@ def scope_drift(project_root: "str | Path") -> Optional[str]:
     if _as_path_set(configured) == _as_path_set(derived):
         return None
 
+    # The remedy names the value, not a command: the generator runs at the
+    # P2 exit, which a project in Phase 3 cannot re-enter.
     return (
         f"setup.cfg [mutmut] paths_to_mutate is "
         f"{configured or '(unset — the whole source tree is mutated)'}, but "
         f"the SAB's mutation_testing NFR scopes it to {derived}. The scope "
         f"decides what this dimension is judged on, so the framework reports "
-        f"the disagreement instead of silently picking one: re-run "
-        f"`advance-phase --completed-phase 2` to regenerate setup.cfg, or "
-        f"amend the SAB's scope_layers if the wider scope is intended."
+        f"the disagreement instead of silently picking one: set\n"
+        f"    [mutmut]\n    paths_to_mutate = {derived}\n"
+        f"in setup.cfg, or amend the SAB's scope_layers if the wider scope "
+        f"is intended."
     )
 
 

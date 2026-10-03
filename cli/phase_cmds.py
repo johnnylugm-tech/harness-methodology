@@ -407,6 +407,7 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
     from core.quality_gate.mutmut_scope import (
         record_runner_scope,
         resolve_mutation_scope,
+        unresolved_scope_modules,
         write_paths_to_mutate,
     )
 
@@ -452,18 +453,19 @@ def _regenerate_mutmut_scope(project: Path) -> bool:
         )
         return False
 
-    # Refuse to write a scope naming directories the project does not have.
-    # setup.cfg would otherwise be a config that makes compute_mutation_score
-    # abort, and the failure would surface at Gate 2 pointing at mutmut.
-    missing = [
-        p for p in (x.strip() for x in paths.split(","))
-        if p and not (project / p).exists()
-    ]
-    if missing:
+    # Refuse to write a GUESS. Round 113 站6: this used to refuse any path not
+    # on disk — and this runs at the P2 exit, before Phase 3 writes any code,
+    # so it refused every time: no corpus project ever got a generated scope.
+    # A layer that is a package by the SAB's own declaration needs no tree;
+    # only a module the tree alone could place as `.py` or package is refused.
+    unresolved = unresolved_scope_modules(sab, src_root, project)
+    if unresolved:
         record_degradation(
             project, "mutation:scope",
-            f"SAB scope_layers resolve to non-existent director(ies) {missing}",
-            why="setup.cfg left unchanged; fix the layer→module mapping in the SAB", owner="harness"
+            f"scope modules {unresolved} cannot be placed before their code exists "
+            f"(a leaf file or a package — the SAB does not say)",
+            why="setup.cfg left unchanged; declare the layer's package in the SAB, "
+                "or set [mutmut] paths_to_mutate once the code exists", owner="harness"
         )
         return False
 

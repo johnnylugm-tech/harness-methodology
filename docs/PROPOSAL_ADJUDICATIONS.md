@@ -10942,3 +10942,13 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **副作用查證**: scaffold 只在專案沒有 manifest 時跑,語料既有檔零影響;框架內沒有任何消費者要求 dev 工具在 `requirements.txt`(license 維度走 scancode)。專案自寫的 dev 檔現在會被安裝 —— 那正是它存在的理由;安裝失敗以檔名阻擋。
 - **守衛(3 支,反證過)**: `tests/test_the_scaffold_writes_what_the_ssot_declares.py`。
 - **誠實邊界**: SRS 那列用 `、` 分隔仍解析不出來 —— 框架從沒定義那個格式,再加一個猜測的分隔符是 R55,不做。
+
+### 站6: mutation scope 在真實的 P2 出口寫得出來
+
+- **缺陷**: `_regenerate_mutmut_scope` 只在 `advance-phase --completed-phase 2` 跑一次,而且拒絕任何不在磁碟上的路徑。P2 出口時 Phase 3 還沒寫任何程式碼,所以**必然拒絕**:語料從未有一個 `[mutmut]` 是 harness 生成的(全是人手寫,`git log --all -S` 為零),每個有 scope 的專案 ledger 都有一列「non-existent director(ies)」,時間戳全部早於其第一個 src commit;mutation 因此退回整棵源碼樹。taskq-sol 那列叫人「fix the layer→module mapping in the SAB」—— 它的 SAB 是對的。
+- **潛在第二缺陷(紅測試當場重現)**: Gate 2 的 `scope_drift` 不帶 `project_root` 推導,生成器帶;生成器若寫出 `.py` 葉路徑,drift 會永久阻擋。補救文字還叫 Phase 3 專案重跑 P2 指令(R103)。
+- **第一版藥方被驗證改寫**: 「延後到程式碼存在時才解析」—— 語料所有 scope layer 的模組都共享一個 package 前綴,所以不必延後:SAB 自己就說了那個 layer 是什麼。
+- **正解**: 一個 layer 的模組的共同 dotted 前綴,在 (a) 其下宣告了模組(所以是 package 不是葉檔)且 (b) 沒有別的 layer 伸入它時,就是該 layer 的 package 目錄 —— 不需要檔案系統。只有樹才能判定是 `.py` 還是 package 的模組才拒絕(而且不再叫人改 SAB)。`scope_drift` 與生成器同一推導同一呼叫法;補救文字寫出要設的值。
+- **兩支既有守衛的處置(R64 —— 讀懂再改,不是因為礙事)**: `test_missing_directories_refuse_to_write_a_broken_config` 的前提「沒有目錄就拒絕」正是缺陷本身(其 fixture 預先建好目錄,不是真實時序);保留名稱與意圖(拒絕會讓 Gate 2 abort 的猜測),改用只有葉模組、樹才能判定的 fixture。`test_a_module_that_is_absent_stays_visible`:對讀成 package 的 layer,幽靈模組是 drift detector 的發現(`detect_sab_drift` Check 1:「SAB declares … but file not found」,已實讀確認),不是 mutation scope 的;測試改釘仍然存在的逐模組分支。
+- **守衛(4 支,反證過)**: `tests/test_mutation_scope_is_written_at_p2.py`。
+- **既有專案**: taskq-done / sn / sol 已在 P3 而無 setup.cfg,Gate 2 的 drift 會擋 —— 現在補救文字寫出要設的那一行,可以照做。

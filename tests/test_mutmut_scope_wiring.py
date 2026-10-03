@@ -167,13 +167,27 @@ def test_hand_edited_scope_is_overwritten_but_leaves_a_ledger_line(tmp_path):
 
 
 def test_missing_directories_refuse_to_write_a_broken_config(tmp_path):
-    """A setup.cfg naming absent directories makes compute_mutation_score abort
-    at Gate 2 pointing at mutmut. Fail here, where the SAB is in view."""
-    project = _project(tmp_path, layers=("cli",))  # no service/ or storage/
+    """A setup.cfg naming a path the code will not have makes
+    compute_mutation_score abort at Gate 2 pointing at mutmut. Fail here,
+    where the SAB is in view.
+
+    Round 113 站6 narrowed WHICH absence refuses. This used to be "any path not
+    on disk" — but this runs at the P2 exit, before Phase 3 writes any code, so
+    it refused every real project (no corpus setup.cfg was ever generated). A
+    layer that is a package by the SAB's own declaration is written now; what
+    still refuses is a module only the tree could place as a `.py` leaf or a
+    package directory — that would be a guess."""
+    sab = json.loads(json.dumps(_SAB))
+    sab["layers"] = [
+        {"name": "service", "modules": ["taskq_plus.engine"]},
+        {"name": "storage", "modules": ["taskq_plus.store"]},
+        {"name": "cli", "modules": ["taskq_plus.cli"]},
+    ]
+    project = _project(tmp_path, sab=sab, layers=("cli",))
     assert _regenerate_mutmut_scope(project) is False
     assert not (project / "setup.cfg").exists()
     ledger = (project / ".methodology" / "degradations.jsonl").read_text(encoding="utf-8")
-    assert "non-existent" in ledger
+    assert "cannot be placed before their code exists" in ledger
 
 
 def test_absent_scope_declaration_is_recorded_not_silent(tmp_path):

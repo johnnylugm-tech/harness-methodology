@@ -1087,7 +1087,10 @@ _LINE_CEILING: dict[str, int] = {
 _LINE_CEILING.update({
     # 2026-10-03: +6 — Round 113 站4: the spec-citation precheck import and its
     # call site (a comment line, the call, its return propagation). Previous: 2280.
-    "cli/phase_cmds.py": 2286,
+    # 2026-10-03: +2 — Round 113 站6: `_regenerate_mutmut_scope` refuses only a
+    # module the tree alone could place (the new import + a longer comment).
+    # Previous: 2286.
+    "cli/phase_cmds.py": 2288,
     "core/quality_gate/arch_constraints.py": 760,
     "core/quality_gate/import_contracts.py": 313,
     "core/quality_gate/red_assertion_check.py": 1064,

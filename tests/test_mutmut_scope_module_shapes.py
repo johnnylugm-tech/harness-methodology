@@ -91,13 +91,19 @@ def test_a_module_that_is_absent_stays_visible(tmp_path):
 
     So: the phantom is still emitted, and the module that IS on disk resolves
     to a path that exists. The existence judgement stays with the caller.
+
+    Round 113 站6: a layer whose modules share a package nobody else reaches
+    into now resolves to that package, and a phantom under it is the drift
+    detector's finding (SAB vs tree), not the mutation scope's. This pins the
+    per-module branch, which still carries every module it is given — so the
+    fixture's `cli` layer reaches into `taskq.service`, keeping the layer from
+    being read as that package.
     """
     _write_leaf(tmp_path, "taskq.service.auth")
 
-    paths = resolve_mutation_scope(
-        _sab("taskq.service.auth", "taskq.service.ghost"), _SRC,
-        project_root=tmp_path,
-    )
+    sab = _sab("taskq.service.auth", "taskq.service.ghost")
+    sab["layers"].append({"name": "cli", "modules": ["taskq.service.cli_glue"]})
+    paths = resolve_mutation_scope(sab, _SRC, project_root=tmp_path)
     resolved = [x.strip() for x in (paths or "").split(",") if x.strip()]
     assert any("ghost" in p for p in resolved), (
         "a module the project does not have vanished from the scope instead "

@@ -5935,3 +5935,19 @@
 - test: tests/test_the_scaffold_writes_what_the_ssot_declares.py::test_env_repair_installs_both_and_records_both
   bug: "env-repair installed exactly one manifest and never a requirements-dev.txt — scaffolded or project-written — though the test suite the environment exists for needs it; and authorship is witnessed by one ledger row per file. Counter-proof run 2026-10-03: skipping the dev install turns this and two siblings red"
   fixed_in: "Round 113 站7"
+
+- test: tests/test_mutation_scope_is_written_at_p2.py::test_the_p2_exit_writes_the_layer_packages
+  bug: "_regenerate_mutmut_scope runs at the P2 exit and refused any path not on disk — but no code exists before Phase 3, so it refused every time: no corpus project ever got a generated [mutmut] scope, every scoped project's ledger has a 'non-existent director(ies)' row timestamped before its first src commit, and mutation testing widened to the whole tree. A layer that is a package by the SAB's own declaration needs no tree. Counter-proof run 2026-10-03: disabling the package reading turns this red"
+  fixed_in: "Round 113 站6"
+
+- test: tests/test_mutation_scope_is_written_at_p2.py::test_a_package_another_layer_reaches_into_is_not_collapsed
+  bug: "a common dotted prefix is a layer's package only if no other layer declares a module at or under it — otherwise collapsing would widen the scope to code the spec left out. Counter-proof run 2026-10-03: dropping the other-layer condition turns this red"
+  fixed_in: "Round 113 站6"
+
+- test: tests/test_mutation_scope_is_written_at_p2.py::test_a_written_leaf_scope_does_not_read_as_drift
+  bug: "scope_drift derived the scope WITHOUT project_root while the generator derived it WITH it, so a leaf scope written as `.py` paths would block Gate 2 as drift forever. Counter-proof run 2026-10-03: dropping project_root from scope_drift turns this red"
+  fixed_in: "Round 113 站6"
+
+- test: tests/test_mutation_scope_is_written_at_p2.py::test_the_drift_remedy_is_one_a_phase_3_project_can_take
+  bug: "the drift block told a Phase 3 project to re-run `advance-phase --completed-phase 2`, a command it cannot re-enter (R103: a block whose remedy cannot be taken). It now names the value to set"
+  fixed_in: "Round 113 站6"
