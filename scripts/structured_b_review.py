@@ -191,7 +191,8 @@ def structured_b_review(raw_text: str, phase: int = 0,
                         round_num: int | None = None,
                         max_rounds: int = 5,
                         doc_content: str | None = None,
-                        vocabulary: dict[str, list[str]] | None = None) -> dict[str, Any]:
+                        vocabulary: dict[str, list[str]] | None = None,
+                        doc_name: str | None = None) -> dict[str, Any]:
     """End-to-end: extract JSON from raw text, validate, return structured dict.
 
     round_num/max_rounds (optional): when supplied, also computes the
@@ -210,6 +211,10 @@ def structured_b_review(raw_text: str, phase: int = 0,
     review_status is never overridden into APPROVE by this — only the gap
     severities feed into escalation, so a script can suppress a false-alarm
     gap inside an APPROVE, but it can never promote a genuine REJECT.
+
+    doc_name (optional): the reviewed deliverable's basename (the CLI derives
+    it from --doc-content). The stub check compares against
+    templates/<doc_name>; without it only the sentinel marks a stub.
     """
     extracted, extraction_meta = extract_b_review_json(raw_text)
 
@@ -276,7 +281,8 @@ def structured_b_review(raw_text: str, phase: int = 0,
     b2_verification: dict[str, Any] | None = None
     if doc_content is not None:
         from core.review_quota import categorize_finding
-        b2_verification = validate_b2_response(result.normalized, doc_content, vocabulary)
+        b2_verification = validate_b2_response(
+            result.normalized, doc_content, vocabulary, doc_name)
         recs = b2_verification["gaps"]["gaps"]
         for gap, rec in zip(gaps, recs):
             gap["severity"] = rec["severity_recommendation"]
@@ -285,7 +291,7 @@ def structured_b_review(raw_text: str, phase: int = 0,
             # category and severity never disagree in the returned gap.
             gap["category"] = categorize_finding(gap)
 
-    if doc_content is not None and doc_is_template_stub(doc_content) \
+    if doc_content is not None and doc_is_template_stub(doc_content, doc_name) \
             and result.normalized.get("review_status") in ("REJECT", "APPROVE"):
         # A verdict on an unfilled template stub cannot stand: content is
         # absent, which is blocking, not a methodology nit. Synthesize one
@@ -425,6 +431,7 @@ def _cli() -> int:
         raw_text, phase=args.phase, deliverable=args.deliverable,
         round_num=args.round_num, max_rounds=args.max_rounds,
         doc_content=doc_content, vocabulary=vocabulary,
+        doc_name=Path(args.doc_content).name if args.doc_content else None,
     )
 
     json_text = json.dumps(result, indent=2, ensure_ascii=False)

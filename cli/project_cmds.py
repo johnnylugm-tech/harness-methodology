@@ -858,12 +858,11 @@ def cmd_load_context(args: argparse.Namespace) -> int:
     # P1/P2 entry agents must distinguish "real SRS.md" from "template placeholder
     # left by `init-project`". Without this check, Agent A might assume P1 is
     # complete because SRS.md exists — but the file is still a stub.
-    # Per SKILL.md §0.3.1, stub = sentinel literal OR ≥8 {placeholder} patterns
-    # (co-equal heuristic `_is_stub_template`). Paths derive from
-    # `_TEMPLATE_ARTIFACT_MAP` (the single source `_init_copy_templates` also
-    # reads), minus the append-log MAINTENANCE_LOG.md.
-    from core.quality_gate.constitution.runner import _is_stub_template
-    _sentinel = "<!-- harness:template-stub -->"
+    # Per SKILL.md §0.3.1, stub = sentinel literal OR ≥8 occurrences of the
+    # placeholders its own template ships (`template_stub.is_unfilled_template`).
+    # Paths derive from `_TEMPLATE_ARTIFACT_MAP` (the single source
+    # `_init_copy_templates` also reads), minus the append-log MAINTENANCE_LOG.md.
+    from core.quality_gate.template_stub import is_unfilled_template
     _template_artifacts = tuple(
         f"{_subdir}/{_filename}" if _subdir else _filename
         for _subdir, _filename in _TEMPLATE_ARTIFACT_MAP
@@ -877,10 +876,10 @@ def cmd_load_context(args: argparse.Namespace) -> int:
                 _content = _p.read_text(encoding="utf-8")
             except OSError:
                 continue
-            if (_sentinel in _content) or _is_stub_template(_content):
+            if is_unfilled_template(_content, _p.name):
                 _warnings.append(
                     f"{_rel} is a template stub (sentinel literal or "
-                    f"≥8 {{placeholder}} patterns per SKILL.md §0.3.1) — "
+                    f"≥8 template placeholders per SKILL.md §0.3.1) — "
                     f"this is a template placeholder, not real content. "
                     f"Remove the sentinel / fill the placeholders before "
                     f"treating it as a real artifact."

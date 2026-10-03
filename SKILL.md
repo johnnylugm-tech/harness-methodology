@@ -149,7 +149,7 @@ do NOT start work until every item is checked.
 Any template under `templates/` may contain the line `<!-- harness:template-stub -->` as its first content line. While present, `core.quality_gate.constitution.runner._scan_file_compliance` returns a vacuous `{correctness:100, security:100, maintainability:100, coverage:100}` dict for that file — it does not count toward the phase's aggregate score. The moment the author removes the line, the file is scored normally.
 
 - **Sentinel literal**: `<!-- harness:template-stub -->` (lowercase, exact match).
-- **Co-equal heuristic**: `_is_stub_template(content)` (counts `{placeholder}` patterns ≥ 8) still applies. A file may satisfy either, both, or neither.
+- **Co-equal heuristic**: ≥ 8 occurrences of placeholders that the file's own `templates/<basename>` ships (`core/quality_gate/template_stub.is_unfilled_template` — used by B-review stub synthesis and the `load-context` stub warning). Brace tokens the template does not ship (e.g. REST path params `/v1/tasks/{id}`) are content and never count. A file may satisfy either, both, or neither. (The constitution runner's off-pipeline `_is_stub_template` still counts all `{placeholder}` patterns.)
 - **Author contract**: remove the sentinel line as the first edit when you start filling the template. Leaving it in a real document is a bug (the file is silently exempted from quality scoring).
 - **First shipped in**: `templates/ADR.md`. Other templates may adopt the same pattern.
 

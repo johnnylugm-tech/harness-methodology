@@ -967,19 +967,29 @@ class TestLoadContextTemplateWarnings:
         )
 
     def test_pure_placeholder_triggers_warning(self, tmp_path, capsys):
-        """TEST_SPEC.md with ≥8 {placeholder} patterns, no sentinel → 1 warning.
+        """SRS.md still holding its template's placeholders, no sentinel → warning.
 
         The earlier version missed this case entirely (heuristic not wired).
+        The heuristic counts only placeholders templates/SRS.md ships.
         """
-        placeholders = " ".join(f"{{Field {i}}}" for i in range(10))
-        self._write_artifact(
-            tmp_path,
-            "02-architecture/TEST_SPEC.md",
-            f"# TEST_SPEC\n\n{placeholders}\n",
-        )
+        template = (Path(__file__).resolve().parents[2] / "templates" / "SRS.md"
+                    ).read_text(encoding="utf-8").replace(self._SENTINEL, "")
+        self._write_artifact(tmp_path, "01-requirements/SRS.md", template)
         result = self._call(tmp_path, capsys)
         assert "warnings" in result
-        assert any("02-architecture/TEST_SPEC.md" in w for w in result["warnings"])
+        assert any("01-requirements/SRS.md" in w for w in result["warnings"])
+
+    def test_non_template_braces_no_warning(self, tmp_path, capsys):
+        """≥8 brace tokens the template does not ship (REST path params) are
+        content, not placeholders → no warning."""
+        rows = "\n".join(f"- `GET /v1/tasks/{{id}}` row {i}" for i in range(10))
+        self._write_artifact(
+            tmp_path, "02-architecture/TEST_SPEC.md", f"# TEST_SPEC\n\n{rows}\n",
+        )
+        result = self._call(tmp_path, capsys)
+        assert not any(
+            "02-architecture/TEST_SPEC.md" in w for w in result.get("warnings", [])
+        )
 
     def test_clean_artifact_no_warning(self, tmp_path, capsys):
         """All three artifacts are real (no sentinel, < 8 placeholders) → no warnings."""

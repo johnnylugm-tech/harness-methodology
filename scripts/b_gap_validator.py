@@ -224,22 +224,19 @@ def verify_gap_against_doc(gap_message: str, doc_content: str,
 # ---------------------------------------------------------------------------
 
 
-def doc_is_template_stub(content: str) -> bool:
+def doc_is_template_stub(content: str, doc_name: str | None = None) -> bool:
     """True iff *content* is an unfilled framework template (deterministic).
 
-    Mirrors the two co-equal heuristics of SKILL.md §0.3.1: the literal
-    `<!-- harness:template-stub -->` sentinel (substring match, so YAML
-    templates that wrap it in a `#` comment still hit) or >=8 {placeholder}
-    patterns. Imported from the constitution runner rather than
-    re-implemented — a second spelling of "what a stub looks like" is how
+    SKILL.md §0.3.1: the literal `<!-- harness:template-stub -->` sentinel
+    (substring match, so YAML templates that wrap it in a `#` comment still
+    hit) or >=8 occurrences of placeholders shipped by `templates/<doc_name>`.
+    Delegates to `template_stub.is_unfilled_template` rather than
+    re-implementing — a second spelling of "what a stub looks like" is how
     this class of defect recurs.
     """
-    from core.quality_gate.constitution.runner import (
-        _TEMPLATE_STUB_SENTINEL,
-        _is_stub_template,
-    )
+    from core.quality_gate.template_stub import is_unfilled_template
 
-    return _TEMPLATE_STUB_SENTINEL in content or _is_stub_template(content)
+    return is_unfilled_template(content, doc_name)
 
 
 def recommend_severity(
@@ -306,6 +303,7 @@ def validate_gaps(
     gaps: list[dict[str, Any]],
     doc_content: str,
     vocabulary: dict[str, list[str]] | None = None,
+    doc_name: str | None = None,
 ) -> dict[str, Any]:
     """Validate every gap against doc_content.
 
@@ -315,7 +313,7 @@ def validate_gaps(
     if vocabulary is None:
         vocabulary = DEFAULT_TECHNICAL_VOCAB
     vocab_re = _build_vocab_regex(vocabulary)
-    stub_doc = doc_is_template_stub(doc_content)
+    stub_doc = doc_is_template_stub(doc_content, doc_name)
 
     rows: list[dict[str, Any]] = []
     severity_counter: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
@@ -382,6 +380,7 @@ def validate_b2_response(
     b2: dict[str, Any],
     doc_content: str,
     vocabulary: dict[str, list[str]] | None = None,
+    doc_name: str | None = None,
 ) -> dict[str, Any]:
     """Validate a full B-2 response (gaps + reason + citations) against doc_content.
 
@@ -396,7 +395,7 @@ def validate_b2_response(
         vocabulary = DEFAULT_TECHNICAL_VOCAB
     vocab_re = _build_vocab_regex(vocabulary)
 
-    gaps_report = validate_gaps(b2.get("gaps") or [], doc_content, vocabulary)
+    gaps_report = validate_gaps(b2.get("gaps") or [], doc_content, vocabulary, doc_name)
 
     reason = (b2.get("reason") or "").strip()
     if reason:
@@ -484,7 +483,7 @@ def _cli() -> int:
         return 2
 
     vocabulary = load_vocabulary(args.vocab)
-    result = validate_gaps(gaps, doc_content, vocabulary)
+    result = validate_gaps(gaps, doc_content, vocabulary, doc_path.name)
 
     json_text = json.dumps(result, indent=2, ensure_ascii=False)
     if args.json_out:

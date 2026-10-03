@@ -572,6 +572,60 @@ class TestStubDocSynthesis:
         assert result["escalation_action"] == "approve"
         assert not any(g.get("_synthesized") for g in result["gaps"])
 
+    _FILLED_SRS_WITH_PATH_PARAMS = "# SRS — taskq\n\n### FR-01: Tasks\n" + "".join(
+        f"- AC-{i}: `DELETE /v1/tasks/{{id}}` removes the task\n" for i in range(14)
+    )
+    _APPROVE_LOW_ONLY = json.dumps({
+        "review_status": "APPROVE",
+        "reason": "the document correctly covers all requirements with clear "
+                  "acceptance criteria and no ambiguity remains after this pass",
+        "gaps": [{
+            "severity": "low", "evidence_type": "methodology_artifact",
+            "canonical_ref": "", "message": "minor wording nit only",
+        }],
+    })
+
+    def test_rest_path_params_do_not_synthesize_stub_gap(self):
+        """taskq-open P1: 14 × `/v1/tasks/{id}` in a filled SRS.md must not be
+        read as an unfilled template — APPROVE + low gaps approves."""
+        result = structured_b_review(
+            self._APPROVE_LOW_ONLY, round_num=5, max_rounds=5,
+            doc_content=self._FILLED_SRS_WITH_PATH_PARAMS, doc_name="SRS.md",
+        )
+        assert not any(g.get("_synthesized") for g in result["gaps"])
+        assert result["escalation_action"] == "approve"
+
+    def test_cli_derives_doc_name_from_doc_content_path(self, tmp_path):
+        """The workflow JS passes only --doc-content <path>; the basename must
+        reach the stub check without any JS change."""
+        raw = tmp_path / "raw.txt"
+        raw.write_text(self._APPROVE_LOW_ONLY, encoding="utf-8")
+        doc = tmp_path / "SRS.md"
+        doc.write_text(self._FILLED_SRS_WITH_PATH_PARAMS, encoding="utf-8")
+        out = tmp_path / "out.json"
+        proc = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve().parent.parent
+                                 / "scripts" / "structured_b_review.py"),
+             "--raw-text", str(raw), "--round", "5", "--max-rounds", "5",
+             "--doc-content", str(doc), "--json-out", str(out), "--quiet"],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0, proc.stderr
+        result = json.loads(out.read_text(encoding="utf-8"))
+        assert result["escalation_action"] == "approve"
+
+    def test_pristine_template_still_gains_stub_gap(self):
+        """Regression guard: an untouched template (no sentinel needed) is
+        still a stub when its own placeholders remain."""
+        template = (Path(__file__).resolve().parent.parent / "templates"
+                    / "RISK_REGISTER.md").read_text(encoding="utf-8")
+        result = structured_b_review(
+            self._APPROVE_LOW_ONLY, round_num=1, max_rounds=5,
+            doc_content=template, doc_name="RISK_REGISTER.md",
+        )
+        assert any(g.get("_synthesized") for g in result["gaps"])
+        assert result["escalation_action"] == "retry"
+
 
 # ---------------------------------------------------------------------------
 # Determinism

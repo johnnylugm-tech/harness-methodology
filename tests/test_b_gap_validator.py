@@ -35,6 +35,8 @@ from scripts.b_gap_validator import (
     verify_gap_against_doc,
 )
 
+_TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+
 
 # ---------------------------------------------------------------------------
 # Term extraction
@@ -366,9 +368,39 @@ class TestDocIsTemplateStub:
             "# SRS — {Project Name}\n\n<!-- harness:template-stub -->\n"
         ) is True
 
-    def test_eight_plus_placeholders_is_stub(self):
-        placeholders = "\n".join(f"| FR-{i:02d} | {{requirement {i}}} |" for i in range(8))
-        assert doc_is_template_stub(f"# Doc\n{placeholders}\n") is True
+    def test_pristine_template_without_sentinel_is_stub(self):
+        """RISK_REGISTER.md ships no sentinel; its own placeholders identify it."""
+        template = (_TEMPLATES / "RISK_REGISTER.md").read_text(encoding="utf-8")
+        assert doc_is_template_stub(template, doc_name="RISK_REGISTER.md") is True
+
+    def test_pristine_srs_template_is_stub(self):
+        template = (_TEMPLATES / "SRS.md").read_text(encoding="utf-8")
+        assert doc_is_template_stub(template, doc_name="SRS.md") is True
+
+    def test_filled_srs_with_rest_path_params_is_not_stub(self):
+        """`/v1/tasks/{id}` is canonical content, not an unfilled field.
+
+        taskq-open P1 halted twice at HR-12 because a filled SRS.md carrying
+        14 `{id}` path parameters (transcribed from SPEC.md) was counted as
+        >=8 placeholders and gained a synthesized high "template stub" gap
+        that Agent A could never fix.
+        """
+        rows = "\n".join(
+            f"- AC-{i}: `GET /v1/tasks/{{id}}` returns the task" for i in range(14)
+        )
+        doc = f"# SRS — taskq\n\n### FR-01: Create task\n{rows}\n"
+        assert doc_is_template_stub(doc, doc_name="SRS.md") is False
+
+    def test_non_template_braces_without_doc_name_is_not_stub(self):
+        """Counterexample: brace tokens alone, with no template to compare
+        against, are content — only the sentinel can mark a stub."""
+        content = "\n".join(f"{{field {i}}}" for i in range(12))
+        assert doc_is_template_stub(f"# Doc\n{content}\n") is False
+
+    def test_sentinel_is_stub_for_any_doc_name(self):
+        assert doc_is_template_stub(
+            "# Notes\n<!-- harness:template-stub -->\n", doc_name="NOT_A_TEMPLATE.md"
+        ) is True
 
     def test_yaml_comment_wrapped_sentinel_is_stub(self):
         assert doc_is_template_stub(

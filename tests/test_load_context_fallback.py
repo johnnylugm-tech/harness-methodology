@@ -115,6 +115,29 @@ def test_p1_spec_without_fr_headings_returns_empty(tmp_project: Path) -> None:
     assert result["fr_id_source"] == "none"
 
 
+def test_filled_srs_with_rest_path_params_is_not_warned_as_stub(
+    tmp_project: Path,
+) -> None:
+    """`/v1/tasks/{id}` is content: a filled SRS.md carrying 14 of them must
+    not be reported to the P1 agent as a template stub (taskq-open)."""
+    (tmp_project / "01-requirements" / "SRS.md").write_text(
+        "# SRS — taskq\n\n### FR-01: Tasks\n" + "".join(
+            f"- AC-{i}: `GET /v1/tasks/{{id}}` returns the task\n" for i in range(14)
+        ),
+        encoding="utf-8",
+    )
+    result = _run_load_context(tmp_project, env={})
+    assert not any("SRS.md" in w for w in result.get("warnings", []))
+
+
+def test_sentinel_srs_is_still_warned_as_stub(tmp_project: Path) -> None:
+    (tmp_project / "01-requirements" / "SRS.md").write_text(
+        "# SRS\n<!-- harness:template-stub -->\n", encoding="utf-8",
+    )
+    result = _run_load_context(tmp_project, env={})
+    assert any("SRS.md" in w for w in result.get("warnings", []))
+
+
 # ── Round 65 站2: where the tests are, said once ────────────────────────────
 
 def test_load_context_reports_the_resolved_test_and_coverage_targets(tmp_project):
