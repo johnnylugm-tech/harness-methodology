@@ -660,6 +660,43 @@ def _precheck_spec_citations_land_on_content(
         return None
 
 
+def _precheck_open_decisions_are_not_due(
+    completed_phase, project,
+) -> "int | None":
+    """An open decision issue whose own deadline has arrived blocks the boundary.
+
+    Round 113 站9. The Phase 2 exit asks the full lifecycle question
+    (cli/p2_transition.py); every later boundary asks only each open row's
+    declared `blocks_phase`, so a row deferred to Phase 5 is asked when Phase 5
+    arrives instead of never. Registration is not re-asked here.
+    """
+    if completed_phase < 3:
+        return None
+    try:
+        from cli.exit_codes import EX_ADVANCE_PRECONDITION_BLOCK
+        from core.quality_gate.decision_issues import due_open_decision_findings
+        from core.quality_gate.sab_parser import extract_sab_from_sad
+        from core.utils.project_layout import ProjectLayout
+
+        sad_path = ProjectLayout(Path(project)).sad_path
+        sab = extract_sab_from_sad(sad_path) if sad_path.is_file() else None
+        found = due_open_decision_findings(
+            sab.decision_issues if sab else [], entering_phase=completed_phase + 1)
+        if not found:
+            return None
+        print(f"\n[BLOCKED] {len(found)} decision issue(s) are still open at the "
+              f"boundary they declared they block:")
+        for row in found:
+            print(f"  - {row}")
+        print("  → record the decision on a line that names the issue as resolved, "
+              "set status: resolved with resolution_ref: <path>:<line>, regenerate "
+              "SAB.json, then re-run advance-phase.")
+        return EX_ADVANCE_PRECONDITION_BLOCK
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] open-decision check skipped: {exc}", file=sys.stderr)
+        return None
+
+
 def _precheck_declared_constraints_are_configured(
     completed_phase, project,
 ) -> "int | None":

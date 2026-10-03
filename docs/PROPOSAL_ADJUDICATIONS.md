@@ -10952,3 +10952,14 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **兩支既有守衛的處置(R64 —— 讀懂再改,不是因為礙事)**: `test_missing_directories_refuse_to_write_a_broken_config` 的前提「沒有目錄就拒絕」正是缺陷本身(其 fixture 預先建好目錄,不是真實時序);保留名稱與意圖(拒絕會讓 Gate 2 abort 的猜測),改用只有葉模組、樹才能判定的 fixture。`test_a_module_that_is_absent_stays_visible`:對讀成 package 的 layer,幽靈模組是 drift detector 的發現(`detect_sab_drift` Check 1:「SAB declares … but file not found」,已實讀確認),不是 mutation scope 的;測試改釘仍然存在的逐模組分支。
 - **守衛(4 支,反證過)**: `tests/test_mutation_scope_is_written_at_p2.py`。
 - **既有專案**: taskq-done / sn / sol 已在 P3 而無 setup.cfg,Gate 2 的 drift 會擋 —— 現在補救文字寫出要設的那一行,可以照做。
+
+### 站9: 決策移交在 `91fd4ba9` 之後仍漏掉的四件事
+
+- **背景**: `91fd4ba9`(另一 session)讓 P2 出口拒絕 SAB 未登記的 SRS `*-deferred` id —— 對 taskq-sol 會擋下全部 7 個。本站只補它留下的洞,不重做它。
+- **洞 1 — 檔案存在不是決議**: `resolved` 列的 `resolution_ref` 指向任何存在的檔案就過;taskq-sol 的 ADR.md 存在,卻對它會被引用的那些決策寫「remain unresolved」(ADR.md:116/:140/:159/:212)。**正解**沿用 `review_ref` 的既有證據規則(`property_check._review_disposition_resolves`):`path:line`,該行點名此 issue 且寫 `resolved`(look-behind 排除 `unresolved`)。這是作者刻意寫下的處置標記,不是挖散文。
+- **洞 2 — TEST_SPEC 依賴未決決策**: case Inputs 的 `precondition="… from ADR (SRS §7 FR-xx-deferred)"`(taskq-sol 12 個 case、6 個 id,與審計逐筆相符)沒有讀者。**正解**: P2 出口時,被 TEST_SPEC case 點名的 id 必須已登記且已 resolved —— Phase 3 不能對著一個還沒做的決定寫測試。
+- **洞 3 — 只問一次**: `blocks_phase: 5` 的 open 列在進 P3 時問過一次就再也沒人問。**正解**: P3 之後每個交界只問各列**自己宣告的期限**;「SRS id 是否全部登記」仍只在 P2 出口問 —— 在此 gate 存在前就過了 P2 的專案不被它追溯判第二次。
+- **洞 4 — prompt 承諾一個不存在的檢查**: P2 ambiguity protocol 教 `skip_reason: spec_gap_resolved_in_p3`,並說 check-test-spec-consistency「will reject」缺它的 case —— 沒有任何檢查讀這兩者。改為「點名 id、在 SAB decision_issues 決議」。run-all 首版 420855 bytes 被拒,兩句都砍到只剩規則,量得 419953(上限不動)。
+- **守衛(5 支,反證過)**: `tests/test_decision_issues_bind_and_recur.py`;`91fd4ba9` 的 `test_resolved_issue_requires_durable_evidence` fixture 改用 `path:line`(其意圖「決議要有可存證據」不變,只是證據變精確)。
+- **taskq-sol 實測**: 7 條發現(未登記;TEST_SPEC 依賴的同 id 不重複報)。
+- **誠實邊界**: 沒有 `-deferred` id 的 ADR 未決項(taskq-sol 的限流排序)要讀散文才看得到,不做(R87)。字串形式的 import 約束只驗「有某個 forbidden 合約」(審計 I 的剩餘),HEAD 已擋 taskq-sol 這一例,不擴大。

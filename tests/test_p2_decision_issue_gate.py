@@ -28,14 +28,17 @@ def test_open_issue_blocks_at_declared_boundary_but_not_before(tmp_path: Path):
 
 def test_resolved_issue_requires_durable_evidence(tmp_path: Path):
     _srs(tmp_path, "# SRS\nFR-02-deferred\n")
+    # Round 113 站9: durable evidence is the LINE that records the decision
+    # (path:line naming the issue as resolved), not any file that exists —
+    # taskq-sol's ADR.md exists and says "remain unresolved".
     rows = [{"id": "FR-02-deferred", "status": "resolved",
-             "resolution_ref": "02-architecture/adr/ADR.md#ADR-2"}]
+             "resolution_ref": "02-architecture/adr/ADR.md:2"}]
     assert "does not resolve" in decision_issue_findings(
         tmp_path, rows, entering_phase=3
     )[0]
     ref = tmp_path / "02-architecture" / "adr" / "ADR.md"
     ref.parent.mkdir(parents=True)
-    ref.write_text("# ADR-2\n", encoding="utf-8")
+    ref.write_text("# ADR-2\nFR-02-deferred: resolved — tail is 4096 bytes\n", encoding="utf-8")
     assert decision_issue_findings(tmp_path, rows, entering_phase=3) == []
 
 

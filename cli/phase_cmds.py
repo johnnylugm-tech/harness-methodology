@@ -112,6 +112,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_early_stage_pass,
     _precheck_framework_examples_were_replaced,
     _precheck_manifest_and_p1_baselines,
+    _precheck_open_decisions_are_not_due,
     _precheck_p3_criteria_review,
     _precheck_p3_security_and_quality,
     _precheck_per_fr_gate1_and_phase_truth,
@@ -2039,6 +2040,10 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
         return _pre_rc
 
     _pre_rc = precheck_p2_transition(project, completed_phase)
+    if _pre_rc is not None:
+        return _pre_rc
+    # Later boundaries: an open decision row's own deadline (Round 113 站9).
+    _pre_rc = _precheck_open_decisions_are_not_due(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

@@ -5951,3 +5951,23 @@
 - test: tests/test_mutation_scope_is_written_at_p2.py::test_the_drift_remedy_is_one_a_phase_3_project_can_take
   bug: "the drift block told a Phase 3 project to re-run `advance-phase --completed-phase 2`, a command it cannot re-enter (R103: a block whose remedy cannot be taken). It now names the value to set"
   fixed_in: "Round 113 站6"
+
+- test: tests/test_decision_issues_bind_and_recur.py::test_a_line_that_says_unresolved_is_not_a_resolution
+  bug: "91fd4ba9 accepted a `resolved` decision whose resolution_ref named any file that exists — taskq-sol's ADR.md exists and says 'remain unresolved' of the very decisions it would be cited for. The ref is now path:line and that line names the issue as resolved (the review_ref rule). Counter-proofs run 2026-10-03: dropping the line check turns this red, and so does a `resolved` pattern without the look-behind (`unresolved` would pass)"
+  fixed_in: "Round 113 站9"
+
+- test: tests/test_decision_issues_bind_and_recur.py::test_a_case_that_depends_on_an_open_decision_blocks_phase_3
+  bug: "TEST_SPEC case Inputs carried `precondition=\"… from ADR (SRS §7 FR-xx-deferred)\"` — 12 cases over 6 ids in taskq-sol — and nothing read them, so Phase 3 had to invent the decision to write the test. Counter-proof run 2026-10-03: skipping the TEST_SPEC scan turns this and a sibling red"
+  fixed_in: "Round 113 站9"
+
+- test: tests/test_decision_issues_bind_and_recur.py::test_an_open_row_is_asked_again_when_its_phase_arrives
+  bug: "an open decision row with blocks_phase: 5 was asked once, entering Phase 3, and never again"
+  fixed_in: "Round 113 站9"
+
+- test: tests/test_decision_issues_bind_and_recur.py::test_advance_phase_asks_the_later_boundaries
+  bug: "R30: a later-boundary check advance-phase does not call has no live effect. Counter-proof run 2026-10-03: replacing the call with `_pre_rc = None` turns this red"
+  fixed_in: "Round 113 站9"
+
+- test: tests/test_decision_issues_bind_and_recur.py::test_the_p2_prompt_does_not_invite_a_phase_3_spec_gap
+  bug: "the P2 prompt told agents to mark an ambiguous case `skip_reason: spec_gap_resolved_in_p3` and promised check-test-spec-consistency would reject a case lacking one — no check reads either. Counter-proof run 2026-10-03: restoring the invitation turns this red"
+  fixed_in: "Round 113 站9"

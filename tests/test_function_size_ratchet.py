@@ -188,7 +188,9 @@ _CEILINGS: dict[str, int] = {
     # 2026-10-03: +5 — Round 113 站4: the Phase 1 spec-citation check's
     # call site (comment, call, three-line return). The check is its own
     # helper in cli/advance_prechecks.py.
-    "cli/phase_cmds.py::_advance_prechecks": 280,
+    # 2026-10-03: +4 — Round 113 站9: the later-boundary open-decision call
+    # site (comment, call, return).
+    "cli/phase_cmds.py::_advance_prechecks": 284,
     # The one run with NO safe cut point under the extraction rule: every
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line

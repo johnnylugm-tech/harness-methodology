@@ -206,7 +206,8 @@ sab:
   decision_issues: []
   # Register every SRS FR-XX-deferred/NFR-XX-deferred id here.
   # Each row: {id, status: open|resolved, blocks_phase,
-  # resolution_ref}. Resolved refs must name an existing artifact.
+  # resolution_ref}. A resolved ref is path:line, and that line
+  # names the id as resolved: `FR-01-deferred: resolved — <decision>`.
 
   high_risk_modules:
     - "app.api.webhooks"
