@@ -157,6 +157,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         an EXAMPLE is still there — a `*_example_*` test name, or a SAB
         template module path whose root package this project does not
         deliver. Replace each one the block names, then re-run.
+    50  advance-phase --completed-phase 1: a SPEC.md line citation in a
+        Phase 1 deliverable lands on a blank line, a table separator, or
+        past the end of the file. Correct each number the block names to
+        the line that carries the content, then re-run.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

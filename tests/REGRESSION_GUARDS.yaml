@@ -5907,3 +5907,19 @@
 - test: tests/test_legal_artifact_locations_agree.py::test_release_documents_live_at_the_project_root
   bug: "PHASE_DELIVERABLE_PATHS[6] and LEGAL_ARTIFACTS['06-quality'] placed RELEASE_NOTES.md / FINAL_SIGN_OFF.md under 06-quality/, while the P6 workflow, generate_release_notes.py, the P6→P7 handoff and the phase auditor all write or read them at the project root — and all 13 corpus projects that reached Phase 6 have them only there. Counter-proof run 2026-10-03: restoring 06-quality/RELEASE_NOTES.md turns this red"
   fixed_in: "Round 113 站3"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_a_citation_on_a_blank_line_is_named
+  bug: "nothing read what a Phase 1 `SPEC.md:N` citation pointed at — taskq-sol's ten SPEC_TRACKING ranges all start on the blank line above their FR heading, Agent B called that non-blocking and approved. Counter-proof run 2026-10-03: dropping the blank-line rule turns this and three siblings red"
+  fixed_in: "Round 113 站4"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_other_files_named_like_the_spec_are_not_read_as_it
+  bug: "`TEST_SPEC.md:12` is a citation of a different file; a pattern that matches `SPEC.md` as the tail of another name would accuse every TEST_SPEC reference. Counter-proof run 2026-10-03: removing the look-behind turns this red"
+  fixed_in: "Round 113 站4"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_the_advance_blocks_on_a_misplaced_citation
+  bug: "the check has to be asked at the boundary that closes the phase which wrote the citations, and only there — Phase 1. A detector no executor runs is Round 43"
+  fixed_in: "Round 113 站4"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_advance_phase_runs_the_check
+  bug: "R30: a check advance-phase does not call has no live effect. Counter-proof run 2026-10-03: replacing the call in _advance_prechecks with `_pre_rc = None` turns this red"
+  fixed_in: "Round 113 站4"

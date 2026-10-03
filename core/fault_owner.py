@@ -201,6 +201,7 @@ OWNER_BY_EXIT: dict[int, str] = {
     # the phase which was supposed to replace them, and the block names the
     # file, the line and the identifier.
     49: Owner.PROJECT,
+    50: Owner.PROJECT,  # a Phase 1 deliverable's SPEC.md line citation lands off content
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

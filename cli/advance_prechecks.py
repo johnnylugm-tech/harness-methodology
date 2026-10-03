@@ -626,6 +626,40 @@ def _precheck_framework_examples_were_replaced(
         return None
 
 
+def _precheck_spec_citations_land_on_content(
+    completed_phase, project,
+) -> "int | None":
+    """Every SPEC.md line citation in a Phase 1 deliverable lands on content.
+
+    Round 113 站4. The rule and its measurement live in
+    `core.quality_gate.spec_citations`. Asked once, at the boundary that closes
+    the phase which wrote the citations; the remedy is an edit to a number, so
+    blocking here cannot strand the project (R103).
+
+    Never raises: a file that cannot be read is a worse reason to refuse an
+    advance than the thing it was going to report.
+    """
+    if completed_phase != 1:
+        return None
+    try:
+        from cli.exit_codes import EX_ADVANCE_SPEC_CITATION_OFF_CONTENT
+        from core.quality_gate.spec_citations import misplaced_spec_citations
+
+        found = misplaced_spec_citations(Path(project))
+        if not found:
+            return None
+        print(f"\n[BLOCKED] {len(found)} SPEC.md line citation(s) in the Phase 1 "
+              "deliverables point at no content:")
+        for row in found:
+            print(f"  {row}")
+        print("  → open SPEC.md at each number and cite the line that carries "
+              "the text — these are almost always one line off.")
+        return EX_ADVANCE_SPEC_CITATION_OFF_CONTENT
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARN] SPEC citation check skipped: {exc}", file=sys.stderr)
+        return None
+
+
 def _precheck_declared_constraints_are_configured(
     completed_phase, project,
 ) -> "int | None":

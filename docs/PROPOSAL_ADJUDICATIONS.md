@@ -10923,6 +10923,14 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 
 - **缺陷**: `LEGAL_ARTIFACTS["01-requirements"]` 含根目錄的 `TEST_INVENTORY.yaml`;這張表經 `print-legal-artifacts` 渲染成 Phase 1 作者 prompt 的 `LEGAL_HINT`,所以是**框架教**出 `01-requirements/TEST_INVENTORY.yaml`(taskq-sol TRACEABILITY_MATRIX ×2,語料 6 專案 ×8)。同形第二例:P6 的 `RELEASE_NOTES.md` / `FINAL_SIGN_OFF.md` 在 `PHASE_DELIVERABLE_PATHS[6]` 與 `LEGAL_ARTIFACTS["06-quality"]` 被放在 `06-quality/`,而 P6 workflow、`generate_release_notes.py`、P6→P7 handoff、phase auditor 全寫根目錄,語料 13/13 個到過 P6 的專案也只在根目錄有。
 - **第一版藥方被驗證改寫**: 「從表裡拿掉就會被抓到」不成立 —— 語料 8 處錯誤引用全在反引號裡,而 `check_forward_refs` 刻意剝除行內 code(`07985be5`:P1 的警告文字引用 `` `01-requirements/SPEC.md` `` 被自己的檢查判 FAIL)。所以本站修的是**來源**(教錯的那張表),不是偵測。
-- **正解**: 兩張表各改一處;`tests/test_test_legal_artifacts.py` 那支把錯誤事實釘死的測試改成釘「P1 交付物、位於根目錄」;新增一致性測試 —— 兩張表涵蓋的領域不同(依 stage 的 forward-ref 合法性 vs phase 1/2/6 的 approval id → 路徑),無法互相導出,所以在重疊處釘住一致。
+- **正解**: 兩張表各改一處;`tests/test_legal_artifacts.py` 那支把錯誤事實釘死的測試改成釘「P1 交付物、位於根目錄」;新增一致性測試 —— 兩張表涵蓋的領域不同(依 stage 的 forward-ref 合法性 vs phase 1/2/6 的 approval id → 路徑),無法互相導出,所以在重疊處釘住一致。
 - **守衛(2 支,反證過)**: `tests/test_legal_artifact_locations_agree.py`。
 - **誠實邊界**: 反引號內的錯誤路徑照樣看不見(`07985be5` 的取捨不動)。語料零新增違規(實測)。
+
+### 站4: SPEC 行號引用要落在有內容的行
+
+- **缺陷**: Phase 1 交付物用行號引用 SPEC.md,而**沒有任何東西讀那個行號指向什麼**:`citation_resolves_in` 只讀 `DERIVED:` 標記且只驗範圍,approval resolver 把空白行當有效。taskq-sol 的引用整體偏一行 —— SPEC_TRACKING 十個範圍全部起於 FR 標題上方的空白行(`SPEC.md:78-90` 對 79-91),SRS 引表格分隔列卻指下一列。Agent B 看到了、稱之 non-blocking、核准。偏移本身的成因 Unknown(agent 逐字稿未保留;relay 給的 heading index 是 1-based 且正確)。
+- **正解**: 不讀散文就能判定的那一條 —— 被引的行(範圍的首行)必須存在、非空白、非表格分隔列。`core/quality_gate/spec_citations.py`,在 `completed_phase == 1` 的 advance 出口問(exit 50,owner=project;補救是改一個數字,不構成 R103 死結)。
+- **語料實測(與計畫預估逐筆相符)**: 三種格式共 972 處引用,規則點名 61 處 —— taskq-sol 58、taskq-wow 3,全是偏一行;其餘 21 專案零誤報。
+- **守衛(4 支,反證過)**: 空白行規則、look-behind(`TEST_SPEC.md:12` 不是 SPEC 引用)、advance 出口、AST 讀 `_advance_prechecks` 的呼叫。
+- **誠實邊界**: 偏到**另一行內容行**的引用看不見。

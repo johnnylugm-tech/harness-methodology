@@ -116,6 +116,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_p3_security_and_quality,
     _precheck_per_fr_gate1_and_phase_truth,
     _precheck_scope_violations,
+    _precheck_spec_citations_land_on_content,
     _precheck_stage_pass_staging,
 )
 
@@ -2016,6 +2017,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # it is the cheaper read and because a SAB still holding `app.api.webhooks`
     # makes every finding under it a finding about the template.
     _pre_rc = _precheck_framework_examples_were_replaced(completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # ── Phase 1 exit: SPEC.md line citations land on content (Round 113 站4) ──
+    _pre_rc = _precheck_spec_citations_land_on_content(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 
