@@ -2378,3 +2378,63 @@ entries:
       `fr` / `title` / `desc` / `raw_details` / `requirements` / `test_cases`,
       動態鍵存取為零。實測 21 專案 300 個 FR dict:兩鍵非空 0 個
       (`verification_method` 276,但它同樣沒有讀者)。
+  - round: 113
+    item: "SEC 加「accepted」處置欄位(審計 S)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「出現一類威脅,其唯一誠實的緩解無法以任何測試驗證,且語料中有實例」。本輪實測未成立。現行 schema 只要求 `mitigation` 非空,不要求完全緩解;T-07 本可寫成「write scope + 無 shell + timeout」並配授權測試。再加一個 accepted 欄位,等於讓被判定方自己豁免自己(R27)。漏列的是那條威脅,是 agent 的遺漏不是 schema 的缺口。
+  - round: 113
+    item: "`gate_score_overrides: {}` 與 SAB.json 推導值並存(審計 J)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「推導值開始可能低於標準門檻,或有讀者因 SAD 的 `{}` 而做出錯誤判定的實測」。本輪實測未成立。依文件 `{}` 即「請推導」(`sab_parser.py:21`),11 個值都可由 NFR 目標與標準門檻重算,override 只會拉高門檻。
+  - round: 113
+    item: "專案設計品質項(Alembic/SQLite 交易式 DDL、SRS §7 漏列、sync Session 配 async、索引、重啟恢復、多 worker、psycopg、拒絕數儲存、測試金字塔比例)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「其中任一項出現不需領域知識即可判定的規則」。本輪實測未成立。全部需要領域判斷;任何通用檢查只能比對關鍵字(R87),等於框架替專案填答案(R101)。
+  - round: 113
+    item: "字串形式 import 約束只驗「有某個 forbidden 合約」(審計 I 的剩餘)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「語料中出現字串約束通過、而其 typed 等價形式會失敗的實例」。本輪實測未成立。HEAD 已用 `confined_to` 擋下 taskq-sol 這一例,typed 形式逐模組比對;強制所有既有字串約束改 typed 會追溯阻擋既有專案的 gate。
+  - round: 113
+    item: "沒有 `-deferred` id 的 ADR 未決項(如 taskq-sol 的限流排序)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「decision_issues 出現 P2 發現項的結構化來源,或 ADR 格式定義未決標記」。本輪實測未成立。只能讀散文才看得到(R87);SAB `decision_issues` 已可登記任何 id,P2 prompt 已要求登記。
+  - round: 113
+    item: "SRS dev-deps 列的 `、` 分隔符"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「模板或 prompt 定義 dev-deps 列的格式」。本輪實測未成立。框架從未定義這一列的格式;再加一個猜測的分隔符是 R55。SPEC §5.3 的那一列已正確解析。
+  - round: 113
+    item: "反引號內的錯誤 forward-ref 路徑(站3 邊界)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「出現能區分「引用」與「被引述的警告」而不靠剝除反引號的判準」。本輪實測未成立。`check_forward_refs` 刻意剝除行內 code(`07985be5`:否則會把警告文字裡引用的非法路徑也判 FAIL);站3 修的是教錯路徑的來源。
+  - round: 113
+    item: "P3 mirror 內的恆真 assert 偵測(站5 邊界)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「harness 以確定性方式執行 check_test_mirrors_spec(例如接進 Gate 1 finalize)」。本輪實測未成立。實測語料兩種用法並存(taskq-final 11 條恆真、taskq-super 4 條合法重綁);mirror 目前只由 agent prompt 執行,且其測試語料本身以恆真式構造,改動波及面大;站5 已在規格層要求每個 case 對產品有斷言。
+  - round: 113
+    item: "`.claude/workflows/standalone-mutmut.js` 傳入 `mutation-test-score` 不接受的旗標"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「老闆裁定此檔的處置(手改、納入 workflowgen、或退役)」。本輪實測未成立。實測 `mutation-test-score --help` 只接受 `--project`,該 workflow 每次以 exit 2 失敗;它是手工維護檔(無 workflowgen 來源),而老闆規定 workflow JS 不得手改。
+  - round: 113
+    item: "測試目錄的「≤15 檔/目錄」數值規則(站D 邊界)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-03: 條件是「框架為測試目錄定義自己的可讀性維度」。本輪實測未成立。那是 P2 的 LLM 審查清單項;測試目錄檔數由專案自己的 NFR(taskq 的 NFR-11)負責,框架不另設數值規則。

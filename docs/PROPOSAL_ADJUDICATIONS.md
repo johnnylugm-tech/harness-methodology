@@ -11011,3 +11011,18 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **語料影響(實測)**: size-only 分數 80–100;5 個專案各有 1 個超大 community,照實扣分。
 - **守衛**: 新增 4 支(`tests/test_architecture_scores_what_it_measures.py` 3 支 + bridge 1 支),反證 3 條皆紅。**退役 6 支**(依 R64 讀懂後處置,非因礙事): `test_lowered_floor_and_named_modules.py` 的 4 支 floor 判定測試與 `test_harness_bridge.py` 的 2 支 floor 阻擋測試 —— 它們釘的是已退役的判定;同檔的報告測試(floor 仍出現在報告)保留,註記改為「low-cohesion 清單的 floor」。既有 cohesion 單元測試(`test_crg_independent.py` 4 支、`test_single_file_community.py` 3 支、`test_gate_knobs_are_not_ambient.py` 3 支)改寫為新語意並保留其原意(環境變數不得移動分數或清單;單檔 community 仍點名檔案)。
 - **誠實邊界**: 指標鍵名 `community_cohesion` 保留(既有 baseline 與多個消費者讀它),它量什麼由 `_formula` 寫明。分層方向由 import-linter 的 `architecture_constraints` 維度負責,不在此分數內。
+
+### §不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| SEC 加「accepted」處置欄位(審計 S) | 現行 schema 只要求 `mitigation` 非空,不要求完全緩解;T-07 本可寫成「write scope + 無 shell + timeout」並配授權測試。再加一個 accepted 欄位,等於讓被判定方自己豁免自己(R27)。漏列的是那條威脅,是 agent 的遺漏不是 schema 的缺口 | 出現一類威脅,其唯一誠實的緩解無法以任何測試驗證,且語料中有實例 |
+| `gate_score_overrides: {}` 與 SAB.json 推導值並存(審計 J) | 依文件 `{}` 即「請推導」(`sab_parser.py:21`),11 個值都可由 NFR 目標與標準門檻重算,override 只會拉高門檻 | 推導值開始可能低於標準門檻,或有讀者因 SAD 的 `{}` 而做出錯誤判定的實測 |
+| 專案設計品質項(Alembic/SQLite 交易式 DDL、SRS §7 漏列、sync Session 配 async、索引、重啟恢復、多 worker、psycopg、拒絕數儲存、測試金字塔比例) | 全部需要領域判斷;任何通用檢查只能比對關鍵字(R87),等於框架替專案填答案(R101) | 其中任一項出現不需領域知識即可判定的規則 |
+| 字串形式 import 約束只驗「有某個 forbidden 合約」(審計 I 的剩餘) | HEAD 已用 `confined_to` 擋下 taskq-sol 這一例,typed 形式逐模組比對;強制所有既有字串約束改 typed 會追溯阻擋既有專案的 gate | 語料中出現字串約束通過、而其 typed 等價形式會失敗的實例 |
+| 沒有 `-deferred` id 的 ADR 未決項(如 taskq-sol 的限流排序) | 只能讀散文才看得到(R87);SAB `decision_issues` 已可登記任何 id,P2 prompt 已要求登記 | decision_issues 出現 P2 發現項的結構化來源,或 ADR 格式定義未決標記 |
+| SRS dev-deps 列的 `、` 分隔符 | 框架從未定義這一列的格式;再加一個猜測的分隔符是 R55。SPEC §5.3 的那一列已正確解析 | 模板或 prompt 定義 dev-deps 列的格式 |
+| 反引號內的錯誤 forward-ref 路徑(站3 邊界) | `check_forward_refs` 刻意剝除行內 code(`07985be5`:否則會把警告文字裡引用的非法路徑也判 FAIL);站3 修的是教錯路徑的來源 | 出現能區分「引用」與「被引述的警告」而不靠剝除反引號的判準 |
+| P3 mirror 內的恆真 assert 偵測(站5 邊界) | 實測語料兩種用法並存(taskq-final 11 條恆真、taskq-super 4 條合法重綁);mirror 目前只由 agent prompt 執行,且其測試語料本身以恆真式構造,改動波及面大;站5 已在規格層要求每個 case 對產品有斷言 | harness 以確定性方式執行 check_test_mirrors_spec(例如接進 Gate 1 finalize) |
+| `.claude/workflows/standalone-mutmut.js` 傳入 `mutation-test-score` 不接受的旗標 | 實測 `mutation-test-score --help` 只接受 `--project`,該 workflow 每次以 exit 2 失敗;它是手工維護檔(無 workflowgen 來源),而老闆規定 workflow JS 不得手改 | 老闆裁定此檔的處置(手改、納入 workflowgen、或退役) |
+| 測試目錄的「≤15 檔/目錄」數值規則(站D 邊界) | 那是 P2 的 LLM 審查清單項;測試目錄檔數由專案自己的 NFR(taskq 的 NFR-11)負責,框架不另設數值規則 | 框架為測試目錄定義自己的可讀性維度 |
