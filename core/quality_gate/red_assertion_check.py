@@ -113,6 +113,10 @@ _ALLOWED_NODE_TYPES: tuple = (
 _ALLOWED_BUILTINS = {
     "len": len, "all": all, "any": any, "sorted": sorted,
     "set": set, "abs": abs, "min": min, "max": max, "sum": sum,
+    # Round 113 站5: pure conversions. Absent, `float(timeout) > 0` read as
+    # naming a production output called `float` — the routing below is "any
+    # free name that is not an Input", so a missing builtin is a false product.
+    "int": int, "float": float, "str": str, "bool": bool, "round": round,
 }
 
 # String/sequence methods permitted on values.
@@ -1015,6 +1019,44 @@ def check_test_mirrors_spec(
                              f"{sorted(test_trigger)} but TEST_SPEC applies_to maps to {sorted(spec_trigger_set)}"),
                     extra={"test_trigger": sorted(test_trigger), "spec_trigger": sorted(spec_trigger_set)}))
     return violations
+
+
+def cases_observing_nothing(cases: list, assertions: list) -> list:
+    """Round 113 站5 — cases whose sub-assertions name no production output.
+
+    Asked of a FR's WHOLE sub-assertion table, not of one row at a time —
+    property_check reuses `check_test_spec_consistency` row by row, and a
+    single Properties row says nothing about whether the case's table does.
+
+    taskq-sol's test_fr01_list_accepts_limit_200 had exactly one predicate,
+    `limit == "200"`, over Inputs `limit="200"`. A predicate whose names are
+    all Inputs is Decider A's: a fact about the declared values. A case built
+    only of those states nothing the product must do, and the P3 mirror would
+    then require the test to assert its own input.
+    """
+    observed: set = set()
+    for a in assertions:
+        try:
+            free = _free_variables(a.predicate)
+        except SyntaxError:
+            continue  # malformed_predicate is check_test_spec_consistency's finding
+        for cid in a.applies_to:
+            case = next((c for c in cases if c.case_id == cid), None)
+            if case is not None and not free <= set(case.inputs):
+                observed.add(cid)
+    return [
+        Violation(
+            check_type="no_product_assertion", rule_id=f"case{case.case_id}-observes-nothing",
+            severity="error",
+            message=(
+                f"case {case.case_id}: no sub-assertion names a production output — every "
+                f"predicate that applies to it reads only its own Inputs "
+                f"({sorted(case.inputs)}), so a test built from it checks the input, "
+                f"not the product. Add one over the result, e.g. "
+                f"`result_status_code == expected_status`."),
+            extra={"case_id": case.case_id})
+        for case in cases if case.case_id not in observed
+    ]
 
 
 #: The deviation the TDD-RED prompt asks for by name. Round 87 站7.

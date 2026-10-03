@@ -28,6 +28,9 @@ def precheck_p2_transition(project, completed_phase: int) -> "int | None":
         sab = None
         findings = [f"SAD decision issue lifecycle cannot be validated: {exc}"]
     findings.extend(property_mapping_findings(project))
+    # Round 113 站5: the self-consistency check only an agent prompt ran.
+    from cli.checks.specs import spec_consistency_findings
+    findings.extend(f"TEST_SPEC {f}" for f in spec_consistency_findings(project))
     for artifact in declared_artifact_findings(
         project, sab.to_dict() if sab else {}, required_by_phase=2
     ):

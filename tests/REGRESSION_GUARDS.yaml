@@ -6003,3 +6003,19 @@
 - test: tests/test_test_placement_has_one_statement.py::test_gate_1_still_requires_the_fr_test_file
   bug: "pins the rule the prompt now states, read off the gate itself, so the two cannot drift apart silently again"
   fixed_in: "Round 113 站D"
+
+- test: tests/test_a_case_observes_the_product.py::test_a_case_whose_predicates_read_only_its_inputs_observes_nothing
+  bug: "taskq-sol's test_fr01_list_accepts_limit_200 had one sub-assertion, `limit == \"200\"`, over Inputs `limit=\"200\"` — Decider A evaluated it true and stopped, and the case stated nothing the product must do; 84 of taskq-sol's 138 cases had only such predicates, and every corpus project but taskq-api had them. Counter-proof run 2026-10-03: treating every predicate as observing the product turns this and two siblings red"
+  fixed_in: "Round 113 站5"
+
+- test: tests/test_a_case_observes_the_product.py::test_a_conversion_builtin_is_not_a_production_output
+  bug: "`float`/`int`/`str` were missing from the predicate builtins, and the routing reads any non-Input name as a production output — so `float(timeout) > 0` passed as observing the product. Counter-proof run 2026-10-03: removing `float` turns this red"
+  fixed_in: "Round 113 站5"
+
+- test: tests/test_a_case_observes_the_product.py::test_the_p2_exit_runs_the_consistency_check
+  bug: "check-test-spec-consistency ran only when the P2 agent prompt told an agent to run it — the harness never did (R43). Counter-proof run 2026-10-03: removing the call from cli/p2_transition.py turns this red"
+  fixed_in: "Round 113 站5"
+
+- test: tests/test_a_case_observes_the_product.py::test_the_template_example_observes_the_product
+  bug: "the TEST_SPEC template's only sub-assertion example was `\" \" in expected` — an Input — and it applied to a case number the template's own case table does not have"
+  fixed_in: "Round 113 站5"

@@ -98,8 +98,13 @@ def test_cli_consistency_gate(tmp_path):
     rc = cmd_check_test_spec_consistency(argparse.Namespace(project=str(tmp_path), fr_id=None))
     assert rc == 1
 
-    # Fix both: 和 dropped from AC5 group; chunk count 4 → 5.
-    fixed = SCHEMA.replace("| 3, 8 |", "| 3 |").replace("len(result) == 4", "len(result) == 5")
+    # Fix both: 和 dropped from AC5 group; chunk count 4 → 5. Round 113 站5:
+    # FR-01's only predicate read its Inputs, so its cases stated nothing the
+    # product must do (no_product_assertion) — the fixed spec says what it does.
+    fixed = (SCHEMA.replace("| 3, 8 |", "| 3 |").replace("len(result) == 4", "len(result) == 5")
+             .replace('| AC5-bopomofo-space | `" " in expected` | 3 |',
+                      '| AC5-bopomofo-space | `" " in expected` | 3 |\n'
+                      '| AC5-transliterates | `result == expected` | 3, 8 |'))
     spec.write_text(fixed, encoding="utf-8")
     rc = cmd_check_test_spec_consistency(argparse.Namespace(project=str(tmp_path), fr_id=None))
     assert rc == 0

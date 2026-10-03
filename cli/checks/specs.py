@@ -451,6 +451,42 @@ def deferred_inputs_violations(project: "str | Path") -> "tuple[str, list[str]]"
     return ("", violations)
 
 
+def spec_consistency_findings(project: Path) -> "list[str]":
+    """Every blocking finding check-test-spec-consistency reports, one line each.
+
+    Round 113 站5. The command ran only when an agent prompt told an agent to
+    run it; the P2 exit (cli/p2_transition.py) now asks this. The rules stay in
+    `red_assertion_check.check_test_spec_consistency` and
+    `spec_assertion_naming` — this is the walk over TEST_SPEC that collects
+    what they block on, so the exit and the command read one verdict.
+    """
+    spec_path = ProjectLayout(Path(project)).test_spec_path
+    if not spec_path.exists():
+        return []
+    from core.quality_gate.parsers import MalformedTableRowError, SpecAssertionParser
+    from core.quality_gate.red_assertion_check import (
+        cases_observing_nothing,
+        check_test_spec_consistency,
+    )
+    from core.quality_gate.spec_assertion_naming import scan_stdlib_name_collisions
+
+    try:
+        parsed = SpecAssertionParser.parse(spec_path.read_text(encoding="utf-8"))
+    except MalformedTableRowError as exc:
+        return [f"TEST_SPEC.md malformed table row: {exc}"]
+    found = [
+        f"{fr_id} sub-assertion {rule_id!r}: predicate {predicate!r} shadows "
+        f"stdlib; rename LHS to {suggested!r}"
+        for fr_id, rule_id, predicate, suggested in scan_stdlib_name_collisions(parsed)
+    ]
+    for fr_id, (cases, assertions) in sorted(parsed.items()):
+        for v in (check_test_spec_consistency(cases, assertions)
+                  + cases_observing_nothing(cases, assertions)):
+            if v.severity == "error":
+                found.append(f"{fr_id} {v.check_type}: {v.message}")
+    return found
+
+
 def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
     """P2 self-consistency gate — prove TEST_SPEC.md is not unsatisfiable.
 
@@ -507,9 +543,12 @@ def cmd_check_test_spec_consistency(args: argparse.Namespace) -> int:
               "AttributeError when the test file imports the shadowed module).")
         return 1
 
+    from core.quality_gate.red_assertion_check import cases_observing_nothing
+
     total_err = total_review = 0
     for fr_id, (cases, assertions) in sorted(parsed.items()):
-        for v in check_test_spec_consistency(cases, assertions):
+        for v in (check_test_spec_consistency(cases, assertions)
+                  + cases_observing_nothing(cases, assertions)):
             if v.severity == "error":
                 total_err += 1
                 print(f"[FAIL] {fr_id} {v.check_type}: {v.message}")

@@ -94,9 +94,16 @@ or 4 one-char chunks for a 5-char input) FAILS P2 — correctness is locked HERE
 before P3. List a case in `applies_to` only if the predicate truly holds for its
 Inputs.
 
+**Every case needs at least one predicate that names a production output**
+(`result…`) — the P2 gate reports `no_product_assertion` otherwise. A predicate
+over Inputs alone is a fact about the declared values: it keeps the spec
+consistent, it says nothing the product must do, and a test that asserts it is
+a test of its own input.
+
 | rule_id | predicate (over Inputs / result) | applies_to (case #) |
 |---|---|---|
-| AC5-separator-space | `" " in expected` | 3 |
+| AC1-converts | `result == expected` | 1, 2 |
+| AC1-no-separator | `" " not in expected` | 1, 2 |
 
 **Properties** — OPTIONAL (Direction B, opt-in per FR). Universal invariants that
 must hold for ALL inputs, not just the declared cases. Add one only when the FR

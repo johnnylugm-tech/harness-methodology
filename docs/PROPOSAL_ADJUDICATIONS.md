@@ -10983,3 +10983,12 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **正解**: 模板拿掉 `test_file`(在任何架構存在前就問放置,而且沒人讀);P3 prompt 改述 Gate 1 實際強制的規則。既有專案 YAML 留著該欄位無害(沒有讀者)。
 - **守衛(3 支,反證過)**: `tests/test_test_placement_has_one_statement.py`,第三支直接釘 gate 的行為,讓 prompt 與 gate 不能再無聲漂開。run-all 縮 191 bytes,上限隨之下修到 426260。
 - **誠實邊界**: 「≤15 檔/目錄」仍只是 P2 的 LLM 審查清單項;測試目錄的實際檔數由專案自己的 NFR(taskq 的 NFR-11)負責,框架不另設數值規則。
+
+### 站5: TEST_SPEC 的每個 case 都要對產品有所斷言
+
+- **缺陷**: taskq-sol 的 `test_fr01_list_accepts_limit_200` 只有一條 sub-assertion:`limit == "200"`,而它的 Inputs 就是 `limit="200"`。名字全是 Input 的述詞走 Decider A —— 對宣告值求值、為真、結束;這個 case 對產品什麼都沒說,P3 mirror 接著要求測試逐字 assert 它 —— 測它自己的輸入。taskq-sol 138 個 case 中 84 個只有這種述詞;語料除 taskq-api 外每個專案都有。**是模板教的**:模板唯一的 sub-assertion 範例 `" " in expected` 是 Input,且它 applies_to 的 case 3 在模板自己的 case 表裡不存在。
+- **第一版藥方被驗證改寫**: 「P3 mirror 不再要求純輸入述詞」被實測否決 —— 語料測試對純輸入述詞兩種做法都有:taskq-final 11 條是對裸參數的恆真 assert,taskq-super 4 條先把同名變數綁到產品輸出再 assert(合法)。放寬 mirror 會丟掉 taskq-super 正確使用的那一層。所以正解在**規格層**,mirror 不動。
+- **正解**: `cases_observing_nothing` —— 一個 FR 的 sub-assertion 表裡,沒有任何一條述詞命名產品輸出的 case 報 `no_product_assertion`(error)。獨立成函式,因為 property_check 逐列重用 consistency 引擎,單一 Properties 列說明不了整張表。補五個純轉換 builtin(`float(x)` 先前被當成名為 `float` 的產品輸出)。`spec_consistency_findings` 收集該命令會擋的全部項,接進 `precheck_p2_transition` —— 這個檢查過去只在 agent prompt 裡被要求跑(R43)。模板與 `derive_test_cases.md` 改成「產品輸出 vs 預期值」並說明純輸入述詞的身分。
+- **語料實測**: taskq-sol 84(與先前量的純輸入 case 數逐筆相符)、taskq-api 0。只影響新的 P2 執行;語料專案都已過 P2。
+- **守衛(4 支,反證過)**: `tests/test_a_case_observes_the_product.py`;`test_spec_assertion_parser.py::test_cli_consistency_gate` 的「已修好」fixture 補一條產品述詞(FR-01 原本對產品沒有任何斷言)。
+- **誠實邊界**: `result is not None` 這種弱斷言仍算觀測產品(斷言品質屬 test_assertion_quality 維度)。mirror 內的恆真偵測(斷言名字只綁到參數)見本輪 §不做。

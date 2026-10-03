@@ -414,6 +414,12 @@ is genuinely true for that case's Inputs. The P2 gate
 so case 1 must NOT be in a `" " in expected` group; `len(result)==4` with a
 5-char input is unsatisfiable). Correctness is locked here, in P2.
 
+**Every case needs at least one predicate naming a production output**
+(`result…`, e.g. `result_status_code == expected_status`); the P2 gate reports
+`no_product_assertion` for a case whose predicates read only its own Inputs. A
+predicate over Inputs alone (`limit == "200"` for a case whose Inputs say
+`limit="200"`) is a consistency fact about the spec, not a check of the product.
+
 **Naming convention**:
 - Prefer: `test_{module}_{behavior}` using actual module names from SAD.md
 - Acceptable: `test_fr{nn}_{behavior}` when module not yet named
