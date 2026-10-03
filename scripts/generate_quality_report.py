@@ -178,7 +178,8 @@ def _crg_call(project: Path, func: str, **kwargs) -> dict:
 
 
 def _calibration_note(calibration: "dict | None") -> str:
-    """One line saying which floor the architecture score was measured on.
+    """One line saying which floor the low-cohesion list was drawn at (Round 113:
+    the architecture score itself no longer depends on it).
 
     Round 97. Round 42 站4 put `cohesion_healthy` and `source_files` into the
     gate result; they stopped there. Measured on taskq-final, whose report
@@ -201,12 +202,15 @@ def _calibration_note(calibration: "dict | None") -> str:
         return ""
     files = calibration.get("source_files")
     where = f" over {files} source file(s)" if isinstance(files, int) else ""
+    # Round 113 站L: the floor no longer moves the architecture score (only the
+    # size cap is scored); it decides which communities are listed as low
+    # cohesion, so that is what the note says.
     return (
-        f"> **Measured against a cohesion floor of {floor}**, below the "
+        f"> **Low-cohesion list drawn at a floor of {floor}**, below the "
         f"framework default of {COHESION_HEALTHY}{where} "
         f"(`crg_cohesion_healthy` in `.methodology/harness_config.json`). "
-        f"A community below {COHESION_HEALTHY} in the table above still counts "
-        f"as healthy under this calibration."
+        f"Cohesion is reported, not scored: this calibration changes which "
+        f"communities are listed, not the architecture score."
     )
 
 

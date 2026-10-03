@@ -86,7 +86,7 @@ an explicit CLI flag is long-standing run-fr-step behavior, locked by
 
 | Key | Default | Effect |
 |---|---|---|
-| `crg_cohesion_healthy` | unset (scorer default 0.3) | per-project cohesion floor for a healthy community, float in (0, 1]. |
+| `crg_cohesion_healthy` | unset (scorer default 0.3) | floor below which a community is LISTED as low cohesion, float in (0, 1]. Round 113: cohesion is reported, not scored — this moves the list, not the architecture score. |
 | `crg_excludes` | `[]` | fnmatch globs; majority-matched communities are excluded from architecture scoring. |
 
 **These two keys are the only way to adjust the architecture dimension**
@@ -213,10 +213,11 @@ Values that guard gate integrity must not become knobs — a configurable
 floor is a backdoor. This list is policy, enforced by review:
 
 - Gate 1 per-FR coverage floor (100% of the FR's owned source).
-- The three CRG constants that decide `architecture_score`: `COHESION_HEALTHY`,
-  `COMMUNITY_OVERSIZED`, `COMMUNITY_MIN_SIZE` (Round 40 站3 — the cohesion
-  floor's one sanctioned per-project route is `crg_cohesion_healthy` above,
-  which is committed and therefore applies to CI too).
+- The CRG constants: `COMMUNITY_OVERSIZED` decides `architecture_score`;
+  `COHESION_HEALTHY` and `COMMUNITY_MIN_SIZE` decide what the report lists as
+  low cohesion (Round 113 站L — cohesion is reported, not scored). Round 40
+  站3: the floor's one sanctioned per-project route is `crg_cohesion_healthy`
+  above, which is committed and therefore applies to CI too.
 - Milestone entry-gate evidence requirements (`_MILESTONE_ENTRY_GATES`).
 - Ghost-detection / dispatch diff-budget heuristics (`agent_spawner`).
 - Deterministic-failure signature registry (`_STRUCTURAL_FAILURE_SIGNATURES`).

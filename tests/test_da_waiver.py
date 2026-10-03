@@ -92,7 +92,11 @@ class TestNoThresholdCanBeWaived:
         _collect_da_waivers(project, 4)
         err = capsys.readouterr().err
         assert "crg_excludes" in err
-        assert "crg_cohesion_healthy" in err
+        assert "oversized" in err
+        # Round 113 站L: cohesion is not scored, so lowering its floor cannot
+        # raise the architecture score — offering it as a remedy would send the
+        # agent after a knob with no effect.
+        assert "crg_cohesion_healthy" not in err
 
     def test_a_gate_result_without_waivers_is_not_blocked(self, tmp_path: Path):
         from cli.gate_cmds import _collect_da_waivers

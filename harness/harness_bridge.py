@@ -17,12 +17,10 @@ from harness.gate_checks import (  # noqa: F401,E402  re-export after Round 80 �
     _TOOL_CONTENT_PATTERNS,
     _TOOL_OUTPUT_MIN_BYTES,
     _TOOL_REQUIRED_PATTERNS,
-    CRG_FLOOR_DETAIL_KEY,
     RED_SUITE_DETAIL_KEY,
     _check_infra_fail_pollution,
     _check_test_skip_ratio,
     _check_tests_failed,
-    lowered_cohesion_floor_reason,
     _check_tool_evidence,
     _gate_dimension_names,
     _parse_skip_counts,
@@ -2567,7 +2565,7 @@ class HarnessBridge(_FinalizeStages):
                         _excluded = _coh_data.get("excluded_test_communities", 0)
                         if _unhealthy and _new < (_dim_thresholds.get("architecture") or 80):
                             print(f"\n[harness] CRG community diagnostics — {len(_unhealthy)} unhealthy community(ies):")
-                            print(f"  Threshold: cohesion ≥ {_coh_data.get('_cohesion_threshold', '?')}, size ≤ {_coh_data.get('_community_oversized', '?')}")
+                            print(f"  Scored: size ≤ {_coh_data.get('_community_oversized', '?')} (cohesion is reported, not scored — Round 113)")
                             if _excluded:
                                 print(f"  Test-only communities excluded: {_excluded}")
                             for _u in _unhealthy[:8]:  # cap at 8 to avoid flooding
@@ -2586,13 +2584,12 @@ class HarnessBridge(_FinalizeStages):
                             if len(_unhealthy) > 8:
                                 print(f"  ... +{len(_unhealthy) - 8} more (see .sessi-work/crg_metrics.json)")
                             print()
-                            print("  Fix: unhealthy communities have low intra-community connectivity.")
-                            print("  - Add cross-module imports/tests between files in the same community")
-                            print("  - Merge small isolated communities into larger coherent modules")
-                            print("  - Split oversized communities (>50) into focused subdirectories")
-                            print("  - If CRG genuinely misreads an intentional layout, calibrate")
-                            print("    crg_excludes / crg_cohesion_healthy in harness_config.json —")
-                            print("    committed, so CI applies it too. Waivers were removed in R38.")
+                            print("  Fix: an oversized community is a god cluster —")
+                            print("  - Split it into focused subdirectories (one responsibility each)")
+                            print("  - Do NOT add calls between files to move a number: cohesion is")
+                            print("    not scored (Round 113), and coupling added for it is a cost.")
+                            print("  - If CRG counts tooling as product code, list it in crg_excludes")
+                            print("    in harness_config.json — committed, so CI applies it too.")
                     else:
                         _new_dims.append(_d)
                 if not _arch_found and _crg_declared:
@@ -2630,24 +2627,6 @@ class HarnessBridge(_FinalizeStages):
                 "source_files": (_crg_m or {}).get("_source_files"),
             }
 
-            # Round 97: and the floor is compared to the framework's own
-            # reason for allowing it to move. Round 42 站4 put both numbers
-            # here; nothing read them. Measured: 11 of 11 corpus projects had
-            # lowered `crg_cohesion_healthy` (0.15-0.25) at 41-65 source
-            # files, and the documented justification — Leiden
-            # over-fragmentation in a small package — fits none of them.
-            _floor_reason = lowered_cohesion_floor_reason(
-                ctx.architecture_calibration)  # type: ignore[attr-defined]
-            if _floor_reason:
-                raise GateBlockedError(
-                    ctx.gate_num,
-                    GateResult(
-                        gate_num=ctx.gate_num, score=0.0, dimensions=[],
-                        open_critical=1, open_high=0,
-                        quality_complete=False, rounds_used=0,
-                    ),
-                    details={CRG_FLOOR_DETAIL_KEY: [_floor_reason]},
-                )
 
         # ── PR 4 (audit F-1.1 fix): framework trace score override ─────
         # The agent cannot compute the trace dimension (no tool to scan

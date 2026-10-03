@@ -248,39 +248,20 @@ Agent B 審查重點：
 **CRG Architecture Design Verification（通用規則，不限語言/框架）：**
 
 ```
-8. SUBDIRECTORY BOUNDARY — 檢查是否用子目錄控制 CRG community 邊界
+8. SUBDIRECTORY BOUNDARY — 用子目錄限制 CRG community 的大小
    PASS: 已分層（2+ level deep），無 flat src/ 問題
    WARN: 部分 flat（>5 files 在同層無子目錄）
-   REJECT: 完全扁平（單目錄 10+ files），CRG Leiden 會自由拆分出低分 community
+   REJECT: 完全扁平（單目錄 10+ files）—— 一個 community 會長過 50 nodes 上限
 
-9. HUB COVERAGE — 檢查每個 directory 的跨檔內部呼叫
-   PASS: 每個 ≥2 files 目錄有 hub module（utils/common/helper）+ 多數 sibling 引用；
-         每個 function body 都呼叫 hub function（不限於 module-level）；
-         若 ≥4 個 sibling files，hub 有 ≥2 個 function 供呼叫
-   WARN: 部分孤立檔案（不被任何 sibling import，只貢獻 external edges）；
-         僅有 module-level 呼叫但 function body 中無呼叫
-   REJECT: 任何目錄完全無 cross-file import
-
-10. ENTRY POINT PLACEMENT — CLI/main/app.py 不能孤立在 root
-    PASS: 在目錄內且該目錄有 strong hub 可補償 external edges
-    REJECT: entry point 在 project root（src/cli.py, src/main.py 等無 siblings）
-
-11. ESTIMATED SOURCE COMMUNITIES — 預估 CRG community 數量
-    PASS: 3-6 個 source directories 是安全區
-    WARN: 7-8 個（P3 Gate 需注意，可能需要合併）
-    REJECT: 9+ 個（部分 community 必低於 0.3，gap 太大）
-
-12. ISOLATED NODE RISK — 檢查是否有一檔目錄且該檔 import 大量外部
-    PASS: 結構合理，無此風險
-    REJECT: 有 1-file directory 且該檔案預期 import 大量外部套件（pure external edge dilution → cohesion near 0）
+9-12. 退役（Round 113 站L）：HUB COVERAGE、ENTRY POINT PLACEMENT、ESTIMATED SOURCE
+   COMMUNITIES、ISOLATED NODE RISK 都是為了把 cohesion 拉過 0.3 而設。CRG 把每個
+   呼叫函式庫的邊算成外部邊，cohesion 量到的是函式庫呼叫密度，不是設計；它現在
+   只報告、不計分。不要為了它在檔案之間加呼叫。
 ```
 
 REJECT_IF (CRG):
-- source directories > 8 → REJECT
-- entry point 孤立在 project root → REJECT
 - flat 單目錄 10+ files 無子目錄 → REJECT
-- 任何 directory 完全無 cross-file internal edges 可能性 → REJECT
-- 任一 sibling 檔的 function body 皆無 hub 呼叫（僅 module-level）→ REJECT（edge count 不足以 offset external edges）
+- 預估單一目錄 > 50 nodes（約 4-6 個各 8-12 個函式的模組）而未拆子目錄 → REJECT
 
 ---
 
@@ -370,12 +351,9 @@ Review criteria:
 6. SAB block passed `python3 scripts/generate_sab.py --validate --project .` (exit 0)?
 7. SAB block `phase` is int (not quoted string)? All NFR `type` values legal — see the example above, or run `python3 -c "from core.quality_gate.sab_parser import ALL_NFR_TYPES; print(ALL_NFR_TYPES)"` (the list widened in Round 27; no count is restated here because every hand-copy of it drifted)? Every NFR that SRS.md gives a `dimension:` for carries that same value verbatim?
 
-**CRG criteria (5 universal rules):**
-8. SUBDIRECTORY BOUNDARY: subdirectories used to control CRG community boundaries? PASS=2+ level, WARN=>5 files flat, REJECT=10+ files flat
-9. HUB COVERAGE: each ≥2-file dir has a hub module + every sibling's function bodies call it + ≥2 hub functions if ≥4 siblings? PASS=ok, WARN=orphan files or only module-level calls, REJECT=no cross-file import at all
-10. ENTRY POINT PLACEMENT: entry points in a dir with strong hub? PASS=yes, REJECT=project root
-11. ESTIMATED SOURCE COMMUNITIES: safe zone? PASS=3-6, WARN=7-8, REJECT=9+
-12. ISOLATED NODE RISK: any 1-file dir with heavy external imports? PASS=no, REJECT=yes (pure external edge dilution)
+**CRG criteria (Round 113 站L: the architecture score is the size cap):**
+8. SUBDIRECTORY BOUNDARY: subdirectories bound community size? PASS=2+ level, WARN=>5 files flat, REJECT=10+ files flat (one community grows past 50 nodes)
+9-12. Retired in Round 113 (hub coverage, entry point placement, community count, isolated nodes): each served cohesion, which CRG measures as library-call density and which is now reported, not scored. Do not add calls between files to move it.
 
 REJECT_IF (CRG):
 - source directories > 8 → REJECT

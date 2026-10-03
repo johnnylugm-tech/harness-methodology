@@ -130,7 +130,7 @@ are not re-opened. This bounds backtracking to a single step.
   - SAB block present in §5 (<!-- SAB:START --> marker exists)?
   - `phase` is a bare int (not quoted string)? e.g. `phase: 2` not `phase: "2"`
   - All NFR `type` values from legal values (documentation/integration/layering/licensing/maintainability/mutation/performance/reliability/security/testability/verifiability/deployability/scalability/usability)?
-  - Directory structure follows CRG cohesion principles (SAD.md §2.1)?  Hub coverage per dir, per-function-body calls, entry point placement.  See embedded DOC 3 for the full 6 universal principles.
+  - Directory structure bounds each community under the CRG size cap (SAD.md §2.1: subdirectories, ≤50 nodes each)?  Cohesion is reported, not scored — no calls added for it.
   - No flat dumps or god-modules? (≤15 files per dir, no single dir with all source)
   - SEC block complete in §6 (<!-- SEC:START --> marker exists; boundaries + threats + verified_by, or an honest applicability: none + justification)?
 

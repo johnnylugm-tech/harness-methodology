@@ -1551,14 +1551,13 @@ def _collect_da_waivers(project: Path, gate: int, gres: "dict | None" = None) ->
             f"  granted waiver produced a local PASS and a red build, and this loop then\n"
             f"  spent its rounds on a remedy that could not clear the check.\n"
             f"  Fix, in order of preference:\n"
-            f"    1. Fix the architecture: split oversized communities, raise cohesion.\n"
+            f"    1. Fix the architecture: split oversized communities (>50 nodes).\n"
             f"       A community of ~100 members is a finding, not a measurement artifact,\n"
             f"       and is deliberately not calibratable.\n"
-            f"    2. If CRG genuinely misreads an intentional layout, calibrate it in\n"
-            f"       .methodology/harness_config.json — `crg_excludes` (fnmatch globs over\n"
-            f"       repo-relative paths) and/or `crg_cohesion_healthy` (the per-community\n"
-            f"       cohesion floor). That file is committed, so CI applies the same\n"
-            f"       calibration this gate does; a waiver never reached CI at all.\n"
+            f"    2. If CRG counts tooling as product code, list it in `crg_excludes`\n"
+            f"       (fnmatch globs over repo-relative paths) in .methodology/harness_config.json.\n"
+            f"       That file is committed, so CI applies the same calibration this gate\n"
+            f"       does; a waiver never reached CI at all.\n"
             f"  Then remove da_waiver.{_dim} from gate{gate}_result.json and re-run.",
             file=sys.stderr,
         )

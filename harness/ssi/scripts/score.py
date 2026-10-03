@@ -310,7 +310,8 @@ def _apply_crg_subscores(scores, crg_metrics):
     CRG is the sole scoring source for structural dimensions.
 
     Applied to:
-      architecture     ← community_cohesion.score (only)
+      architecture     ← community_cohesion.score (only) — the size-cap share
+                         since Round 113; see crg_analysis.ARCHITECTURE_FORMULA
       error_handling   ← flow_coverage.score (only)
 
     Raises RuntimeError if crg_metrics is missing when structural dims are present.

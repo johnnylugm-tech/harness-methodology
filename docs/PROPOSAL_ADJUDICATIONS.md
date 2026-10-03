@@ -11001,3 +11001,13 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 - **語料實測**: 6 個專案 9 處(taskq-advance 2、api 1、cc 1、new 1、redo 2、renew 2);taskq-cc 的 `--collect-only` 那支不被點名。
 - **守衛(4 支,反證過)**: `tests/test_a_test_does_not_run_its_own_suite.py`。
 - **誠實邊界**: 只讀 Python;JS/TS 測試樹不判。字面 argv 以外(動態組出的指令)不指控。
+
+### 站L: 架構分數只保留有量到東西的訊號
+
+- **審計主張**: taskq-sol 的 SAD 為了 CRG 內聚度在 `migrations/versions/__init__.py` 設計 helper hub,每個 revision 在自己的 schema/data 操作前都呼叫它。**是框架教的**: `templates/SAD.md` §2.1 Principle 4「hub 必須從 every accessible function body 呼叫」,附邊數預算 `I ≥ ceil(0.4286 × E)`。
+- **量測(唯讀重算 19 個語料 graph.db,與 CRG 存的 cohesion 逐筆一致)**: CRG 把「另一端不屬任何 community」的邊算外部邊,每個函式庫呼叫都是 —— taskq-plus 13 個產品 community 只有 2 個健康,量的是函式庫呼叫密度;Round 97 已量到 11/11 專案把 floor 調低才過。另兩種修正定義也量過並否決:只算產品 community 之間 → 19 個專案中位數全是 1.00(Leiden 分群本就讓跨群邊少,無鑑別力);改用設計目錄 → `models/` 這類葉層因其角色必然為 0,0.3 門檻仍逼人加呼叫。**三種 cohesion 都量不到架構。** 仍有鑑別力的是大小上限:community > 50 nodes 是 god cluster。
+- **老闆裁定**: 「正解應該是什麼?套用正解,不要迴避問題本身」。
+- **正解**: `community_cohesion.score` = 產品 community 中 size ≤ 50 的比例(減大函式罰分不變);cohesion 照算,列進 `low_cohesion`(不計分);結果帶 `_formula`,`structural_drift` 拒絕比較不同公式的分數(舊 P4 baseline 沒有 `_formula`,否則 16.7 → 100 會被讀成 0.83 drift 而判「架構退化」)。退役 Round 97 的 `lowered_cohesion_floor_reason` / `crg_floor_lowered`(floor 不再影響分數,保留它等於以一個無作用的旋鈕擋人)與其孤兒常數 `CRG_SMALL_PACKAGE_FILES`;floor 改為只決定報告列出哪些 low-cohesion。模板 §2.1 只留「子目錄限制大小」與「≤50 nodes」;P2_SOP 規則 9-12、P2 審查清單、harness_bridge / block_reason / gate_cmds 的補救文字、evaluate_dimension / CONFIGURATION / ERROR_HANDLING 的敘述一併改為真話 —— 全部不再叫人「加跨檔呼叫」。
+- **語料影響(實測)**: size-only 分數 80–100;5 個專案各有 1 個超大 community,照實扣分。
+- **守衛**: 新增 4 支(`tests/test_architecture_scores_what_it_measures.py` 3 支 + bridge 1 支),反證 3 條皆紅。**退役 6 支**(依 R64 讀懂後處置,非因礙事): `test_lowered_floor_and_named_modules.py` 的 4 支 floor 判定測試與 `test_harness_bridge.py` 的 2 支 floor 阻擋測試 —— 它們釘的是已退役的判定;同檔的報告測試(floor 仍出現在報告)保留,註記改為「low-cohesion 清單的 floor」。既有 cohesion 單元測試(`test_crg_independent.py` 4 支、`test_single_file_community.py` 3 支、`test_gate_knobs_are_not_ambient.py` 3 支)改寫為新語意並保留其原意(環境變數不得移動分數或清單;單檔 community 仍點名檔案)。
+- **誠實邊界**: 指標鍵名 `community_cohesion` 保留(既有 baseline 與多個消費者讀它),它量什麼由 `_formula` 寫明。分層方向由 import-linter 的 `architecture_constraints` 維度負責,不在此分數內。

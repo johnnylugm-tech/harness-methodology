@@ -48,94 +48,17 @@ pytestmark = [pytest.mark.core]
 
 # ── D: the lowered floor ────────────────────────────────────────────────────
 
-def test_the_documented_reason_is_a_constant_not_prose():
-    """The boundary decides a block, so it cannot live only in a sentence.
-
-    `harness_config`'s module docstring is where a project author reads why
-    they are allowed to lower the floor, and the block message quotes that
-    reason back. A prose "~10" beside a constant of any other value is one
-    contract with two statements — this round's whole subject.
-
-    Scoped to `__doc__`. It was scoped by splitting the file on
-    `def get_crg_settings`, and the counter-proof — putting "~10" back in the
-    docstring — left it green, because the constant's own assignment line sits
-    above that def and satisfied the search.
-    """
-    import core.harness_config as hc
-
-    assert isinstance(hc.CRG_SMALL_PACKAGE_FILES, int)
-    assert "CRG_SMALL_PACKAGE_FILES" in (hc.__doc__ or ""), (
-        "the docstring states the boundary in prose instead of naming the "
-        "constant the gate reads"
-    )
+# Round 113 站L retired the predicate these tests pinned
+# (`lowered_cohesion_floor_reason`): cohesion is no longer scored, so a floor
+# the project lowered moves nothing the gate reads. What remains of D is the
+# report — the floor still draws the low-cohesion list, and the report says so.
+#   test_harness_bridge.py::TestFinalizeGate
+#       ::test_a_lowered_cohesion_floor_does_not_block_once_cohesion_is_not_scored
 
 
 def _calibration(cohesion: float, source_files: int) -> dict:
     return {"cohesion_healthy": cohesion, "community_oversized": 50,
             "graph_files": source_files, "source_files": source_files}
-
-
-def test_a_lowered_floor_on_a_project_that_is_not_small_blocks():
-    """taskq-final: 0.2 on 47-54 source files, architecture 100.0."""
-    from harness.gate_checks import lowered_cohesion_floor_reason
-
-    reason = lowered_cohesion_floor_reason(_calibration(0.2, 54))
-    assert reason, "the floor was moved and nothing said so"
-    assert "0.2" in reason and "0.3" in reason and "54" in reason
-    # Round 24: a block carries its remediation, and here there are two.
-    assert "harness_config.json" in reason
-
-
-def test_a_small_package_may_calibrate_below_the_default():
-    """The framework's own stated reason, honoured — at the exact boundary the
-    framework states, on both sides of it.
-
-    The counter-proof for this rewrote it. The first version asserted only
-    that `CRG_SMALL_PACKAGE_FILES` files stays silent, so replacing the
-    predicate's boundary with an invented 12 left it green: one point inside
-    a region cannot pin the edge of that region. Both sides are needed, and
-    then any number other than the constant reddens one of them.
-    """
-    from core.harness_config import CRG_SMALL_PACKAGE_FILES
-    from harness.gate_checks import lowered_cohesion_floor_reason
-
-    assert lowered_cohesion_floor_reason(
-        _calibration(0.2, CRG_SMALL_PACKAGE_FILES)) is None
-    assert lowered_cohesion_floor_reason(
-        _calibration(0.2, CRG_SMALL_PACKAGE_FILES + 1)), (
-        "one file past the framework's stated reason is no longer that reason"
-    )
-
-
-def test_the_default_floor_is_never_a_finding():
-    """Negative control: a project that did not move it is not accused,
-    however large it is."""
-    from harness.gate_checks import lowered_cohesion_floor_reason
-
-    assert lowered_cohesion_floor_reason(_calibration(0.3, 500)) is None
-    assert lowered_cohesion_floor_reason(_calibration(0.4, 500)) is None
-
-
-def test_an_unmeasurable_calibration_is_not_a_finding():
-    """Round 32: could-not-measure is not a failing measurement. A gate result
-    written before `calibration` existed carries neither number."""
-    from harness.gate_checks import lowered_cohesion_floor_reason
-
-    assert lowered_cohesion_floor_reason({}) is None
-    assert lowered_cohesion_floor_reason({"cohesion_healthy": 0.2}) is None
-    assert lowered_cohesion_floor_reason({"source_files": 54}) is None
-    assert lowered_cohesion_floor_reason(None) is None
-
-
-# A reason nobody raises is the shape this round is about, and the guard for
-# it is behavioural — it drives `finalize_gate` and reads the raised details:
-#   test_harness_bridge.py::TestFinalizeGate
-#       ::test_a_floor_below_the_default_blocks_at_the_gate
-#       ::test_a_small_package_below_the_default_still_scores
-# It lives there because that is where the gate fixture is. What stood here
-# was `assert "lowered_cohesion_floor_reason" in harness_bridge.py`, and its
-# counter-proof — deleting the call — left it green: the import line still
-# carried the name. See that test's docstring.
 
 
 def _report_project(tmp_path: Path, calibration: dict | None) -> Path:

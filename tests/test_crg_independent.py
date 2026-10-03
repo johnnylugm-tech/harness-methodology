@@ -164,17 +164,19 @@ class TestCommunityMinSizeExemption:
         return compute_community_cohesion_score(communities)
 
     def test_tiny_community_low_cohesion_not_penalised(self):
-        # size=3 < min(5), cohesion below threshold → exempted → counts as healthy
+        # size=3 < min(5), cohesion below threshold → exempted → not even listed
         result = self._score([{"name": "micro", "cohesion": 0.1, "size": 3}])
         assert result["healthy"] == 1
         assert result["score"] == 100.0
+        assert result["low_cohesion"] == []
 
-    def test_border_community_low_cohesion_penalised(self):
-        # size=5 == min(5) → threshold applies → low cohesion → unhealthy
+    def test_border_community_low_cohesion_is_listed_not_scored(self):
+        # size=5 == min(5) → floor applies → listed as low cohesion. Round 113
+        # 站L: cohesion is reported, not scored, so it still counts healthy.
         result = self._score([{"name": "border", "cohesion": 0.1, "size": 5}])
-        assert result["healthy"] == 0
-        assert len(result["unhealthy"]) == 1
-        assert "low_cohesion" in result["unhealthy"][0]["issues"][0]
+        assert result["healthy"] == 1
+        assert result["unhealthy"] == []
+        assert [c["name"] for c in result["low_cohesion"]] == ["border"]
 
     def test_mix_tiny_and_normal(self):
         # 1 tiny (exempt) + 1 large low-cohesion → score 50%
@@ -201,11 +203,13 @@ class TestPerProjectCrgCalibration:
         return compute_community_cohesion_score(communities, **kw)
 
     def test_cohesion_healthy_param_overrides_default(self):
-        # 0.28 < default 0.3 → unhealthy; with param 0.25 → healthy
+        # 0.28 < default 0.3 → listed; with param 0.25 → not listed. Round 113
+        # 站L: the floor draws the list; the score does not move either way.
         comm = [{"name": "small-pkg", "cohesion": 0.28, "size": 8}]
-        assert self._score(comm)["healthy"] == 0
+        assert len(self._score(comm)["low_cohesion"]) == 1
         result = self._score(comm, cohesion_healthy=0.25)
-        assert result["healthy"] == 1
+        assert result["low_cohesion"] == []
+        assert result["healthy"] == 1 and result["score"] == 100.0
         assert result["_cohesion_threshold"] == 0.25
 
     def test_default_threshold_reported_when_no_param(self):
@@ -234,7 +238,7 @@ class TestPerProjectCrgCalibration:
                  "files": ["/repo/.claude/workflows/a.js", "/repo/src/x.py"]}]
         result = self._score(comm, extra_excludes=[".claude/*"], project_root="/repo")
         assert result["total"] == 1
-        assert result["healthy"] == 0
+        assert [c["name"] for c in result["low_cohesion"]] == ["mixed"]
 
     def test_absolute_paths_relativized_against_project_root(self):
         # root-level glob "*.mjs": fnmatch's * crosses "/", but the pattern

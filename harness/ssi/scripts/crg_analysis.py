@@ -88,6 +88,13 @@ COHESION_HEALTHY = 0.3
 COMMUNITY_OVERSIZED = 50
 COMMUNITY_MIN_SIZE = 5
 
+#: What `community_cohesion.score` measures. Round 113 站L: the share of
+#: product communities within the size cap. Cohesion is still computed and
+#: reported (`low_cohesion`), and no longer scored — see
+#: compute_community_cohesion_score. Carried in every result so a drift
+#: comparison can refuse two numbers taken with different rulers.
+ARCHITECTURE_FORMULA = "size<=50; cohesion reported, not scored (Round 113)"
+
 
 # ---------- Severity map for get_suggested_questions output ----------
 # Maps CRG's suggested-question categories to (dimension, severity).
@@ -133,9 +140,11 @@ def compute_community_cohesion_score(
     under directory-based grouping. Penalising that is misleading — it
     reflects the test harness layout, not architectural quality.
 
-    Formula:
-      healthy = count(cohesion >= COHESION_HEALTHY AND size <= COMMUNITY_OVERSIZED)
+    Formula (Round 113 站L — see ARCHITECTURE_FORMULA and the block below):
+      healthy = count(size <= COMMUNITY_OVERSIZED)
       score   = 100 * healthy / total_communities (excluding test-only)
+    Communities below the cohesion floor are listed in `low_cohesion` and
+    are not scored.
 
     Each unhealthy community is classified for diagnostic output.
 
@@ -278,27 +287,33 @@ def compute_community_cohesion_score(
     _scored_communities = [c for c in communities if not _is_non_product(c)]
     _excluded = len(communities) - len(_scored_communities)
 
+    # Round 113 站L: only the size cap is scored. Measured on 19 corpus graph
+    # databases (read-only recompute, equal to CRG's stored cohesion on every
+    # community): CRG counts an edge whose far end is in no community as
+    # external, and every library call is such an edge — taskq-plus scored 2
+    # of 13 product communities healthy on library-call density, which is why
+    # templates/SAD.md taught agents to call a hub from every function body
+    # and why 11 of 11 corpus projects lowered `crg_cohesion_healthy` (Round
+    # 97). Excluding those edges leaves Leiden communities, low in cross-edges
+    # by construction: median 1.00 in all 19, no discrimination. Over the
+    # designed directories instead, a leaf package such as `models/` scores 0
+    # by its role. None of the three measures architecture; a community over
+    # the size cap does (a god cluster), so that is the score. Cohesion is
+    # still computed and reported in `low_cohesion`, unscored.
     unhealthy = []
+    low_cohesion = []
     healthy = 0
     for c in _scored_communities:
         cohesion = c.get("cohesion", 1.0)
         size = c.get("size", 0)
-        reasons = []
+        _entry = {"name": c.get("name", "unknown"), "cohesion": cohesion, "size": size}
+        _dominant = _dominant_file(c.get("files", []), _rel)
+        if _dominant:
+            _entry["dominant_file"] = _dominant
         if cohesion < _thr and size >= COMMUNITY_MIN_SIZE:
-            reasons.append(f"low_cohesion({cohesion:.2f})")
+            low_cohesion.append(dict(_entry))
         if size > COMMUNITY_OVERSIZED:
-            reasons.append(f"oversized({size})")
-        if reasons:
-            _entry = {
-                "name": c.get("name", "unknown"),
-                "cohesion": cohesion,
-                "size": size,
-                "issues": reasons,
-            }
-            _dominant = _dominant_file(c.get("files", []), _rel)
-            if _dominant:
-                _entry["dominant_file"] = _dominant
-            unhealthy.append(_entry)
+            unhealthy.append({**_entry, "issues": [f"oversized({size})"]})
         else:
             healthy += 1
 
@@ -311,6 +326,8 @@ def compute_community_cohesion_score(
         "total_all": len(communities),
         "excluded_test_communities": _excluded,
         "unhealthy": unhealthy,
+        "low_cohesion": low_cohesion,
+        "_formula": ARCHITECTURE_FORMULA,
         "_cohesion_threshold": _thr,
         "_community_oversized": COMMUNITY_OVERSIZED,
         "_community_min_size": COMMUNITY_MIN_SIZE,
@@ -621,6 +638,12 @@ def structural_drift(baseline: dict, current: dict) -> dict:
         bl, cur = baseline.get(name), current.get(name)
         if not isinstance(bl, dict) or not isinstance(cur, dict):
             absent.append(name)
+            continue
+        if name == "community_cohesion" and bl.get("_formula") != cur.get("_formula"):
+            # Round 113 站L: two scores taken with different rulers are not a
+            # movement of the architecture. A baseline from before the formula
+            # changed has no `_formula`.
+            absent.append(f"{name} (scored by a different formula)")
             continue
         covered += weight
         weighted += weight * _DRIFT_DELTAS[name](bl, cur)

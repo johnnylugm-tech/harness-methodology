@@ -117,7 +117,7 @@ _CEILINGS: dict[str, int] = {
     # 0.28/0.31/0.33 of gates 2/3/4 published beside `weight_covered: 1.0`).
     # It sits here rather than in a `_stage_*` because it reads `_cfg_dims`,
     # `dims` and `_overall_score`, all three of which are bound in this method.
-    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 1024,  # 2026-09-08: 1020 -> 1024 — Round 109 站5: the `_record_integrity(ctx)` call and the two lines saying why it sits ahead of `_stage_record_verdict` (that stage raises on a blocked gate, and the score has to be recorded on both outcomes). The reasoning is in the method's own docstring, not repeated here.  # 2026-09-07: 1003 -> 1020 — Round 102 站1: the required-artifacts stage is gated on gate_num >= 2 (per-FR gate-1 finalizes record, they do not block) — the scope decision comment + the conditional call site. Previous: 1003.  # 2026-09-05: 984 -> 1003 — Round 97 站3. The cohesion-floor raise site: the architecture calibration Round 42 站4 recorded is now compared against the framework's own reason for allowing it to move.  # 2026-09-05: 963 -> 984 — Round 96 站3. `_record_coverage_denominator`'s return value stops being discarded: the omit list goes into breakdown.test_coverage beside the percentage it qualifies, so the number ships with what it was taken over (Round 42 站4). 153 of taskq-final's 428 ledger rows came from this producer and nothing read one.
+    "harness/harness_bridge.py::HarnessBridge.finalize_gate": 1005,  # 2026-10-03: 1024 -> 1005 harvested — Round 113 站L retired the Round 97 cohesion-floor raise site: cohesion is no longer scored, so the floor moves nothing the gate reads. Previous: 1024.  # 2026-09-08: 1020 -> 1024 — Round 109 站5: the `_record_integrity(ctx)` call and the two lines saying why it sits ahead of `_stage_record_verdict` (that stage raises on a blocked gate, and the score has to be recorded on both outcomes). The reasoning is in the method's own docstring, not repeated here.  # 2026-09-07: 1003 -> 1020 — Round 102 站1: the required-artifacts stage is gated on gate_num >= 2 (per-FR gate-1 finalizes record, they do not block) — the scope decision comment + the conditional call site. Previous: 1003.  # 2026-09-05: 984 -> 1003 — Round 97 站3. The cohesion-floor raise site: the architecture calibration Round 42 站4 recorded is now compared against the framework's own reason for allowing it to move.  # 2026-09-05: 963 -> 984 — Round 96 站3. `_record_coverage_denominator`'s return value stops being discarded: the omit list goes into breakdown.test_coverage beside the percentage it qualifies, so the number ships with what it was taken over (Round 42 站4). 153 of taskq-final's 428 ledger rows came from this producer and nothing read one.
     # 770 at Round 81 站9, from 940: four runs extracted. The smallest
     # harvest of the four, because only 182 of its lines are extractable
     # under the rule — the rest threads state through the dispatch loop.
@@ -324,7 +324,10 @@ _CEILINGS: dict[str, int] = {
     # component is not a comparison that found no movement (Round 35).
     "harness/harness_bridge.py::HarnessBridge.prepare_gate": 221,
     "harness/gate_checks.py::_check_tool_evidence": 206,
-    "harness/ssi/scripts/crg_analysis.py::compute_community_cohesion_score": 206,
+    # 2026-10-03: +10 — Round 113 站L: the score keeps only the size cap and
+    # lists low cohesion unscored; most of the growth is the comment carrying
+    # the three measured definitions of cohesion and why none is scored.
+    "harness/ssi/scripts/crg_analysis.py::compute_community_cohesion_score": 216,
     "scripts/plangen/blocks.py::_gate_exit_checkpoint": 204,
     # 210 at Round 81 站4, from 202: check 14b (`_check_hook_wiring`) and the
     # comment recording why it sits beside check 14 rather than at the end —

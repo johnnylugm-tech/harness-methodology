@@ -873,7 +873,11 @@ class TestGate4DaWaiverRefusal:
         err = capsys.readouterr().err
         assert "not permitted" in err
         assert "crg_excludes" in err
-        assert "crg_cohesion_healthy" in err
+        assert "oversized" in err
+        # Round 113 站L: cohesion is not scored, so lowering its floor cannot
+        # raise the architecture score — offering it as a remedy would send the
+        # agent after a knob with no effect.
+        assert "crg_cohesion_healthy" not in err
 
 
 # =============================================================================

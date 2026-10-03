@@ -804,8 +804,8 @@ gone; `tests/test_ci_install_steps_hard_fail.py` keeps them gone.
 
 | the finding | route | what to do |
 |---|---|---|
-| a community is genuinely oversized or low-cohesion | **CODE-FIX** | split it, or reduce cross-package coupling so CRG detects sub-communities |
-| CRG misreads an intentional layout (workflow tooling scored as product code, small-package Leiden over-fragmentation) | **CONFIG-FIX** | calibrate `crg_excludes` / `crg_cohesion_healthy` in `.methodology/harness_config.json` |
+| a community is oversized (> 50 nodes) | **CODE-FIX** | split it into focused subdirectories. Low cohesion is reported, not scored (Round 113) — do not add calls to move it |
+| CRG scores workflow tooling as product code | **CONFIG-FIX** | list it in `crg_excludes` in `.methodology/harness_config.json` |
 | the threshold feels wrong for this project | *not a route* | the floor lives in `harness/gate_configs/*.yaml` and is the same one CI applies |
 
 Why there is no waiver route: a waiver was read by `finalize_gate` and by

@@ -57,14 +57,12 @@ DIMENSION_HINTS: dict[str, str] = {
     "mutation_testing":   "Run `mutmut run`; add assertions that kill every surviving mutant",
     "architecture":       (
         "Two distinct failure modes — check tool_evidence to identify which applies: "
-        "(1) CRG community issues: if god-module (size>50) or low cohesion (all communities <0.3), "
-        "reduce cross-package coupling so CRG detects sub-communities, or split the oversized "
-        "community. There is no waiver: Round 38 removed it because a waiver was read only by "
-        "finalize-gate, while crg-arch-check (CI, every push from phase 3) never saw it — the "
-        "waiver bought a local PASS and a red build. For a genuine CRG false positive (workflow "
-        "tooling counted as product code, small-package Leiden over-fragmentation) calibrate "
-        "crg_excludes / crg_cohesion_healthy in .methodology/harness_config.json, which is "
-        "committed and therefore applies to CI as well; "
+        "(1) CRG community issues: a community over 50 nodes is a god cluster — split it into "
+        "focused subdirectories. Cohesion is reported, not scored (Round 113): do not add calls "
+        "between files to move it. There is no waiver: Round 38 removed it because a waiver was "
+        "read only by finalize-gate, while crg-arch-check (CI, every push from phase 3) never saw "
+        "it. For workflow tooling counted as product code, list it in crg_excludes in "
+        ".methodology/harness_config.json, which is committed and therefore applies to CI as well; "
         "(2) Import boundary violations: verify imports comply with SAD.md layer boundaries and fix violations."
     ),
     "readability":        "Add [FR-XX] docstrings with Citations:; split functions >30 lines",
@@ -166,17 +164,6 @@ _DETAIL_REGISTRY: dict[str, tuple[str, str]] = {
         "dimension listed: run the tool yourself, read its real output, and either "
         "fix the code until the tool agrees with the claimed score, or write the "
         "score the tool actually produced into the gate result file.",
-    ),
-    "crg_floor_lowered": (
-        "The architecture score was measured against a cohesion floor this "
-        "project moved below the framework's default",
-        "Restore `crg_cohesion_healthy` to the framework default in "
-        ".methodology/harness_config.json (or remove the key), then raise the "
-        "cohesion the score reports by reducing cross-package coupling. "
-        "Calibrating below the default is the framework's own answer for a "
-        "package small enough that Leiden community detection over-fragments; "
-        "on a larger tree the lowered floor changes what the score means "
-        "rather than what it measures.",
     ),
     "fr_tests_red": (
         "This FR's own tests are failing in the harness's whole-suite run",

@@ -70,12 +70,15 @@ def _fresh_module(monkeypatch: pytest.MonkeyPatch, env: "dict[str, str]"):
 def test_the_baseline_score_is_what_makes_this_test_meaningful(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Positive control: both communities must be unhealthy with no env set,
-    otherwise the assertions below would hold for an uninteresting reason."""
+    """Positive control: the god module is unhealthy and the loose community
+    is listed as low cohesion with no env set, otherwise the assertions below
+    would hold for an uninteresting reason. Round 113 站L: only the size cap
+    is scored, so the loose community counts as healthy and is LISTED."""
     mod = _fresh_module(monkeypatch, {})
     result = mod.compute_community_cohesion_score(_COMMUNITIES)
-    assert result["score"] == 0.0, result
-    assert result["total"] == 2 and result["healthy"] == 0
+    assert result["score"] == 50.0, result
+    assert result["total"] == 2 and result["healthy"] == 1
+    assert [c["name"] for c in result["low_cohesion"]] == ["loose"]
 
 
 @pytest.mark.parametrize("const,env,value", [
@@ -104,10 +107,12 @@ def test_no_env_var_moves_the_architecture_score_itself(
     while still letting the shell decide the verdict."""
     mod = _fresh_module(monkeypatch, {env: value})
     result = mod.compute_community_cohesion_score(_COMMUNITIES)
-    assert result["score"] == 0.0, (
+    assert result["score"] == 50.0, (
         f"setting {env}={value} moved the architecture score to "
         f"{result['score']} — {result}"
     )
+    assert [c["name"] for c in result["low_cohesion"]] == ["loose"], (
+        f"setting {env}={value} moved what the report lists — {result}")
 
 
 def test_the_committed_calibration_still_works(
@@ -126,4 +131,6 @@ def test_the_committed_calibration_still_works(
         [{"name": "loose", "cohesion": 0.05, "size": 8, "files": ["src/b.py"]}],
         cohesion_healthy=0.01,
     )
+    # Round 113 站L: the floor now draws the low-cohesion list, not the score.
     assert result["score"] == 100.0, result
+    assert result["low_cohesion"] == [], result

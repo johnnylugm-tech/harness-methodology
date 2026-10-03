@@ -557,21 +557,18 @@ class TestFinalizeGate:
         })
         return ctx
 
-    def test_a_floor_below_the_default_blocks_at_the_gate(
+    def test_a_lowered_cohesion_floor_does_not_block_once_cohesion_is_not_scored(
         self, tmp_path, monkeypatch
     ):
-        """Round 97, station 3, measured through `finalize_gate` itself.
+        """Round 113 站L, through `finalize_gate` itself.
 
-        The first version of this asserted that the string
-        `lowered_cohesion_floor_reason` appears somewhere in
-        `harness_bridge.py`. Its counter-proof — deleting the call — left it
-        green, because the import line still carried the name: the guard was
-        reading an import, which is Round 68 CP-10's finding recurring in the
-        guard written to prevent it. Round 43 / Round 47: a predicate with no
-        executor is the shape, so the executor is what has to be observed.
-
-        taskq-final's numbers: cohesion floor 0.2 against the framework's 0.3,
-        on 54 delivered source files, architecture 100.0.
+        Round 97 blocked taskq-final's shape — cohesion floor 0.2 against the
+        framework's 0.3, on 54 source files, architecture 100.0 — because the
+        score was measured on a floor the project had moved. Cohesion is no
+        longer scored: the architecture score is the share of communities
+        within the size cap, and the floor only draws the low-cohesion list.
+        A floor that moves nothing the gate reads is not a reason to refuse,
+        and the calibration still travels with the result (Round 42 站4).
         """
         self._patch_gate_config(tmp_path, monkeypatch)
         ctx = self._arch_ctx(tmp_path)
@@ -579,35 +576,11 @@ class TestFinalizeGate:
         bridge = HarnessBridge()
         with patch("harness.crg_independent.run_independent_crg",
                    self._crg_writing(0.2, 54)):
-            with pytest.raises(GateBlockedError) as blocked:
-                bridge.finalize_gate(ctx)
-
-        details = blocked.value.details or {}
-        assert "crg_floor_lowered" in details, (
-            "architecture scored 100.0 on a floor the project moved to 0.2 and "
-            f"the gate passed it through — details were {sorted(details)}"
-        )
-        rendered = json.dumps(details["crg_floor_lowered"])
-        assert "0.2" in rendered and "0.3" in rendered and "54" in rendered
-
-    def test_a_small_package_below_the_default_still_scores(
-        self, tmp_path, monkeypatch
-    ):
-        """Negative control, same path: the framework's own stated reason for
-        calibrating below 0.3 is a package small enough that Leiden
-        over-fragments, and a project inside it is not accused."""
-        from core.harness_config import CRG_SMALL_PACKAGE_FILES
-
-        self._patch_gate_config(tmp_path, monkeypatch)
-        ctx = self._arch_ctx(tmp_path)
-
-        bridge = HarnessBridge()
-        with patch("harness.crg_independent.run_independent_crg",
-                   self._crg_writing(0.2, CRG_SMALL_PACKAGE_FILES)):
             result = bridge.finalize_gate(ctx)
 
         arch = next(d for d in result.dimensions if d.name == "architecture")
         assert arch.score == 100.0
+        assert ctx.architecture_calibration["cohesion_healthy"] == 0.2
 
     def test_finalize_gate_null_breakdown_score_does_not_block(self, tmp_path, monkeypatch):
         """Real JSON->DimResult path (not an injected DimResult bypassing

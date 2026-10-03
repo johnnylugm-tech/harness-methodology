@@ -16,7 +16,9 @@ executable advice left is the fourth, and Round 38 removed the waiver that
 used to be the other way out. Every project hitting this shape is pushed
 toward loosening its own ruler.
 
-This does NOT change the score. Whether a 12.5 KB file whose internals form
+Round 113 站L: cohesion is reported, not scored, so these shapes are now
+LISTED in `low_cohesion` rather than counted unhealthy — the file is named
+there. This does NOT change the score. Whether a 12.5 KB file whose internals form
 two disconnected clusters is an architecture finding is not a question this
 round has standing to answer, and excluding it by fiat would be the waiver
 Round 38 removed, rebuilt. What changes is that the remedy names the file.
@@ -47,7 +49,7 @@ def test_a_community_that_is_one_file_names_that_file():
         cohesion_healthy=0.25,
         project_root="/r",
     )
-    assert out["unhealthy"][0]["dominant_file"] == "src/storage/task_store.py"
+    assert out["low_cohesion"][0]["dominant_file"] == "src/storage/task_store.py"
 
 
 def test_a_genuinely_multi_module_community_names_no_file():
@@ -63,7 +65,7 @@ def test_a_genuinely_multi_module_community_names_no_file():
         cohesion_healthy=0.25,
         project_root="/r",
     )
-    assert "dominant_file" not in out["unhealthy"][0]
+    assert "dominant_file" not in out["low_cohesion"][0]
 
 
 def test_a_plurality_is_not_a_majority():
@@ -75,7 +77,7 @@ def test_a_plurality_is_not_a_majority():
         cohesion_healthy=0.25,
         project_root="/r",
     )
-    assert "dominant_file" not in out["unhealthy"][0]
+    assert "dominant_file" not in out["low_cohesion"][0]
 
 
 def test_a_healthy_community_carries_no_finding_at_all():

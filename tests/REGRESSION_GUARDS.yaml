@@ -4935,21 +4935,9 @@
   bug: "found by this round's own counter-proof. Replacing `violations.extend(check_…())` with a bare `check_…()` — running both new checks and discarding their answers — left every guard green: the per-check tests call the checks directly and `test_cross_artifact_thorough` reads only `checks_ran`. Round 24, a number computed and thrown away, inside guards written for Round 24. This one drives `run_cross_artifact_checks` and reads the violations back out."
   fixed_in: "Round 97"
 
-- test: tests/test_lowered_floor_and_named_modules.py::test_a_lowered_floor_on_a_project_that_is_not_small_blocks
-  bug: "`crg_analysis.COHESION_HEALTHY` is 0.3 and `harness_config` gives one legitimate reason to go below it — Leiden over-fragmentation in a package of at most CRG_SMALL_PACKAGE_FILES source files. Round 42 站4 had already put `cohesion_healthy` and `source_files` into the gate result's calibration block; no line of code compared them. Measured: 11 of 11 corpus projects had lowered the floor (0.15-0.25) at 41-65 source files, matching the documented reason 0 times, and 0 of 11 QUALITY_REPORT.md files said so. taskq-final lists communities at 0.22 and 0.29 beside an architecture score of 100.0."
-  fixed_in: "Round 97"
 
-- test: tests/test_lowered_floor_and_named_modules.py::test_a_small_package_may_calibrate_below_the_default
-  bug: "the boundary is pinned from both sides. Found by this round's CP-8 self-falsification: the first version asserted only that CRG_SMALL_PACKAGE_FILES files stays silent, so replacing the predicate's boundary with an invented 12 left it green — one point inside a region cannot pin that region's edge."
-  fixed_in: "Round 97"
 
-- test: tests/test_lowered_floor_and_named_modules.py::test_an_unmeasurable_calibration_is_not_a_finding
-  bug: "Round 32: a gate result written before `calibration` existed carries neither number, and is not a project that lowered anything."
-  fixed_in: "Round 97"
 
-- test: tests/test_lowered_floor_and_named_modules.py::test_the_documented_reason_is_a_constant_not_prose
-  bug: "the boundary was prose ('~10 source files') in a docstring while a gate blocks on it — one contract, two statements. Scoped to `__doc__` after CP-10: the first version split the source on `def get_crg_settings`, and the constant's own assignment line sits above that def, so the search was satisfied by the definition rather than by the documentation it claimed to check."
-  fixed_in: "Round 97"
 
 - test: tests/test_lowered_floor_and_named_modules.py::test_the_report_carries_the_floor_the_score_was_measured_on
   bug: "Round 42 站4 one layer out: the calibration reaches the gate JSON and stops, so a reader of the delivery sees communities below the default beside a perfect architecture score with nothing saying the two agree because the floor moved. Rendered end to end after CP-5c2: the first version called `_calibration_note` directly and stayed green when the line emitting it was deleted from the report."
@@ -4959,13 +4947,7 @@
   bug: "negative control: a note that fires on every delivery is not a note."
   fixed_in: "Round 97"
 
-- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_floor_below_the_default_blocks_at_the_gate
-  bug: "found by this round's CP-5b. The wiring guard was `assert 'lowered_cohesion_floor_reason' in harness_bridge.py`, and deleting the call left it green because the import line still carried the name — Round 68 CP-10's finding (a guard measuring an import) recurring inside the guard written to prevent it. Round 43 / Round 47: a predicate with no executor is the shape, so the executor is what has to be observed. Drives `finalize_gate` and reads the raised `crg_floor_lowered` details."
-  fixed_in: "Round 97"
 
-- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_small_package_below_the_default_still_scores
-  bug: "negative control through the same path: a project inside the framework's own stated reason for calibrating below 0.3 scores normally and is not blocked."
-  fixed_in: "Round 97"
 
 - test: tests/test_lowered_floor_and_named_modules.py::test_a_named_module_that_does_not_exist_is_reported
   bug: "`08-config/CONFIG_RECORDS.md` is where the delivery states how to start, and nothing checked that what it names is there. taskq-final's says `uvicorn taskq_api.main:app`; the delivered package has `app.py` and `__main__.py` and no `main.py`, so following the document raises ModuleNotFoundError before the process starts. Measured across the corpus: one project names a module that resolves, one names one that does not, nine name none — zero false positives."
@@ -6035,3 +6017,19 @@
 - test: tests/test_a_test_does_not_run_its_own_suite.py::test_the_finalize_gate_refuses_it
   bug: "R30: the read has no effect unless finalize-gate asks it, at every gate. Counter-proof run 2026-10-03: replacing the call with an empty list turns this red"
   fixed_in: "Round 113 站F"
+
+- test: tests/test_architecture_scores_what_it_measures.py::test_low_cohesion_is_listed_not_scored
+  bug: "CRG counts every library call as an external edge, so community cohesion measured library-call density: taskq-plus scored 2 of 13 product communities healthy, 11 of 11 corpus projects lowered the floor to pass (Round 97), and templates/SAD.md taught agents to call a hub from every function body — taskq-sol's migrations `helper hub` is that lesson. Two corrected definitions were measured and rejected (product-only edges: median 1.00 in all 19 projects; designed directories: leaf packages score 0 by role). Counter-proof run 2026-10-03: scoring cohesion again turns this red"
+  fixed_in: "Round 113 站L"
+
+- test: tests/test_architecture_scores_what_it_measures.py::test_drift_refuses_scores_taken_with_different_rulers
+  bug: "structural_drift compares scores by absolute difference; a P4 baseline taken under the cohesion formula against a size-cap score would read as up to 0.83 drift and fail crg-arch-check / Gate 4 as an architecture regression that is only a change of ruler. Counter-proof run 2026-10-03: dropping the formula check turns this red"
+  fixed_in: "Round 113 站L"
+
+- test: tests/test_architecture_scores_what_it_measures.py::test_the_template_teaches_no_calls_added_for_a_metric
+  bug: "SAD §2.1 Principle 4 told agents to call a hub 'from every accessible function body' with an edge budget I >= ceil(0.4286 x E) — coupling added to move a number that measured library calls. Counter-proof run 2026-10-03: restoring the sentence turns this red"
+  fixed_in: "Round 113 站L"
+
+- test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_lowered_cohesion_floor_does_not_block_once_cohesion_is_not_scored
+  bug: "Round 97 blocked a project for scoring architecture on a cohesion floor it had lowered; with cohesion unscored the floor moves nothing the gate reads, and keeping the block would refuse projects over a knob with no effect. The calibration still travels with the result"
+  fixed_in: "Round 113 站L"

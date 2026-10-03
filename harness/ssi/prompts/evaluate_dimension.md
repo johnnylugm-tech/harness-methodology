@@ -439,11 +439,11 @@ requirement to count as covered.
 **Scored by the framework's OWN independent CRG run — not the LLM, not the agent.**
 At finalize-gate the harness itself runs `code-review-graph build` + `postprocess`
 (via `harness/crg_independent.py`) and computes `community_cohesion.score` — percent of
-healthy communities. A community is healthy when `cohesion >= threshold` (default 0.3;
-per-project override: `crg_cohesion_healthy` in `.methodology/harness_config.json` —
-Round 40 站3 removed the env var, because a shell variable that moves a gate verdict
-is a backdoor) and `size <= 50`; communities with `size < 5` are exempt
-from the low-cohesion penalty (too few nodes for a meaningful edge-density estimate).
+healthy communities. Round 113 站L: a community is healthy when `size <= 50`; that is
+the whole score. Cohesion is still computed and listed (`low_cohesion`, floor
+`crg_cohesion_healthy`, default 0.3; communities with `size < 5` are not listed), but
+not scored — CRG counts every library call as an external edge, so it measures
+library-call density. Never add calls between files to move it.
 Non-product communities are excluded from scoring when the name starts with
 `tests`/`test`, OR >50 % of files are under `tests/`/`.methodology/`, OR >50 % of
 files match a `crg_excludes` glob (below) — test files and project tooling have no
