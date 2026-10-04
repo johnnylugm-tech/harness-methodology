@@ -1114,6 +1114,20 @@ def _cmd_amend_sab_impl(args: argparse.Namespace) -> tuple[int, str, Path]:
         print(summary)
         return 0, "resolved_phantom", project
 
+    # The code -> SAB counterpart: a module whose name states no declared layer
+    # is placed by the project, in SAD.md §5, on the record.
+    _declare = getattr(args, "declare", None)
+    if _declare:
+        from core.quality_gate.sab_amender import ArchitectureAmendmentError
+        from core.quality_gate.sad_sab_edit import declare_module
+        try:
+            print(declare_module(project, _declare, getattr(args, "layer", "") or "",
+                                 getattr(args, "reason", "") or "", src_dir=args.src_dir))
+        except ArchitectureAmendmentError as exc:
+            print(f"[amend-sab] REFUSED: {exc}", file=sys.stderr)
+            return 1, "declare_refused", project
+        return 0, "declared", project
+
     try:
         from core.quality_gate.sab_amender import (
             amend_sab,
@@ -2227,6 +2241,11 @@ def register(sub) -> None:
     asab.add_argument("--drop", action="store_true", dest="resolve_drop",
                     help="Remove --resolve-phantom's module from the architecture "
                          "entirely (use when the FR no longer needs it)")
+    asab.add_argument("--declare", metavar="DOTTED",
+                    help="Place a module whose name states no declared layer (Gate 1 "
+                         "'Unregistered modules' it cannot place) in --layer: edits "
+                         "SAD.md §5 and SAB.json together, records --reason in ADR.md")
+    asab.add_argument("--layer", help="An existing SAD.md §5 layer, for --declare")
     asab.add_argument("--reason", help="Why the declared decomposition changed (>= 20 "
                                        "chars). Written to ADR.md — an architecture "
                                        "changed without a recorded reason is "

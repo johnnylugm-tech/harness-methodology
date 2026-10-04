@@ -512,8 +512,15 @@ def test_the_interpreter_constraint_is_not_a_distribution(tmp_path) -> None:
 
 
 def test_the_remedy_names_the_document_that_decides_layers() -> None:
+    """The remedy places the module in SAD.md, the document that decides
+    layers. Plain `amend-sab` reads SAB.json and never SAD.md, so re-running
+    it produces the same refusal — the only amend-sab the remedy may name is
+    `--declare`, which edits SAD.md §5 itself (post-P2 architecture
+    amendment; hand-editing SAD.md + `generate_sab --overwrite`, the previous
+    wording, also re-filed amend registrations into the last layer)."""
     assert "SAD.md" in UNPLACEABLE_REMEDY
-    assert "generate_sab.py" in UNPLACEABLE_REMEDY
-    assert "amend-sab" not in UNPLACEABLE_REMEDY, (
+    assert "--declare" in UNPLACEABLE_REMEDY
+    assert UNPLACEABLE_REMEDY.count("amend-sab") == UNPLACEABLE_REMEDY.count(
+        "amend-sab --project . --declare"), (
         "amend_sab reads .methodology/SAB.json and never SAD.md, so telling "
         "the project to re-run it produces the same refusal")

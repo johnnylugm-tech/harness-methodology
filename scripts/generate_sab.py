@@ -113,23 +113,28 @@ def _preserve_amended_modules(existing_sab_path: Path, new_layers: list) -> list
             if norm:
                 new_names.add(norm)
 
-    # Build a name → existing_entry map from OLD layers (first occurrence wins).
-    old_entries: dict[str, object] = {}
+    # Each preserved entry goes back into the layer it was registered in. It
+    # used to be appended to the LAST layer — the guess Round 101 removed from
+    # sab_amender.amend_sab — so every regeneration re-filed amend-registered
+    # packages wherever the SAD happened to end (taskq-open: api, models,
+    # repository and service all landed in `migrations`, four placements
+    # `undeclared_layer_placements` then blocks on). A layer the SAD no longer
+    # declares has no answer here: the module is dropped, Gate 1 reports it
+    # unregistered, and `amend-sab --declare` is how the project places it.
+    by_name = {layer.get("name"): layer for layer in new_layers}
+    preserved: list[str] = []
     for layer in old_layers:
+        target = by_name.get(layer.get("name"))
+        if target is None:
+            continue
         for m in layer.get("modules", []):
             norm = normalize_sab_module_to_dotted(m)
-            if norm and norm not in new_names and norm not in old_entries:
-                old_entries[norm] = m
+            if norm and norm not in new_names:
+                target.setdefault("modules", []).append(m)
+                new_names.add(norm)
+                preserved.append(norm)
 
-    if not old_entries:
-        return []
-
-    # Append preserved entries to the LAST layer (same heuristic as
-    # sab_amender.amend_sab — least risky; operator can re-categorize later).
-    if new_layers:
-        new_layers[-1].setdefault("modules", []).extend(old_entries.values())
-
-    return sorted(old_entries.keys())
+    return sorted(preserved)
 
 
 def _print_validation_errors(errors: list, sad_file: Path) -> None:

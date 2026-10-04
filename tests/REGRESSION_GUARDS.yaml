@@ -6057,3 +6057,47 @@
 - test: tests/test_sab_step_delivers_constraint_config.py::test_the_sab_step_writes_and_verifies_the_config
   bug: "the generated phase2 / run-all SAB step must instruct writing .importlinter and running check-constraint-config; without it the P2 exit block is unreachable by any workflow step"
   fixed_in: "cfe3adac"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_regeneration_keeps_an_amend_registration_in_its_own_layer
+  bug: "generate_sab --overwrite appended every amend-registered module SAD.md does not list to the LAST layer (the guess Round 101 removed from amend_sab); on taskq-open api/models/repository/service landed in `migrations` and undeclared_layer_placements then blocks"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_regeneration_does_not_invent_a_layer_for_a_vanished_one
+  bug: "a registration whose layer SAD.md no longer declares must not be re-filed into some other layer; it surfaces as unregistered and is placed by --declare"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_declare_places_the_module_in_sad_and_sab
+  bug: "a P3 module whose name states no declared layer (taskq-open __main__, required by SPEC) had no legal place: Gate 1 said declare it in SAD.md §5 and no tool or workflow step could, so FR-03..10 parked on rc 25 and run-all halted"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_declare_leaves_nothing_undeclared_or_unplaceable
+  bug: "--declare must leave SAB.json and SAD.md agreeing — no undeclared placement, nothing unplaceable, and a regeneration from the amended SAD reproduces the placement"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_declare_refuses_and_writes_nothing
+  bug: "--declare is not a move tool or a layer factory: unknown layer, a module not currently unplaceable, or a short reason must be refused with SAD.md, SAB.json and ADR.md untouched"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_declare_refuses_a_sab_block_shape_it_cannot_prove
+  bug: "a SAD text edit that cannot be proven by re-parsing must not be written"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_a_dropped_phantom_stays_dropped_after_regeneration
+  bug: "--resolve-phantom --drop rewrote SAB.json only, so the next generate_sab --overwrite read the phantom straight back out of SAD.md"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_a_retargeted_phantom_is_declared_in_sad
+  bug: "a retargeted phantom must be retargeted in SAD.md §5 too, or SAB.json carries a placement its authority never states"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_the_unplaceable_remedy_names_declare
+  bug: "UNPLACEABLE_REMEDY told the reader to hand-edit SAD.md and regenerate — which re-filed amend registrations into the last layer — instead of naming the tool"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_the_cli_declares
+  bug: "amend-sab had no CLI for the code -> SAB amendment direction"
+  fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_the_p3_workflow_tells_the_agent_to_declare
+  bug: "the P3 RC=25 bullet claimed an intervening FR or plain amend-sab could repair an unplaceable module; neither can, so parking was guaranteed to fail"
+  fixed_in: "post-P2 architecture amendment"

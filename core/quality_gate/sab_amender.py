@@ -32,7 +32,7 @@ import re
 from pathlib import Path
 from typing import Iterable
 
-from core.atomic_io import atomic_write_json
+from core.atomic_io import atomic_write_json, atomic_write_text
 from core.utils.timefmt import utc_now_iso
 
 
@@ -309,7 +309,11 @@ def phantom_module_block(project_root: Path) -> list[str]:
     return phantom_modules(sab, discovered, src_rel)
 
 
-class PhantomResolutionError(ValueError):
+class ArchitectureAmendmentError(ValueError):
+    """An architecture amendment was refused; nothing was written. The message says why."""
+
+
+class PhantomResolutionError(ArchitectureAmendmentError):
     """`resolve_phantom` refused the amendment. The message says why."""
 
 
@@ -388,8 +392,33 @@ def resolve_phantom(
             f"entry — nothing to amend"
         )
 
+    # The same rewrite, applied to the authority. SAB.json alone used to carry
+    # it, and the next `generate_sab --overwrite` read the phantom straight
+    # back out of SAD.md. A SAD with no SAB block (older projects) has only
+    # SAB.json to amend.
+    from core.quality_gate.sad_sab_edit import rewrite_module
+
+    def _expect(placements: set, trace: dict) -> "tuple[set, dict]":
+        def swap(names):
+            return [to_dotted if n == declared_dotted else n for n in names
+                    if n != declared_dotted or to_dotted is not None]
+        return ({(lay, m) for lay, m in placements for m in swap([m])},
+                {fr: sorted(swap(names)) for fr, names in trace.items()})
+
+    from core.quality_gate.sad_sab_edit import amend_sad
+
+    amended = amend_sad(
+        project_root,
+        lambda text: rewrite_module(
+            text,
+            lambda raw: normalize_sab_module_to_dotted(raw, src_dir) == declared_dotted,
+            to_dotted),
+        _expect,
+    )
     action = f"retargeted to `{to_dotted}`" if to_dotted else "dropped"
     _append_adr_amendment(project_root, declared_dotted, action, reason, replaced)
+    if amended:
+        atomic_write_text(*amended)
     atomic_write_json(sab_path, sab)
     return (
         f"[amend-sab] architecture amended: `{declared_dotted}` {action} "
@@ -447,7 +476,8 @@ def _rewrite_module_reference(
 
 
 def _append_adr_amendment(
-    project_root: Path, declared: str, action: str, reason: str, touched: list[str]
+    project_root: Path, declared: str, action: str, reason: str, touched: list[str],
+    command: str = "--resolve-phantom",
 ) -> None:
     """Append the amendment to the project's ADR.md, creating it if absent."""
     from core.utils.project_layout import ProjectLayout
@@ -460,7 +490,7 @@ def _append_adr_amendment(
         f"- **When**: {utc_now_iso()}\n"
         f"- **Amended**: {', '.join(touched)}\n"
         f"- **Reason**: {reason}\n"
-        f"- **Recorded by**: `harness_cli.py amend-sab --resolve-phantom` "
+        f"- **Recorded by**: `harness_cli.py amend-sab {command}` "
         f"(Gate 1 Architecture Amendment Protocol)\n"
     )
     with adr.open("a", encoding="utf-8") as fh:
@@ -570,8 +600,10 @@ def layer_for_module(sab: dict, module_path: str) -> "str | None":
 #: refusals, so the instruction has one wording — `amend_sab` does not read
 #: SAD.md, so "re-run amend-sab" is not the remedy and never was.
 UNPLACEABLE_REMEDY = (
-    "declare a layer for them in SAD.md §5's SAB block, then re-run "
-    "`python3 scripts/generate_sab.py --project . --overwrite`"
+    "declare each one in the SAD.md §2 layer it belongs to: "
+    "`python3 harness_cli.py amend-sab --project . --declare <module> "
+    "--layer <layer> --reason \"<why it belongs there>\"` (edits SAD.md §5 and "
+    "SAB.json together, records the decision in ADR.md)"
 )
 
 
