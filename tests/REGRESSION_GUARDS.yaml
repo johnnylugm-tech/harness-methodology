@@ -6033,3 +6033,27 @@
 - test: tests/test_harness_bridge.py::TestFinalizeGate::test_a_lowered_cohesion_floor_does_not_block_once_cohesion_is_not_scored
   bug: "Round 97 blocked a project for scoring architecture on a cohesion floor it had lowered; with cohesion unscored the floor moves nothing the gate reads, and keeping the block would refuse projects over a knob with no effect. The calibration still travels with the result"
   fixed_in: "Round 113 站L"
+
+- test: tests/test_sab_step_delivers_constraint_config.py::test_a_typed_constraint_with_no_config_exits_48
+  bug: "the P2 SAB step declared typed import-linter constraints but could not write their config (SCOPE: SAD.md §5 only) and nothing verified it; advance-phase exit 48 was the first to notice — taskq-sol and taskq-open both halted at P2's exit"
+  fixed_in: "cfe3adac"
+
+- test: tests/test_sab_step_delivers_constraint_config.py::test_a_config_that_matches_the_declaration_exits_0
+  bug: "check-constraint-config must be satisfiable by writing the exactly-matching contract, not by deleting the declaration"
+  fixed_in: "cfe3adac"
+
+- test: tests/test_sab_step_delivers_constraint_config.py::test_a_config_that_drifts_from_the_declaration_exits_48
+  bug: "a contract that exists but names a different module set does not decide the declared constraint; presence alone must not pass"
+  fixed_in: "cfe3adac"
+
+- test: tests/test_sab_step_delivers_constraint_config.py::test_no_declaration_exits_0
+  bug: "reverse control — a project declaring no architecture constraint has nothing to configure"
+  fixed_in: "cfe3adac"
+
+- test: tests/test_sab_step_delivers_constraint_config.py::test_the_command_asks_advance_phase_s_own_question
+  bug: "a second copy of the exit-48 rule in the CLI would pass every other test and put one question on two definitions; replacing advance-phase's rule must change what the command says"
+  fixed_in: "cfe3adac"
+
+- test: tests/test_sab_step_delivers_constraint_config.py::test_the_sab_step_writes_and_verifies_the_config
+  bug: "the generated phase2 / run-all SAB step must instruct writing .importlinter and running check-constraint-config; without it the P2 exit block is unreachable by any workflow step"
+  fixed_in: "cfe3adac"
