@@ -23,6 +23,7 @@ than in `sab_amender` because that module sits just under the god-file line.
 
 from __future__ import annotations
 
+import difflib
 import re
 import tempfile
 from pathlib import Path
@@ -42,6 +43,7 @@ from core.quality_gate.sab_amender import (
 _START = "<!-- SAB:START -->"
 _END = "<!-- SAB:END -->"
 _SCALAR = r"""(?:"[^"\n]*"|'[^'\n]*'|[^\s,\[\]#'"{}]+)"""
+_LINE_REF = re.compile(r"""([^\s"'\[\]{},:#]+):(\d+)""")
 
 
 class SadEditError(ValueError):
@@ -179,14 +181,45 @@ def edited_spec(text: str):
         return extract_sab_from_sad(path)
 
 
+def rebase_sad_refs(old_text: str, new_text: str, sad_path: Path, project_root: Path) -> str:
+    """*new_text* with each `<this file>:N` citation in the SAB block moved with line N.
+
+    `decision_issues[*].resolution_ref` is `SAD.md:N`, the line below the block
+    that records the decision, and `decision_issue_findings` reads that line.
+    An edit that adds or removes a line above it leaves every such ref pointing
+    at its neighbour, so `validate-handoff` blocks a project whose amendment
+    was correct. A line that survives the edit is found by diffing the two
+    texts; a citation of a line the edit changed has no new home and is refused.
+    """
+    old, new = old_text.split("\n"), new_text.split("\n")
+    moved = {}
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            moved.update({i + 1: j + 1 for i, j in zip(range(i1, i2), range(j1, j2))})
+    target = sad_path.resolve()
+
+    def follow(match: "re.Match[str]") -> str:
+        path, number = match.group(1), int(match.group(2))
+        if (project_root / path).resolve() != target:
+            return match.group(0)
+        if number not in moved:
+            raise SadEditError(f"`{match.group(0)}` cites line {number}, which this edit "
+                               "removes or rewrites, so the citation has no new line to follow")
+        return f"{path}:{moved[number]}"
+
+    start, end = _block(new_text)
+    return new_text[:start] + _LINE_REF.sub(follow, new_text[start:end]) + new_text[end:]
+
+
 def amend_sad(project_root: Path, edit, expect) -> "tuple[Path, str] | None":
     """Apply *edit* to SAD.md §5's text and prove it with *expect*, or refuse.
 
     `edit(text) -> text` is `insert_module` or `rewrite_module` above;
     `expect(placements, traceability)` returns the pair the edited SAD must
-    parse to. Returns `(sad_path, new_text)` to write, or None when the SAD
-    has no SAB block (an older project whose SAB.json is the only record).
-    Writes nothing.
+    parse to. Citations of SAD.md lines inside the block follow their lines
+    (`rebase_sad_refs`). Returns `(sad_path, new_text)` to write, or None when
+    the SAD has no SAB block (an older project whose SAB.json is the only
+    record). Writes nothing.
     """
     from core.quality_gate.sab_parser import extract_sab_from_sad
     from core.utils.project_layout import ProjectLayout
@@ -195,11 +228,16 @@ def amend_sad(project_root: Path, edit, expect) -> "tuple[Path, str] | None":
     if not sad_path.is_file() or "<!-- SAB:START -->" not in sad_path.read_text(encoding="utf-8"):
         return None
     before = extract_sab_from_sad(sad_path)
+    old_text = sad_path.read_text(encoding="utf-8")
     try:
-        new_text = edit(sad_path.read_text(encoding="utf-8"))
+        new_text = edit(old_text)
     except SadEditError as exc:
         raise ArchitectureAmendmentError(
             f"SAD.md §5 cannot be amended safely — unsupported shape: {exc}") from exc
+    try:
+        new_text = rebase_sad_refs(old_text, new_text, sad_path, project_root)
+    except SadEditError as exc:
+        raise ArchitectureAmendmentError(f"SAD.md §5 cannot be amended safely — {exc}") from exc
     after = edited_spec(new_text)
     if _sad_view(after) != expect(*_sad_view(before)):
         raise ArchitectureAmendmentError(

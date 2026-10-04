@@ -22,6 +22,7 @@ the reason in ADR.md. The project decides; the framework never guesses.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -63,14 +64,35 @@ sab:
 _REASON = "python -m pkg is required by SPEC; it wires the CLI entry point"
 
 
+_SAD_REF = "02-architecture/SAD.md"
+_DECISIONS = (
+    '  decision_issues:\n'
+    f'    - {{id: "D-1", status: resolved, blocks_phase: 3, resolution_ref: "{_SAD_REF}:@L(D-1: resolved — first)@"}}\n'
+    f'    - {{id: "D-2", status: resolved, blocks_phase: 3, resolution_ref: "{_SAD_REF}:@L(D-2: resolved — second)@"}}\n'
+    '    - {id: "D-3", status: resolved, blocks_phase: 3, resolution_ref: "02-architecture/NOTES.md:1"}\n'
+)
+_TAIL = "\nD-1: resolved — first\nD-2: resolved — second\n"
+_SAB_D = _SAB.replace("  required_artifacts: []\n", _DECISIONS + "  required_artifacts: []\n")
+_SAB_D_GHOST = _SAB_D.replace('        - "pkg.api.routes"\n',
+                              '        - "pkg.api.routes"\n        - "pkg.api.ghost"\n')
+
+
+def _sad_text(sab: str, tail: str = "", pad: int = 0) -> str:
+    """A SAD.md; `@L(text)@` in it becomes the 1-based line number of the line `text`."""
+    text = ("# SAD\n\n" + "filler\n" * pad + "## 5. SAB\n\n<!-- SAB:START -->\n```yaml\n"
+            + sab + "```\n<!-- SAB:END -->\n" + tail)
+    lines = [ln.strip() for ln in text.split("\n")]
+    return re.sub(r"@L\((.+?)\)@", lambda m: str(lines.index(m.group(1)) + 1), text)
+
+
 def _project(tmp_path: Path, sab: str = _SAB,
              files=("pkg/api/routes.py", "pkg/service/core.py", "pkg/cli.py",
-                    "pkg/migrations/v1.py", "pkg/__main__.py")) -> Path:
+                    "pkg/migrations/v1.py", "pkg/__main__.py"),
+             tail: str = "", pad: int = 0) -> Path:
     root = tmp_path / "proj"
     sad = root / "02-architecture" / "SAD.md"
     sad.parent.mkdir(parents=True)
-    sad.write_text("# SAD\n\n## 5. SAB\n\n<!-- SAB:START -->\n```yaml\n"
-                   + sab + "```\n<!-- SAB:END -->\n", encoding="utf-8")
+    sad.write_text(_sad_text(sab, tail, pad), encoding="utf-8")
     src = root / "03-development" / "src"
     for rel in files:
         p = src / rel
@@ -235,6 +257,98 @@ def test_a_retargeted_phantom_is_declared_in_sad(tmp_path) -> None:
 
     assert ("service", "pkg.service.real") in _placements(root)
     assert undeclared_layer_placements(root) == []
+
+
+# ── a `path:line` citation inside SAD.md follows the line it cites ───────────
+
+def _decision_project(tmp_path: Path, **kw) -> Path:
+    root = _project(tmp_path, **kw)
+    (root / "02-architecture" / "NOTES.md").write_text(
+        "D-3: resolved — recorded in another file\n", encoding="utf-8")
+    return root
+
+
+def _decision_refs(root: Path) -> dict:
+    from core.quality_gate.sab_parser import extract_sab_from_sad
+    spec = extract_sab_from_sad(root / "02-architecture" / "SAD.md")
+    return {row["id"]: row["resolution_ref"] for row in spec.decision_issues}
+
+
+def _decision_findings(root: Path) -> list:
+    from core.quality_gate.decision_issues import decision_issue_findings
+    from core.quality_gate.sab_parser import extract_sab_from_sad
+    spec = extract_sab_from_sad(root / "02-architecture" / "SAD.md")
+    return decision_issue_findings(root, spec.decision_issues, entering_phase=3)
+
+
+def _line_of(ref: str) -> int:
+    return int(ref.rsplit(":", 1)[1])
+
+
+@pytest.mark.parametrize("layer, shift", [("api", 1), ("entry", 1), ("service", 0)])
+def test_declare_keeps_decision_refs_resolving(tmp_path, layer, shift) -> None:
+    """RED before this round: `resolution_ref: SAD.md:N` names a line BELOW the
+    SAB block; a one-line insert above it left every ref one line short and
+    `validate-handoff --from-phase 2` blocked taskq-open at the P3 preflight.
+    A single-line flow list adds no line, so its refs must not move."""
+    from core.quality_gate.sad_sab_edit import declare_module
+
+    root = _decision_project(tmp_path, sab=_SAB_D, tail=_TAIL)
+    assert _decision_findings(root) == []
+    before = _decision_refs(root)
+
+    declare_module(root, "pkg.__main__", layer, _REASON)
+
+    after = _decision_refs(root)
+    assert _decision_findings(root) == []
+    assert {k: _line_of(after[k]) - _line_of(before[k]) for k in ("D-1", "D-2")} == {
+        "D-1": shift, "D-2": shift}
+    assert after["D-3"] == before["D-3"], "a citation of another file is not this edit's"
+    _regenerate(root)
+    sab = json.loads((root / ".methodology" / "SAB.json").read_text(encoding="utf-8"))
+    assert {r["id"]: r["resolution_ref"] for r in sab["decision_issues"]} == after
+
+
+def test_decision_ref_line_numbers_that_change_width_stay_correct(tmp_path) -> None:
+    from core.quality_gate.sad_sab_edit import declare_module
+
+    base = _sad_text(_SAB_D, _TAIL).split("\n").index("D-1: resolved — first") + 1
+    root = _decision_project(tmp_path, sab=_SAB_D, tail=_TAIL, pad=99 - base)
+    assert _decision_refs(root)["D-1"].endswith(":99")
+
+    declare_module(root, "pkg.__main__", "api", _REASON)
+
+    assert _decision_refs(root)["D-1"].endswith(":100")
+    assert _decision_findings(root) == []
+
+
+def test_a_dropped_block_module_pulls_decision_refs_up(tmp_path) -> None:
+    from core.quality_gate.sab_amender import resolve_phantom
+
+    root = _decision_project(tmp_path, sab=_SAB_D_GHOST, tail=_TAIL)
+    before = _decision_refs(root)
+    assert _decision_findings(root) == []
+
+    resolve_phantom(root, "pkg.api.ghost", to=None, drop=True,
+                    reason="ghost was never implemented and no FR needs it")
+
+    after = _decision_refs(root)
+    assert _decision_findings(root) == []
+    assert _line_of(after["D-1"]) == _line_of(before["D-1"]) - 1
+
+
+def test_an_amendment_refuses_to_edit_a_line_a_citation_points_at(tmp_path) -> None:
+    """A ref that cites the very line being removed has no new home; guessing
+    one would point the decision record at an unrelated line."""
+    from core.quality_gate.sab_amender import ArchitectureAmendmentError, resolve_phantom
+
+    sab = _SAB_D_GHOST.replace("@L(D-1: resolved — first)@", '@L(- "pkg.api.ghost")@')
+    root = _decision_project(tmp_path, sab=sab, tail=_TAIL)
+    before = _snapshot(root)
+    with pytest.raises(ArchitectureAmendmentError, match="cites"):
+        resolve_phantom(root, "pkg.api.ghost", to=None, drop=True,
+                        reason="ghost was never implemented and no FR needs it")
+    assert _snapshot(root) == before
 
 
 # ── the remedy names the tool, everywhere it is printed ─────────────────────
