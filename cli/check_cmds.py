@@ -1,4 +1,4 @@
-"""The CLI wiring for the check commands — 24 subcommands, one register().
+"""The CLI wiring for the check commands — 25 subcommands, one register().
 
 R49-B split the command bodies into cli/checks/ by the question each asks
 (specs, gates, trace, approvals, constitution, hunt). What stayed here is the

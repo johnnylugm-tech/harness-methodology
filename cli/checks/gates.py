@@ -200,6 +200,36 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_constraint_config(args: argparse.Namespace) -> int:
+    """Is every declared architecture constraint's checker configured?
+
+    The question `advance-phase --completed 2` asks before it will close Phase
+    2 (Round 105 站1b, exit 48), asked through the same function so the P2 SAB
+    step can verify the `.importlinter` it writes before Peer Review instead of
+    the advance step being the first to find it missing.
+    """
+    from cli.advance_prechecks import _precheck_declared_constraints_are_configured
+
+    rc = _precheck_declared_constraints_are_configured(2, Path(args.project).resolve())
+    if rc:
+        # The writing rules live beside the check, not in the workflow prompt
+        # (run-all.js sits at its byte ratchet), and they are this parser's:
+        # core/quality_gate/import_contracts.read_import_contracts.
+        print("  How a contract matches a typed constraint "
+              "(one [importlinter:contract:<id>] per constraint):\n"
+              "    name = <contract_name>; type = <contract_type>\n"
+              "    layers: `layers =` one module per line, top layer first\n"
+              "    independence: `modules =`; forbidden: `source_modules =` + "
+              "`forbidden_modules =`\n"
+              "    [importlinter]: `root_package =`, plus "
+              "`include_external_packages = True` if a forbidden module is third-party\n"
+              "    no `containers`, `pkg.*` wildcards or `|`/`:` layer grammar — "
+              "they cannot be decided and never match")
+        return rc
+    print("[check-constraint-config] OK")
+    return 0
+
+
 def register(sub) -> None:
     """Wire the gate/CI subcommands onto the main subparser action.
 
@@ -235,6 +265,15 @@ def register(sub) -> None:
     cac.add_argument("--drift-threshold", type=float, default=0.4,
                      help="Maximum structural drift vs baseline (default: 0.4)")
     cac.set_defaults(func=cmd_crg_arch_check)
+
+    # check-constraint-config (advance-phase 2's exit-48 question, asked early)
+    ccc = sub.add_parser(
+        "check-constraint-config",
+        help="P2: every SAB architecture constraint a framework-run tool decides "
+             "has that tool configured (exit 48 otherwise, as advance-phase)",
+    )
+    ccc.add_argument("--project", default=".", help="Project root (default: .)")
+    ccc.set_defaults(func=cmd_check_constraint_config)
 
     # verify-ci (Round 37: read back what the push produced)
     vci = sub.add_parser(

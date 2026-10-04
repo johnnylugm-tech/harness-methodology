@@ -956,9 +956,10 @@ const sabReport = await dispatch(
   + '   - fr_module_traceability: one entry per FR enumerated from SPEC.md (parse `### FR-XX:` headings) pointing to a REAL module from SAD §2. If an FR legitimately owns MULTIPLE modules (e.g. SAD §6 maps it to more than one file), use a YAML list, not a single string — e.g. `FR-05: ["app.cli.main", "app.cli.commands"]`. A single string silently drops every module after the first; both forms are consumed identically downstream.\n'
   + '   - quality_targets, high_risk_modules, required_artifacts, decision_issues, and architecture_constraints. Use typed architecture constraint mappings (id/executor/contract_type/source_modules/forbidden_modules), not prose, whenever import-linter can decide the rule. Register every SRS `*-deferred` id in decision_issues; resolution_ref is `<path>:<line>` on a line reading `<id>: resolved — <decision>`. Resolve every id a TEST_SPEC precondition names. Leave advisory_only/gate_score_overrides/nfr_dimension_mapping empty ({} or []).\n'
   + '2. SAB-VALIDATE: `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --validate --project ' + REPO + '`. Must exit 0. Fix unknown NFR type / phase-as-string until PASS.\n'
-  + '3. SAB-GENERATE: `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --project ' + REPO + '` (add --overwrite if SAB.json exists). Produces .methodology/SAB.json.\n\n'
+  + '3. SAB-GENERATE: `' + PY + ' ' + REPO + '/harness/scripts/generate_sab.py --project ' + REPO + '` (add --overwrite if SAB.json exists). Produces .methodology/SAB.json.\n'
+  + '4. Write .importlinter: one contract per import-linter-typed constraint, exactly matching it. `' + PY + ' ' + REPO + '/harness_cli.py check-constraint-config --project ' + REPO + '` must exit 0.\n\n'
   + 'Report plain text: "SAB: PASS" or "SAB: FAIL — <reason>".\n\n'
-  + 'SCOPE RULES:\n- DO NOT modify harness/ source (running harness/scripts/generate_sab.py is allowed, editing it is NOT — HR-17).\n- DO NOT run advance-phase / push / run-gate.\n- ONLY edit SAD.md §5 SAB block + run generate_sab.py validate/generate.',
+  + 'SCOPE RULES:\n- DO NOT modify harness/ source (running harness/scripts/generate_sab.py is allowed, editing it is NOT — HR-17).\n- DO NOT run advance-phase / push / run-gate.\n- ONLY edit SAD.md §5 SAB block + .importlinter + run generate_sab.py validate/generate.',
   { label: 'sab-generation', phase: 'SAB Generation', agentType: 'general-purpose' },
 )
 if (sabReport === null || sabReport === undefined || sabReport === '' || typeof sabReport !== 'string') {
