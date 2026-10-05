@@ -6101,3 +6101,15 @@
 - test: tests/test_post_p2_architecture_amendment.py::test_the_p3_workflow_tells_the_agent_to_declare
   bug: "the P3 RC=25 bullet claimed an intervening FR or plain amend-sab could repair an unplaceable module; neither can, so parking was guaranteed to fail"
   fixed_in: "post-P2 architecture amendment"
+
+- test: tests/test_advance_measures_the_tree_it_hands_on.py::test_a_view_the_suite_reads_is_measured_after_it_is_rewritten
+  bug: "advance-phase measured the suite inside _regen_traceability_views, rewrote TRACEABILITY_MATRIX.md, then the TDD precheck read run_suite's memo (fingerprint covers *.py + config only); taskq-open's test reading the matrix failed on the advanced tree, P4->P5 passed anyway and run-all halted in P5 verification-docs, which may not touch tests"
+  fixed_in: "advance measures the tree it hands on"
+
+- test: tests/test_advance_measures_the_tree_it_hands_on.py::test_an_unchanged_view_keeps_the_measurement
+  bug: "a regeneration that writes the same bytes must not cost a second full suite run"
+  fixed_in: "advance measures the tree it hands on"
+
+- test: tests/test_advance_measures_the_tree_it_hands_on.py::test_the_nfr_table_is_rendered_inside_the_generated_block
+  bug: "the rendered NFR table sat after <!-- AUTO-GEN:END --> where it reads as hand-owned; a P4 agent hand-edited it and every regeneration discarded the edit"
+  fixed_in: "advance measures the tree it hands on"

@@ -200,8 +200,9 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
     """Generate TRACEABILITY_MATRIX.md from atomic + overlay (PR 2).
 
     If the existing file has `<!-- AUTO-GEN:START/END -->` sentinels, content
-    above START is preserved (manual intro); content between sentinels is
-    replaced. If no sentinels exist, the file is treated as legacy and
+    above START is preserved (manual intro); everything from START on is
+    replaced, and every rendered section (the NFR table included) sits inside
+    the sentinels. If no sentinels exist, the file is treated as legacy and
     fully replaced — the user is expected to run `migrate-trace-overlay`
     first if any manual content needs to survive.
     """
@@ -240,7 +241,10 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
             if absent:
                 test_names += " — absent: " + ", ".join(absent)
             lines.append(f"| {nfr_id} | {test_names} | {status} |")
-        markdown = markdown + "\n" + "\n".join(lines) + "\n"
+        # Inside the generated block: every regeneration rewrites all of it, so
+        # a table outside END reads as hand-owned and its hand edits are lost.
+        head, end, tail = markdown.rpartition("<!-- AUTO-GEN:END -->")
+        markdown = head.rstrip("\n") + "\n" + "\n".join(lines) + "\n" + end + tail
 
     intro = ""
     if output_path.exists():

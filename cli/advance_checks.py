@@ -366,8 +366,16 @@ def _regen_and_stage_view(project: Path, path: Path, render) -> None:
         new_hash = None
     _warn_if_view_lost_its_anchor(project, path)
     if new_hash != old_hash:
+        from core.quality_gate.test_suite_run import reset_suite_cache
+
+        # The suite was measured before this rewrite (build_traceability needs
+        # its outcomes); a test that reads this view must be measured again.
+        reset_suite_cache()
         subprocess.run(["git", "add", str(path)], cwd=str(project), capture_output=True)
         print(f"  [advance-phase] {path.name} refreshed from SSOT → staged")
+        print(f"  [advance-phase] {path.name} is a render-only view, re-rendered on every "
+              "advance-phase; hand edits are discarded. A test that reads it must accept "
+              "the rendered content: fix the test, not the view.")
 
 def _broken_deliverable_anchors(project: Path) -> list[str]:
     """Every anchored deliverable present on disk whose first line no longer
