@@ -257,7 +257,7 @@ _CEILINGS: dict[str, int] = {
     # which parser produced either number. Measured 614 — the two block-site
     # remediation pointers this round also added live in
     # `_finalize_gate_cross_checks`, not here.
-    "cli/gate_cmds.py::_cmd_finalize_gate_impl": 632,  # 2026-09-05: 614 -> 632 — Round 96 站2. `_gp_json["phase"] = args.phase` and the comment saying why the field has a reader: Round 45 站3 decides whether to compare the receipt digest by it, so a label left at the agent's value inverts that check.
+    "cli/gate_cmds.py::_cmd_finalize_gate_impl": 633,  # 2026-10-05: 632 -> 633 — the Gate 4 deliverable call moved ahead of the post-flight that requires its output, carrying its P6-2026-07-07 / A1 comment with it; the six early returns after the manifest patch now roll it back (net +1). # 2026-09-05: 614 -> 632 — Round 96 站2. `_gp_json["phase"] = args.phase` and the comment saying why the field has a reader: Round 45 站3 decides whether to compare the receipt digest by it, so a label left at the agent's value inverts that check.
     # 485 at 2026-08-31, from 475: replaced the `agent_score < threshold`
     # early-continue with a comment explaining the removal and pointing at
     # the Round 35 站3 prior-art comment above it — see

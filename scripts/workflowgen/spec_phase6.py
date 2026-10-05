@@ -43,7 +43,7 @@ _D4_THRESHOLD_P6 = S.D4_THRESHOLDS[6]
 _GATE4_STEPS = [
     "1. G4a: `' + PY + ' ' + REPO + '/harness_cli.py run-gate --gate 4 --phase 6 --project ' + REPO + '` (CRG recon runs inside). Read the printed prompt.",
     (
-        "2. A3 DA CHALLENGE (artifact-backed — finalize-gate validates this BEFORE scoring): for EACH Tier 3 dim (architecture, readability, error_handling, documentation, performance), dispatch a Claude sub-agent (you have the Agent tool) with a CHALLENGER persona that critiques the design/score, then record its critique + your defence. Dispatch each challenger SYNCHRONOUSLY — call the Agent tool and wait for its return before the next; do NOT run challengers in the background and busy-poll with `sleep`/`cat *.output` (that blows the per-agent wall-clock budget and stalls the round). Write into .sessi-work/gate4_result.json:\\n"
+        "2. A3 DA CHALLENGE (artifact-backed — finalize-gate validates this BEFORE scoring): the workflow has already dispatched one independent CHALLENGER agent per Tier 3 dim; their critiques are in DA CHALLENGES above. For EACH dim copy its `challenge` VERBATIM (do not edit, shorten or replace it) and write your own defence as `response`. Write into .sessi-work/gate4_result.json:\\n"
         "   \"devil_advocate\": {\"architecture\":true,\"readability\":true,\"error_handling\":true,\"documentation\":true,\"performance\":true},\\n"
         "   \"devil_advocate_evidence\": {\"<dim>\": {\"challenger_model\":\"claude\",\"challenge\":\"<≥120 chars actual critique>\",\"response\":\"<≥120 chars defence>\"}, ...}.\\n"
         "   A bare boolean is NOT accepted. A DA challenge documents a design; it does NOT lift a threshold — no dimension is waivable (Round 38). If architecture scores low, fix the structure, or calibrate `crg_excludes` / `crg_cohesion_healthy` in .methodology/harness_config.json (committed, so CI applies it too)."
@@ -64,7 +64,7 @@ _GATE4_STEPS = [
         f"   b. Poll every {S.POLL_INTERVAL_S}s: `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE` (cap {S.d4_poll_cap()} polls / ~20min). Past cap → `kill <PID>`, report D4 as TIMEOUT — never invent a test\\'s delivered/excluded status.\\n"
         "   c. DONE → `cat /tmp/d4_g4_r' + round + '.log`. FAIL → add tests, re-run this backgrounded step."
     ),
-    "5. CRG-ARCH: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor on every push, independent of the Gate 4 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run. Also runs BEFORE G4c so any fix lands in the G4c commit.",
+    "5. CRG-ARCH: `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '`. CI enforces this as an absolute floor on every push, independent of the Gate 4 composite score. FAIL → the crg-arch-check output lists the low-cohesion communities / oversized functions; fix the underlying architecture issue, re-run. Also runs BEFORE G4c so any fix lands in the G4c commit.",
     (
         "6. G4c — run BACKGROUNDED (writes QUALITY_REPORT.md + HANDOVER.md + pushes on PASS; also the commit point for any code/test fixes from steps 3-5 above — same class of risk as GATE2\\'s G2c, a single opaque Bash call with no visible output until it returns is exactly the shape the 180s stall watchdog kills):\\n"
         "   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py finalize-gate --gate 4 --phase 6 --project ' + REPO + ' > /tmp/gate4_finalize_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\\n"
@@ -76,15 +76,34 @@ _GATE4_STEPS = [
 _GATE4_SCOPE_RULES = (
     "- DO NOT generate RELEASE_NOTES/FINAL_SIGN_OFF (next phase) or run advance-phase / git tag.\\n"
     "- DO NOT edit gate4_result.json, mutation_score.json, or any evidence file to "
-    "fake/reconstruct a score — fix code (DA evidence is the only hand-authored "
-    "part), or record TIMEOUT if a backgrounded call genuinely times out.\\n"
+    "fake/reconstruct a score — fix code (a DA `response` is the only hand-authored "
+    "part; a DA `challenge` is copied verbatim from DA CHALLENGES), or record TIMEOUT if a backgrounded call genuinely times out.\\n"
     "- DO NOT cite a framework exclusion/deferral rule you cannot point to in "
     "harness source — an uncited shortfall is real.\\n"
     "- DO NOT hand-write or rewrite 06-quality/QUALITY_REPORT.md — finalize-gate is its sole author and now renders DA-waiver dimensions correctly (raw score + PASS (DA-waiver)); a hand-edited copy only creates an uncommitted second source.\\n"
     "- DO NOT run scripts/build_traceability.py directly against the project root, and DO NOT hand-author TRACEABILITY_MATRIX.overlay.yaml overrides — the canonical matrix is 01-requirements/TRACEABILITY_MATRIX.md, auto-refreshed by advance-phase; a root-level copy or a hand-written overlay only creates an untracked duplicate with no effect on this gate.\\n"
     "- DO NOT modify harness/ (HR-17).\\n"
-    "- ONLY run-gate/DA-challenge/eval/finalize/spec-coverage/crg-arch-check + code fixes."
+    "- ONLY run-gate/DA-defence/eval/finalize/spec-coverage/crg-arch-check + code fixes."
 )
+
+
+_DA_DIMS = ("architecture", "readability", "error_handling", "documentation", "performance")
+
+# A3. A workflow agent() child has no Agent tool, so the orchestrator cannot
+# dispatch its own challengers; the script fans them out and hands over the text.
+_GATE4_DA_PRELUDE = (
+    "  const DA_DIMS = " + repr(list(_DA_DIMS)).replace('"', "'") + "\n"
+    "  const daPrompt = (dim) => 'YOU ARE THE GATE-4 DEVIL\\'S ADVOCATE for \"' + dim + '\", ROUND ' + round + '. REPO: ' + REPO + '\\n'\n"
+    "    + 'Read the source and ' + REPO + '/.methodology/gate_evidence/ for this dim; write the strongest critique of its design and of how it is measured (>=120 chars, cite file:line you read). StructuredOutput: dim = \"' + dim + '\", challenge = the critique. READ ONLY — edit nothing, run no git/gate commands, never touch harness/.'\n"
+    "  const daOk = (dim, r) => !!(r && r.dim === dim && String(r.challenge || '').trim().length >= 120)\n"
+    "  const daAsk = async (dim, sfx) => await agent(daPrompt(dim), { label: 'gate4-da-' + dim + '-r' + round + sfx, phase: 'Gate 4', agentType: 'general-purpose', schema: DA_CHALLENGE_SCHEMA })\n"
+    "  const daRaw = await parallel(DA_DIMS.map((dim) => () => daAsk(dim, '')))\n"
+    "  for (let i = 0; i < DA_DIMS.length; i++) if (!daOk(DA_DIMS[i], daRaw[i])) daRaw[i] = await daAsk(DA_DIMS[i], '-retry')\n"
+    "  const daMissing = DA_DIMS.filter((dim, i) => !daOk(dim, daRaw[i]))\n"
+    "  if (daMissing.length) return halt('gate4-da', { error: 'Gate 4 round ' + round + ': no valid DA challenge for ' + daMissing.join(', ') + ' after a retry — challenger dispatch failure, not a quality result; relaunch', owner: 'infra' })\n"
+    "  const daChallenges = DA_DIMS.map((dim, i) => ({ dim: dim, challenge: String(daRaw[i].challenge).trim() }))\n"
+)
+_GATE4_DA_CONTEXT = "    + 'DA CHALLENGES (one independent challenger agent per dim, dispatched by the workflow):\\n' + JSON.stringify(daChallenges) + '\\n\\n'\n"
 
 
 def _render_phase6_entry_preflight() -> str:
@@ -97,7 +116,7 @@ def _render_phase6_entry_preflight() -> str:
         + "  + 'Steps:\\n'\n"
         + "  + '1. ENTRY-CHECK: run EXACTLY this bash command to verify Gate 3 status (do NOT rely on reading the file yourself — use the command output):\\n`' + PY + ' -c \"import json; m=json.load(open(\\'' + REPO + '/.methodology/quality_manifest.json\\')); g3=(m.get(\\'gate_results\\',{}) or {}).get(\\'gate3\\',{}) or {}; print(\\'GATE_VERIFIED\\' if isinstance(g3,dict) and g3.get(\\'quality_complete\\') is True else \\'GATE_MISSING\\')\"`\\nIf GATE_MISSING → FAIL (return to Phase 4).\\n'\n"
         + f"  + '2. D4-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py spec-coverage-check --project ' + REPO + ' --threshold {_D4_THRESHOLD_P6}`. Gate 4 blocks at {_D4_THRESHOLD_P6:g}% — if below, ADD missing test implementations NOW. Do NOT proceed until this passes.\\n'\n"
-        + "  + '3. CRG-PRECHECK: `BASELINE=\"\"; [ -f ' + REPO + '/.methodology/crg_baseline_p4.json ] && BASELINE=\"--baseline ' + REPO + '/.methodology/crg_baseline_p4.json\"; ' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + ' $BASELINE`. CI enforces this as an absolute floor independent of the Gate 4 composite — if it FAILs, FIX the underlying architecture issue NOW (the command prints the floor it applied). Do NOT proceed until this passes.\\n'\n"
+        + "  + '3. CRG-PRECHECK: `' + PY + ' ' + REPO + '/harness_cli.py crg-arch-check --project ' + REPO + '`. CI enforces this as an absolute floor independent of the Gate 4 composite — if it FAILs, FIX the underlying architecture issue NOW (the command prints the floor it applied). Do NOT proceed until this passes.\\n'\n"
         + "  + '4. PREFLIGHT: `' + PY + ' ' + REPO + '/harness_cli.py run-phase --phase 6 --project ' + REPO + '`. FAIL → fix, re-run (max 3). Also fix if reported: reliability lint (subprocess timeout / mkstemp / TOCTOU / sleep-in-async), config liveness (env keys absent from .env.example), attestation missing/mismatch (build-trace-attestation --write + commit; re-run until \"Attestation: clean\").\\n'\n"
         + "  + '5. HANDOFF: `' + PY + ' ' + REPO + '/harness_cli.py validate-handoff --from-phase 5 --project ' + REPO + '`. Must exit 0.\\n'\n"
         + "  + '6. PREFLIGHT-CI: confirm `' + REPO + '/.github/workflows/harness_quality_gate.yml` (CI workflow) + `' + REPO + '/.git/hooks/prepare-commit-msg` (git hook) both exist; confirm state.json current_phase=6. If stale: `init-project --phase 6 --project ' + REPO + ' --overwrite`.\\n'\n"
@@ -335,7 +354,7 @@ def generate_phase6() -> str:
         + B.BUDGET_GUARD_BLOCK,
         B.WRITE_SCOPE_BLOCK,
         "",
-        B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA", "DA_CHALLENGE_SCHEMA"]),
         B.render_json_utils(),
         _render_phase6_entry_preflight(),
         B.render_gate_loop(
@@ -356,6 +375,8 @@ def generate_phase6() -> str:
             orchestrator_desc="Phase 6 — full project quality",
             pre_gate_note="Pre-Gate: confirm all FRs merged to main + no open critical/high from Gate 3.",
             include_finalize_note=False,
+            round_prelude=_GATE4_DA_PRELUDE,
+            prompt_context=_GATE4_DA_CONTEXT,
         ),
         _render_phase6_release_docs(),
         _render_phase6_peer_review(),

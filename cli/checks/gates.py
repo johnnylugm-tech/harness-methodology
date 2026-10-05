@@ -60,10 +60,8 @@ def cmd_verify_gate(args: argparse.Namespace) -> int:
         project=str(project), threshold=args.spec_threshold, fr_id=None))
     print(f"[verify-gate] spec-coverage-check rc={spec_rc}")
 
-    _baseline = project / ".methodology" / "crg_baseline_p4.json"
     crg_rc = cmd_crg_arch_check(argparse.Namespace(
-        project=str(project), threshold=None,
-        baseline=str(_baseline) if _baseline.is_file() else None,
+        project=str(project), threshold=None, baseline=None,
         drift_threshold=args.drift_threshold))
     print(f"[verify-gate] crg-arch-check rc={crg_rc}")
 
@@ -189,6 +187,9 @@ def cmd_crg_arch_check(args: argparse.Namespace) -> int:
         return 1
 
     baseline = getattr(args, "baseline", None)
+    if baseline is None:
+        _default = project / ".methodology" / "crg_baseline_p4.json"
+        baseline = str(_default) if _default.is_file() else None
     if baseline:
         bp = Path(baseline)
         if bp.is_file():

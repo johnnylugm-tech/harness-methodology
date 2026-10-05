@@ -2420,7 +2420,21 @@ def _finalize_gate_cross_checks(args: argparse.Namespace, project_path: Path) ->
 
     return None  # all cross-checks passed
 
-def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -> None:
+def _reject_gate_pass(project_path: Path, gate: int, fr_id: str | None, rc: int) -> int:
+    """Refuse a gate that scored but did not finish; the manifest must say so.
+
+    finalize-gate patches gate_results.quality_complete=True before its
+    remaining blocking checks run; every early return after that point goes
+    through here so the manifest never claims a gate the state does not.
+    """
+    _mark_gate_commit_failed(project_path, gate, fr_id,
+                             reason=f"gate blocked (exit {rc}) before it was finalized")
+    return rc
+
+def _mark_gate_commit_failed(
+    project_path: Path, gate: int, fr_id: str | None,
+    reason: str = "git commit did not land",
+) -> None:
     """Roll back gate_results.quality_complete after a failed git commit.
 
     finalize-gate optimistically patches quality_manifest.json's gate_results
@@ -2447,7 +2461,7 @@ def _mark_gate_commit_failed(project_path: Path, gate: int, fr_id: str | None) -
             _entry["quality_complete"] = False
             _entry["commit_landed"] = False
             atomic_write_json(_mfst, _mfst_json)
-            print(f"  [WARN] git commit did not land — rolled back quality_complete "
+            print(f"  [WARN] {reason} — rolled back quality_complete "
                   f"to False for gate{gate}" + (f"/{fr_id}" if fr_id else ""))
             # Surface hook rejection details captured by git_strategy._commit
             _diag = project_path / ".sessi-work" / "last_commit_blocked.txt"
@@ -2801,6 +2815,24 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
             except (OSError, StateCorruptError) as _mf_err:
                 print(f"  [WARN] Could not patch quality_manifest.json gate_results: {_mf_err}")
 
+        # ── Gate 4 deliverables, rendered BEFORE the strict post-flight ──
+        # postflight_artifact_links() requires the current phase's artifacts,
+        # and QUALITY_REPORT.md is one; its sole author used to run after
+        # post-flight, so a first Gate 4 could never pass (exit 5).
+        if args.gate == 4:
+            # Bug fix P6-2026-07-07: cwd-relative `from scripts.X` failed
+            # whenever finalize-gate was run from the project root (scripts/
+            # lives under the harness submodule, not the consumer project).
+            # Each generator is loaded by absolute file path so the call works
+            # regardless of cwd / PYTHONPATH.
+            #
+            # A1-2026-07-07: helper hoisted to module-scope `load_harness_script`
+            # (see top of file) so `_run_phase_auditor` and `cmd_audit_phase`
+            # share the same code path; this inline definition is removed.
+            _deliverable_rc = _generate_gate4_deliverables(project_path, args.phase)
+            if _deliverable_rc is not None:
+                return _reject_gate_pass(project_path, args.gate, fr_id, _deliverable_rc)
+
         # ── Structural post-flight for phase-exit gates (gate ≥ 2) ──────────
         # Checks ASPICE artifact cross-references and drift against artifacts
         # finalize-gate called directly also needs these blocking checks so the
@@ -2826,7 +2858,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                     print("  Fix the issues listed above, then re-run:")
                     print(f"  python harness_cli.py finalize-gate --gate {args.gate} "
                           f"--phase {args.phase} --project {project}")
-                    return 5
+                    return _reject_gate_pass(project_path, args.gate, fr_id, 5)
                 print("[POST-FLIGHT] Structural checks PASS")
             except ImportError:
                 print("[WARN] PhaseHooks unavailable — postflight structural checks skipped")
@@ -2837,7 +2869,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                     print(f"  Fix: investigate the exception above, then re-run:\n"
                           f"    python harness_cli.py finalize-gate --gate {args.gate} "
                           f"--phase {args.phase} --project {project}")
-                    return 5
+                    return _reject_gate_pass(project_path, args.gate, fr_id, 5)
                 print(f"[WARN] Post-flight hooks error (non-blocking): {_pf_exc}")
 
         # ── Advisory: rounds_used=0 suggests A/B evaluation was skipped ──
@@ -2882,7 +2914,7 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                     f"  Genuine per-dimension evaluation produces natural variance.\n"
                     f"  Re-run run-gate with actual tool execution per dimension."
                 )
-                return 1
+                return _reject_gate_pass(project_path, args.gate, fr_id, 1)
             # Advisory: low-but-nonzero variance (skip when saturated)
             if _d_stdev < 0.5 and not _saturated:
                 print(
@@ -2918,12 +2950,12 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
                         f"{truth_result['total_score']:.0f}% < 90% (HR-11)"
                     )
                     print("  Fix gaps then re-run finalize-gate.")
-                    return 11
+                    return _reject_gate_pass(project_path, args.gate, fr_id, 11)
                 print(f"  [HR-11] Phase Truth = {truth_result['total_score']:.0f}% ≥ 90% ✓")
             except ImportError:
                 print("  [BLOCKED] PhaseTruthVerifier unavailable — cannot verify Phase Truth")
                 print("  Fix: check the harness/ submodule is present and importable, then re-run finalize-gate.")
-                return 11
+                return _reject_gate_pass(project_path, args.gate, fr_id, 11)
             except Exception as _pte:
                 print(f"  [WARN] Phase Truth check error: {_pte}")
 
@@ -2968,23 +3000,6 @@ def _cmd_finalize_gate_impl(args: argparse.Namespace) -> int:
 
         # ── Auto-generate machine STAGE_PASS.md ──────────────────────
         _shared._generate_stage_pass(project_path, args.gate, args.phase)
-
-        # ── Auto-generate quality deliverables for Gate 4 ─────────────
-        if args.gate == 4:
-            # Bug fix P6-2026-07-07: cwd-relative `from scripts.X` failed
-            # whenever finalize-gate was run from the project root (scripts/
-            # lives under the harness submodule, not the consumer project).
-            # Each generator is loaded by absolute file path so the call works
-            # regardless of cwd / PYTHONPATH.
-            #
-            # A1-2026-07-07: helper hoisted to module-scope `load_harness_script`
-            # (see top of file) so `_run_phase_auditor` and `cmd_audit_phase`
-            # share the same code path; this inline definition is removed.
-            _deliverable_rc = _generate_gate4_deliverables(
-                Path(args.project).resolve(), args.phase
-            )
-            if _deliverable_rc is not None:
-                return _deliverable_rc
 
         # ── CRG cross-phase baseline: snapshot metrics for the next exit gate ──
         _project_path = Path(args.project).resolve()

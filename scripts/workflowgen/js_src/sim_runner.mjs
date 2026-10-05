@@ -72,12 +72,14 @@ export async function runWorkflow(filePath, respond, opts = {}) {
     events.agents.push({ label: call.label, phase: call.phase, prompt: call.prompt })
     return respond(call, events)
   }
+  // Runtime semantics: a barrier; a thunk that throws resolves to null.
+  const parallelFn = async (thunks) => Promise.all(thunks.map((t) => Promise.resolve().then(t).catch(() => null)))
   const fn = new AsyncFunction(
-    'agent', 'phase', 'log', 'args', 'budget',
+    'agent', 'parallel', 'phase', 'log', 'args', 'budget',
     `${body}\n;return { __fell_through: true, meta }`,
   )
   const result = await fn(
-    agentFn, phaseFn, logFn,
+    agentFn, parallelFn, phaseFn, logFn,
     opts.args ?? { repo: '/sim/project' },
     undefined,
   )
@@ -158,6 +160,11 @@ export function makeHappyResponder(overrides = []) {
         // strings some call sites startsWith()/regex on; the happy default
         // covers the common `RC=0` / GATE1 helper cases.
         return { pass: true, reason: 'GATE1_VERIFIED_PASS' }
+      }
+      if (has('challenge') && has('dim')) {
+        // DA_CHALLENGE_SCHEMA: the dim is the one named in the label.
+        const m = call.label.match(/^gate4-da-([a-z_]+)-r/)
+        return { dim: m ? m[1] : '', challenge: 'simulated challenger critique citing src/app.py:1 '.repeat(3) }
       }
       if (has('rc')) {
         // RC family (RC_SCHEMA + ENV_CHECK_SCHEMA). ENV_CHECK_SCHEMA

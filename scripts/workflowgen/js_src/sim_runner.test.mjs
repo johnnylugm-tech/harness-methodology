@@ -1537,3 +1537,75 @@ test('round113: phase6 re-runs Peer Review when a release document went stale', 
   assert.ok(rerun >= 0, `peer review was not re-run (labels: ${labels.slice(-12).join(', ')})`)
   assert.ok(rerun < labels.findIndex((l) => /^tag-advance-r1$/.test(l)), 'before Tag & Advance asks advance-phase')
 })
+
+// ── Gate 4 A3: the workflow dispatches the Devil's Advocate challengers ──────
+// A workflow agent() child has no Agent tool (measured: taskq-open
+// wf_f7549267-536, spawnDepth 1). The orchestrator used to be told to spawn
+// its own challengers; one round wrote all five critiques itself and the
+// length-only validator accepted them. The script now fans them out.
+const DA_DIMS = ['architecture', 'readability', 'error_handling', 'documentation', 'performance']
+const daText = (d) => `${d}: challenger critique citing src/x.py:12 — `.padEnd(140, 'x')
+function daResponder({ daFor = (dim) => ({ dim, challenge: daText(dim) }), verifyRc = () => 0 } = {}) {
+  return makeHappyResponder([
+    { match: /^phase-cursor/, respond: { current_phase: 6 } },
+    { match: /^gate4-precheck$/, respond: { pass: false, reason: 'not finalized' } },
+    { match: /^gate4-da-/, respond: (call) => daFor(call.label.match(/^gate4-da-([a-z_]+)-r/)[1], call) },
+    { match: /^gate4-verify-r/, respond: (call) => ({ verify_rc: verifyRc(call), detail: 'sim' }) },
+  ])
+}
+const labelsOf = (events) => events.agents.map((a) => a.label)
+
+for (const name of ['phase6-quality.js', 'run-all.js']) {
+  test(`${name} Gate 4: five challengers precede the orchestrator, text injected verbatim`, async () => {
+    const { events } = await runWorkflow(WF(name), daResponder())
+    const ls = labelsOf(events)
+    const orch = ls.indexOf('gate4-r1')
+    assert.ok(orch >= 0, `gate4-r1 never dispatched (labels: ${ls.slice(0, 12).join(', ')})`)
+    for (const d of DA_DIMS) {
+      const i = ls.indexOf(`gate4-da-${d}-r1`)
+      assert.ok(i >= 0 && i < orch, `${d} challenger must finish before gate4-r1`)
+      assert.ok(events.agents[orch].prompt.includes(daText(d)), `${d} challenge reaches the orchestrator verbatim`)
+    }
+    assert.ok(!events.agents[orch].prompt.includes('Agent tool'))
+  })
+}
+
+test('phase6 Gate 4: a challenger that fails twice halts as infra, before any orchestrator or deferred fix', async () => {
+  const { result, events } = await runWorkflow(WF('phase6-quality.js'),
+    daResponder({ daFor: (dim) => (dim === 'readability' ? null : { dim, challenge: daText(dim) }) }))
+  const ls = labelsOf(events)
+  assert.equal(result.halt_step, 'gate4-da')
+  assert.equal(result.owner, 'infra')
+  assert.match(result.error, /readability/)
+  assert.ok(ls.includes('gate4-da-readability-r1-retry'))
+  assert.ok(!ls.includes('gate4-r1'))
+  assert.ok(!ls.some((l) => /deferred/.test(l)))
+})
+
+test('phase6 Gate 4: a short challenge recovered by its retry proceeds; only it is retried', async () => {
+  const { events } = await runWorkflow(WF('phase6-quality.js'), daResponder({
+    daFor: (dim, call) => (dim === 'performance' && !/retry/.test(call.label)
+      ? { dim, challenge: 'too short' } : { dim, challenge: daText(dim) }),
+  }))
+  const ls = labelsOf(events)
+  assert.ok(ls.includes('gate4-da-performance-r1-retry'))
+  assert.ok(!ls.includes('gate4-da-architecture-r1-retry'))
+  assert.ok(ls.includes('gate4-r1'))
+})
+
+test('phase6 Gate 4: a challenge filed under the wrong dim does not count', async () => {
+  const { result } = await runWorkflow(WF('phase6-quality.js'), daResponder({
+    daFor: (dim) => ({ dim: dim === 'architecture' ? 'readability' : dim, challenge: daText(dim) }),
+  }))
+  assert.equal(result.halt_step, 'gate4-da')
+  assert.match(result.error, /architecture/)
+})
+
+test('phase6 Gate 4: round 2 is challenged afresh, under distinct labels and prompts', async () => {
+  let n = 0
+  const { events } = await runWorkflow(WF('phase6-quality.js'), daResponder({ verifyRc: () => (n++ === 0 ? 33 : 0) }))
+  const ls = labelsOf(events)
+  const r1 = ls.indexOf('gate4-da-architecture-r1'), r2 = ls.indexOf('gate4-da-architecture-r2')
+  assert.ok(r2 >= 0 && r2 < ls.indexOf('gate4-r2'))
+  assert.notEqual(events.agents[r1].prompt, events.agents[r2].prompt)
+})

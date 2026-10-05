@@ -6161,3 +6161,51 @@
 - test: tests/test_ci_measures_and_advance_waits_for_green.py::test_the_workflow_guards_read_the_milestone_record
   bug: "milestone GUARDs skipped the push whenever a matching commit existed, so a red build read as already pushed; the P8 proxy accepted any P8 commit on origin"
   fixed_in: "ci measures the suite it ships; advance waits for green"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_first_gate4_renders_its_report_before_the_post_flight_that_requires_it
+  bug: "finalize-gate's strict post-flight required 06-quality/QUALITY_REPORT.md while its only author ran after post-flight, so a first Gate 4 exited 5 every time (taskq-open: composite 98.0, gate never closed)"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_a_generator_crash_leaves_no_gate_behind
+  bug: "a Gate 4 deliverable generator failure must stop before state.json, the receipt and the commit — and leave quality_complete false"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_a_generator_that_writes_nothing_does_not_pass
+  bug: "moving the generator ahead of post-flight must not let a gate pass without its report"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_a_post_flight_block_rolls_the_manifest_back
+  bug: "the manifest was patched quality_complete=True before post-flight and never rolled back on its exit 5, so it claimed a gate state.json did not (gate4 qc=True beside last_gate=3)"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_a_rerun_rerenders_the_report
+  bug: "re-running finalize-gate must re-render the existing report, not keep a stale one"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_gate3_never_renders_gate4_deliverables
+  bug: "the Gate 4 deliverables must stay Gate 4's alone after moving their call site"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_harness_owned_scorers_run_from_a_consumer_project
+  bug: "readability-v2 / radon-mi ran as `python -m harness.toolchains.X` from the project root; in a consumer `harness` is the submodule root, so S4 reported the agent's readability as tool_score_fabrication (agents hand-set PYTHONPATH=harness ~80 times on taskq-open to get past it)"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_crg_arch_check_applies_the_p4_baseline_without_being_told
+  bug: "the workflow's CRG-ARCH step built `--baseline X` in $BASELINE and relied on bash word-splitting; the agent's shell is zsh (rc=2, unrecognized arguments), and the rerun without it silently dropped the drift check"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_crg_arch_check_without_a_baseline_file_skips_drift
+  bug: "before P4 exits there is no baseline; resolving one by default must not invent it"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_an_explicit_baseline_still_wins
+  bug: "CI passes --baseline explicitly; the new default must not override it"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_no_workflow_command_depends_on_shell_word_splitting
+  bug: "a generated command whose meaning depends on the agent's shell splitting $BASELINE"
+  fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_gate4_completes_in_workflow.py::test_gate4_challengers_are_dispatched_by_the_workflow
+  bug: "the Gate 4 orchestrator was told to dispatch its Devil's Advocate challengers with an Agent tool a workflow agent does not have (spawnDepth 1); taskq-open rounds 1 and 3 refused, round 2 wrote all five critiques itself and the length-only validator accepted them. Control flow is guarded in scripts/workflowgen/js_src/sim_runner.test.mjs (Gate 4 A3 section) via tests/test_workflow_sim.py"
+  fixed_in: "gate 4 completes inside the workflow"

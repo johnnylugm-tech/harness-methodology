@@ -85,6 +85,15 @@ _PRIVATE_PATCH_CEILING: dict[str, int] = {
     # PATH/venv probes, so every test in this class stubs it); one more instance
     # of an already-accepted pattern, not a new coupling.
     "tests/cli/test_gate_cmds_cli.py": 59,
+    # 2026-10-05 (5): Gate 4 first-run ordering. The real artifact post-flight,
+    # the real report generators and the real manifest/state writes run; only
+    # the four checks that need a full project tree (_finalize_gate_preflight /
+    # _fr_checks / _cross_checks / _check_gate4_prerequisites) and _make_git
+    # are stubbed — the TestFinalizeGate4StateJsonWriteBeforePush seam. The
+    # unstubbed path was run end to end on a copy of taskq-open (rc 0, pushed).
+    # Started at 10; cut to 5 by driving the generator through the public
+    # load_harness_script and reading order from files instead of wrapping.
+    "tests/test_gate4_completes_in_workflow.py": 5,
     # 2026-08-03 (+6): Bug #142's run_mutation_precheck wiring test
     # (test_run_mutation_precheck_passes_autoload_disabled_env_to_mutmut_run)
     # monkeypatches _resolve_mutmut_workdir/_is_editable_install/

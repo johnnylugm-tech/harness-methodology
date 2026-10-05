@@ -35,6 +35,10 @@ from pathlib import Path
 import sys
 from typing import Optional, Union
 
+# Consumer projects vendor the harness as a submodule, so `-m harness.toolchains.X`
+# resolves `harness` to the submodule root, not this package.
+_TOOLCHAINS_DIR = Path(__file__).resolve().parent
+
 # Vendored semgrep ruleset (pinned content → reproducible security scores).
 _SEMGREP_JS_RULES = str(Path(__file__).parent / "semgrep_rules" / "js_security.yaml")
 
@@ -175,7 +179,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "readability-v2": ToolSpec(
         tool_id="readability-v2",
-        cmd=(sys.executable, "-m", "harness.toolchains.readability_v2", "{src_target}"),
+        cmd=(sys.executable, str(_TOOLCHAINS_DIR / "readability_v2.py"), "{src_target}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (readability-v2)",
@@ -184,7 +188,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     ),
     "radon-mi": ToolSpec(
         tool_id="radon-mi",
-        cmd=(sys.executable, "-m", "harness.toolchains.radon_mi_ast_stripped", "{src_target}"),
+        cmd=(sys.executable, str(_TOOLCHAINS_DIR / "radon_mi_ast_stripped.py"), "{src_target}"),
         timeout=30,
         check_cmd="radon --version 2>&1",
         human_name="radon (radon-mi)",

@@ -312,6 +312,15 @@ const GATE_VERIFY_SCHEMA = {
   },
   required: ['verify_rc'],
 }""",
+    "DA_CHALLENGE_SCHEMA": """\
+const DA_CHALLENGE_SCHEMA = {
+  type: 'object',
+  properties: {
+    dim: { type: 'string', description: 'the Tier 3 dimension you were asked to challenge, verbatim' },
+    challenge: { type: 'string', minLength: 120, description: 'your critique, citing file:line you actually read' },
+  },
+  required: ['dim', 'challenge'],
+}""",
     "FR_LIST_SCHEMA": """\
 const FR_LIST_SCHEMA = {
   type: 'object',
@@ -1485,6 +1494,8 @@ def render_gate_loop(
     orchestrator_desc: str | None = None,
     pre_gate_note: str = "",
     include_finalize_note: bool = True,
+    round_prelude: str = "",
+    prompt_context: str = "",
 ) -> str:
     """The Gate-2 (phase3) / Gate-3 (phase4) / Gate-4 (phase6) evaluation
     round loop — all three share this skeleton (round loop, orchestrator
@@ -1592,10 +1603,12 @@ def render_gate_loop(
         + f"if (!gate{gate_num}Pass) for (let round = 1; round <= 3; round++) {{\n"
         + f"  log('  Gate {gate_num} round ' + round + '/3')\n"
         + integrity_block
+        + round_prelude
         + agent_open
         + f"    'YOU ARE THE GATE-{gate_num} ORCHESTRATOR ({desc}). ROUND ' + round + '.\\n'\n"
         + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + pre_gate_block
+        + prompt_context
         + "    + 'Steps:\\n'\n"
         + steps_text
         + f"    + '{finalize_note}Report final line: \"GATE{gate_num}: PASS\" ({pass_line_desc}) or \"GATE{gate_num}: FAIL — <failing dims>\".\\n\\n'\n"

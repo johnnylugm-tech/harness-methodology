@@ -147,4 +147,8 @@ def test_sim_testbed_passes():
     # own step 2 promises it, and a DOC that is an index says so in its
     # label instead of still reading "full content — this IS the
     # deliverable under review".
-    assert int(m.group(1)) >= 139, f"sim suite shrank: only {m.group(1)} passing tests (floor 139)"
+    # 151 -> 157 (2026-10-05): Gate 4's Devil's Advocate challengers are
+    # dispatched by the workflow — order + verbatim injection (phase6 and
+    # run-all), infra halt after a failed retry, retry of only the bad one,
+    # a challenge filed under the wrong dim, and a fresh round-2 challenge.
+    assert int(m.group(1)) >= 157, f"sim suite shrank: only {m.group(1)} passing tests (floor 157)"

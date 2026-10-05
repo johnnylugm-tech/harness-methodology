@@ -16,6 +16,7 @@ import pytest
 
 import json
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
@@ -296,6 +297,9 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
     # Each entry: (tool_name, expected_binary, required_flags)
     # Flags listed are literals from tool_runners.py — mutations to any one are caught.
     import sys
+    import harness.toolchains.registry as _reg
+    # Absolute path: `-m harness.toolchains.X` resolves to a consumer's submodule root.
+    _TOOLCHAINS = Path(_reg.__file__).resolve().parent
     tool_checks = [
         ("ruff",       "ruff",     ["--output-format", "json", "check"]),
         ("mypy",       "mypy",     ["--ignore-missing-imports", "--no-color-output", "--no-error-summary"]),
@@ -305,8 +309,8 @@ def test_run_tool_dispatches_all_cmds_tools(tmp_path):
         ("gitleaks",   "gitleaks", ["detect"]),
         ("bandit",     "bandit",   ["-r", "-f", "json", "--exit-zero"]),
         ("radon-cc",   "radon",    ["cc", "-j", "--min"]),
-        ("radon-mi",   sys.executable,  ["-m", "harness.toolchains.radon_mi_ast_stripped"]),
-        ("readability-v2", sys.executable, ["-m", "harness.toolchains.readability_v2"]),
+        ("radon-mi",   sys.executable,  [str(_TOOLCHAINS / "radon_mi_ast_stripped.py")]),
+        ("readability-v2", sys.executable, [str(_TOOLCHAINS / "readability_v2.py")]),
     ]
     for tool_name, expected_bin, required_flags in tool_checks:
         with patch("core.utils.subprocess_group.run_isolated", return_value=mock_result) as mock_sp:

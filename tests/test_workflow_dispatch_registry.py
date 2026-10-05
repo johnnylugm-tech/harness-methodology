@@ -166,6 +166,11 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^gate1-retry-verify-$", "carrier", "js-regex",
      "verify_gate1_qc.py canonical stdout on the re-attempt; 站2a verdict "
      "from echoed stdout ONLY, same rule as gate1-verify"),
+    (r"^gate4-da-$", "judgment", "schema",
+     "Gate 4 A3: one read-only Devil's Advocate challenger per Tier 3 dim, "
+     "dispatched by the workflow (an orchestrator agent has no Agent tool). "
+     "DA_CHALLENGE_SCHEMA + JS check (dim matches, >=120 chars); one retry, "
+     "then an infra halt — finalize-gate validates the recorded evidence"),
     (r"^(gate2-r|gate3-r|gate4-r)$", "judgment", "text-token",
      "gate orchestrator scores dims inline + fixes; its prose is "
      "narrative only — the -verify-r carrier is authoritative"),
