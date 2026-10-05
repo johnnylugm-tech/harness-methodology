@@ -156,7 +156,21 @@
     "spec_unread_rows": 0
   },
   "taskq-open": {
-    "unmeasured": "no 40-char sha in phase_completed[3]"
+    "_note": {
+      "cheapest_satisfaction": "Writing any 40-hex phase_completed[\"3\"] sha would also move this entry; here the sha is the advance commit itself, checked with git log.",
+      "discriminating_signal": "343c85da5b28 resolves in taskq-open and is the commit advance-phase --completed 3 wrote, so the replayed tree is the real P3 exit, not an arbitrary reachable commit.",
+      "moved": "unmeasured -> first measured vector: taskq-open finished Phase 3 and state.json phase_completed[\"3\"].sha is 343c85da5b28, the `handover: advance to Phase 4` commit.",
+      "why_right": "The project progressed; the judge did not change. The same two tests fail on the harness before this round's fix with the identical message, so the move is the corpus, not the code."
+    },
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "343c85da5b28",
+    "spec_alignment_violations": 4,
+    "spec_declared": 143,
+    "spec_undelivered": 4,
+    "spec_unread_rows": 0
   },
   "taskq-opus": {
     "unmeasured": "no 40-char sha in phase_completed[3]"
