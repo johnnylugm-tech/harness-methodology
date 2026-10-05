@@ -87,6 +87,27 @@ def cmd_verify_gate(args: argparse.Namespace) -> int:
     return EX_GATE_VERIFY_FAILED
 
 
+def cmd_install_project_deps(args: argparse.Namespace) -> int:
+    """Install what the project declares, so CI measures the suite it ships."""
+    from harness.env_repair import install_project_dependencies
+    from harness.toolchains import get_project_language
+
+    project = Path(args.project).resolve()
+    language = get_project_language(project)
+    if language != "python":
+        print(f"[install-project-deps] not applicable: project language is {language}")
+        return 0
+    outcome = install_project_dependencies(project, language=language, scaffold_missing=False)
+    if not outcome.ok:
+        print(f"[install-project-deps] FAILED: {outcome.blocked_reason}")
+        return 1
+    if outcome.installed:
+        print(f"[install-project-deps] installed from {outcome.manifest}")
+    else:
+        print("[install-project-deps] nothing to install: the project declares no manifest")
+    return 0
+
+
 def cmd_verify_ci(args: argparse.Namespace) -> int:
     """Read back what the push produced, and refuse to call red green.
 
@@ -274,6 +295,14 @@ def register(sub) -> None:
     )
     ccc.add_argument("--project", default=".", help="Project root (default: .)")
     ccc.set_defaults(func=cmd_check_constraint_config)
+
+    ipd = sub.add_parser(
+        "install-project-deps",
+        help="Install the dependencies the project's own manifest declares (CI); "
+             "never scaffolds one",
+    )
+    ipd.add_argument("--project", default=".", help="Project root (default: .)")
+    ipd.set_defaults(func=cmd_install_project_deps)
 
     # verify-ci (Round 37: read back what the push produced)
     vci = sub.add_parser(

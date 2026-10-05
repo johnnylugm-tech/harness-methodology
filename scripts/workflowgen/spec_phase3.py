@@ -574,7 +574,7 @@ def generate_phase3() -> str:
             phase=3, next_phase=4,
             precheck_steps=[
                 (
-                    "GUARD + PUSH ⑤ p3-post-gate2: `git -C ' + REPO + ' log --oneline --grep=\"P3-post-gate2)\" -1`. If a commit exists, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\\n"
+                    "GUARD + PUSH ⑤ p3-post-gate2: `jq -r --arg t p3-post-gate2 \\'.last_milestone_head[$t] // empty\\' ' + REPO + '/.methodology/state.json`. If it prints a sha, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\\n"
                     "   Pre-flight (enforced): gate2_result.json composite ≥75 + per-FR Gate 1 sentinel .sessi-work/sentinels/g1_p3_<fr>.flag exists for every FR. If BLOCKED, read the error list and fix."
                 ),
             ],

@@ -71,6 +71,9 @@ jobs:
         if: steps.lang.outputs.LANGUAGE == 'javascript' || steps.lang.outputs.LANGUAGE == 'typescript'
         run: npm ci
 
+      - name: Install project dependencies (declared manifest; python)
+        run: python harness/harness_cli.py install-project-deps --project .
+
       - name: Auto-detect phase from state.json
         id: phase
         run: |
@@ -254,6 +257,9 @@ jobs:
 
       - name: Install harness dependencies
         run: pip install -r harness/requirements.txt
+
+      - name: Install project dependencies (declared manifest; python)
+        run: python harness/harness_cli.py install-project-deps --project .
 
       - name: Detect phase
         id: phase
@@ -467,6 +473,9 @@ jobs:
 
       - name: Install harness dependencies
         run: pip install -r harness/requirements.txt
+
+      - name: Install project dependencies (declared manifest; python)
+        run: python harness/harness_cli.py install-project-deps --project .
 
       - name: Detect phase
         id: phase

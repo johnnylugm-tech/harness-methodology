@@ -710,7 +710,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P8" -1`. If exists, report "P8-PUSH: PASS (already pushed)" and stop.\n'
+    + '0. GUARD: `jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "P8-PUSH: PASS (already pushed)" and stop.\n'
     + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion checks the `.methodology-archive/` presence + contents (its output tells you exactly what is missing — lint/types/coverage/Phase Truth are advance-phase\'s job, step 2 below, not this step\'s). If it prints "[BLOCKED] ..." or "[ERROR] P8 push blocked ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n'
     + '2. ADVANCE: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 8 --project ' + REPO + '`. This transitions into Phase 9 (Maintenance — steady-state, CR-driven). advance-phase independently re-verifies EVERYTHING (TDD-PRECHECK, HR-11 Phase Truth, HR-17 submodule guard, etc.) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction. It is safe to re-run repeatedly within this round.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase >= 8.\n\n'
@@ -722,21 +722,17 @@ if (pushReport === null || pushReport === undefined || pushReport === '' || type
   log('  final-push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
 }
-  // AUTHORITATIVE Final Push verdict: push-milestone p8 creates a milestone
-  // commit — the same artifact the step-0 GUARD checks. Read git log via a
-  // schema proxy; the pusher's prose "P8-PUSH: PASS" is narrative only.
-  // Round 28: query origin/main, not local HEAD — _commit_and_push commits
-  // locally before attempting the push and does not revert the commit if the
-  // push itself fails, so a local-only grep matched even when nothing reached
-  // origin (retry loop then broke early on a push that never landed).
-  const p8VerifyCmd = 'git -C ' + REPO + ' fetch origin main --quiet && git -C ' + REPO + ' log origin/main --oneline --grep="P8" -1'
+  // AUTHORITATIVE Final Push verdict: push-milestone records p8 in state.json
+  // only after the push reached origin AND CI reported green (Round 28 asked
+  // origin; a red build pushed fine and still read as PASS).
+  const p8VerifyCmd = 'jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json'
   const p8v = await dispatch(
     'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty) — this confirms the P8 commit reached origin, not merely local HEAD; reason = the verbatim stdout (or "empty").',
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is a sha (non-empty); reason = the verbatim stdout (or "empty").',
     { label: 'p8-verify-r' + round, phase: 'Final Push', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   p8Ok = !!(p8v && p8v.pass === true)
-  if (p8Ok) { log('  Final Push PASS [git-verified: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
+  if (p8Ok) { log('  Final Push PASS [recorded: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
   log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (!p8Ok) return halt('p8-push', { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) })

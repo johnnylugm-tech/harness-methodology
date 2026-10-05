@@ -161,6 +161,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         Phase 1 deliverable lands on a blank line, a table separator, or
         past the end of the file. Correct each number the block names to
         the line that carries the content, then re-run.
+    51  advance-phase: the phase's push-milestone has no record of landing
+        on a green build (push failed, CI red, or no verdict). Run the
+        push-milestone the block names; its [BLOCKED] output names the
+        failing CI job.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

@@ -603,7 +603,7 @@ log('push-milestone p5-baseline (after VERIFICATION_REPORT.md generated)')
 const milestoneReport = await dispatch(
   'YOU ARE THE P5 MILESTONE PUSHER.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-  + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P5): BASELINE.md" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
+  + '0. GUARD: `jq -r --arg t p5-baseline \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p5-baseline --project ' + REPO + '`\n'
   + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'

@@ -15,6 +15,7 @@ from core.quality_gate import gate1_evidence
 import harness_cli as _hc_entry  # noqa: F401  entry-first before cli imports
 from cli.phase_cmds import _check_gate1_live_coverage  # noqa: E402
 from cli._shared import _write_finalize_sentinels_for_tests  # noqa: E402
+from tests.support.milestones import record_milestones_landed_green  # noqa: E402
 
 
 class TestVerifyEntryGate:
@@ -406,6 +407,7 @@ class TestAdvancePrechecksTDD:
         monkeypatch.setattr(subprocess, "run", lambda *a, **kw: type(
             "R", (), {"returncode": 0, "stdout": "", "stderr": ""})())
 
+        record_milestones_landed_green(tmp_path, 3)
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 9, f"{why} must block the advance"
 
@@ -420,6 +422,7 @@ class TestAdvancePrechecksTDD:
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
+        record_milestones_landed_green(tmp_path, 3)
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 0
 
@@ -449,6 +452,7 @@ class TestAdvancePrechecksTDD:
         }))
         # taskq.config deliberately has no file on disk anywhere
 
+        record_milestones_landed_green(tmp_path, 3)
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 12
 
@@ -472,6 +476,7 @@ class TestAdvancePrechecksTDD:
         # next-phase plan required by _advance_prechecks (phase >= 3)
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
+        record_milestones_landed_green(tmp_path, 3)
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 10
 
@@ -512,6 +517,7 @@ class TestAdvancePrechecksTDD:
         monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", _fake_sc)
         (tmp_path / ".methodology" / "phase5_plan.md").touch()
 
+        record_milestones_landed_green(tmp_path, 4)
         _advance_prechecks(tmp_path, completed_phase=4)
         assert captured_sc["threshold"] == 80.0  # unified v2.6
 
@@ -681,6 +687,7 @@ class TestAdvancePreChecksAgentB:
         (tmp_path / ".methodology" / "phase4_plan.md").touch()
 
         # No agent_b_approvals dir at all — should not matter for P3
+        record_milestones_landed_green(tmp_path, 3)
         rc = _advance_prechecks(tmp_path, completed_phase=3)
         assert rc == 0
 
@@ -967,6 +974,7 @@ def test_l1_advance_prechecks_gitleaks_blocks(tmp_path, monkeypatch):
         return R()
     monkeypatch.setattr(subprocess, "run", fake_run)
 
+    record_milestones_landed_green(tmp_path, 3)
     assert _advance_prechecks(tmp_path, 3) == 20
 
 
@@ -983,6 +991,7 @@ def test_l1_advance_prechecks_ruff_blocks(tmp_path, monkeypatch):
         return R()
     monkeypatch.setattr(subprocess, "run", fake_run)
 
+    record_milestones_landed_green(tmp_path, 3)
     assert _advance_prechecks(tmp_path, 3) == 18
 
 
@@ -1000,6 +1009,7 @@ def test_l1_advance_prechecks_mypy_blocks(tmp_path, monkeypatch):
         return R()
     monkeypatch.setattr(subprocess, "run", fake_run)
 
+    record_milestones_landed_green(tmp_path, 3)
     assert _advance_prechecks(tmp_path, 3) == 19
 
 
@@ -1117,6 +1127,7 @@ def test_stage_pass_autogenerate_is_git_added(tmp_path, monkeypatch):
     monkeypatch.setattr("core.quality_gate.spec_coverage._run_spec_coverage_check", lambda *_, **__: (0, 100.0))
     monkeypatch.setattr("cli.phase_cmds._check_gate1_live_coverage", lambda _, __: 0)
 
+    record_milestones_landed_green(tmp_path, 3)
     _advance_prechecks(tmp_path, completed_phase=3)
 
     expected_path = str(tmp_path / "00-summary" / "Phase3_STAGE_PASS.md")
@@ -1181,6 +1192,7 @@ class TestAdvancePhaseRegeneratesStagePass:
         monkeypatch.setattr("cli._shared._generate_stage_pass", _write_new_stage_pass)
         monkeypatch.setattr(subprocess, "run", _fake_subprocess_capture_git_add)
 
+        record_milestones_landed_green(tmp_path, 3)
         _advance_prechecks(tmp_path, completed_phase=3)
 
         # Assert: file content was overwritten (not still stale).
@@ -1227,6 +1239,7 @@ class TestAdvancePhaseRegeneratesStagePass:
 
         monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
 
+        record_milestones_landed_green(tmp_path, 3)
         _advance_prechecks(tmp_path, completed_phase=3)
 
         expected_path = str(tmp_path / "00-summary" / "Phase3_STAGE_PASS.md")
@@ -1269,6 +1282,7 @@ class TestAdvancePhaseRegeneratesStagePass:
 
         monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
 
+        record_milestones_landed_green(tmp_path, 3)
         _advance_prechecks(tmp_path, completed_phase=3)
 
         expected_path = str(tmp_path / "00-summary" / "Phase3_STAGE_PASS.md")
@@ -1309,6 +1323,7 @@ class TestAdvancePhaseRegeneratesStagePass:
         monkeypatch.setattr("cli._shared._generate_stage_pass", _write_when_missing)
         monkeypatch.setattr(subprocess, "run", _fake_subprocess_capture_git_add)
 
+        record_milestones_landed_green(tmp_path, 3)
         _advance_prechecks(tmp_path, completed_phase=3)
 
         assert called["count"] == 2, "_generate_stage_pass not called (early-exists + final) for missing file"

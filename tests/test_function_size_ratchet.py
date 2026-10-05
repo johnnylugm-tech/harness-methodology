@@ -190,7 +190,9 @@ _CEILINGS: dict[str, int] = {
     # helper in cli/advance_prechecks.py.
     # 2026-10-03: +4 — Round 113 站9: the later-boundary open-decision call
     # site (comment, call, return).
-    "cli/phase_cmds.py::_advance_prechecks": 284,
+    # 2026-10-05: +3 — the exit-milestone precheck call and its return: a phase
+    # does not close on a red build (push-milestone's exit 31 had no reader).
+    "cli/phase_cmds.py::_advance_prechecks": 287,
     # The one run with NO safe cut point under the extraction rule: every
     # prefix of it binds something the rest reads, so it comes out whole or
     # not at all. 276 lines in a helper beats 276 lines inside an 818-line

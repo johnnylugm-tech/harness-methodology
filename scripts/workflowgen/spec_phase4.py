@@ -240,7 +240,7 @@ def generate_phase4() -> str:
         B.render_advance_loop(
             phase=4, next_phase=5,
             precheck_steps=[
-                "PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)",
+                "PUSH ⑥ p4-pre-gate3 (skip if `jq -r --arg t p4-pre-gate3 \\'.last_milestone_head[$t] // empty\\' ' + REPO + '/.methodology/state.json` prints a sha): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`.",
             ],
             scope_extra="- DO NOT re-do P4 testing.\\n",
             only_extra="push-milestone p4-pre-gate3 + ",

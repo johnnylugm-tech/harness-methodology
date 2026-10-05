@@ -2844,7 +2844,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 4 ]`. If Phase 4 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. RE-VERIFY GATE 2 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 2 --phase 3 --spec-threshold 60.0`\n   The earlier Gate 2 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
-    + '2. GUARD + PUSH ⑤ p3-post-gate2: `git -C ' + REPO + ' log --oneline --grep="P3-post-gate2)" -1`. If a commit exists, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n   Pre-flight (enforced): gate2_result.json composite ≥75 + per-FR Gate 1 sentinel .sessi-work/sentinels/g1_p3_<fr>.flag exists for every FR. If BLOCKED, read the error list and fix.\n'
+    + '2. GUARD + PUSH ⑤ p3-post-gate2: `jq -r --arg t p3-post-gate2 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, skip the push. Else: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-post-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n   Pre-flight (enforced): gate2_result.json composite ≥75 + per-FR Gate 1 sentinel .sessi-work/sentinels/g1_p3_<fr>.flag exists for every FR. If BLOCKED, read the error list and fix.\n'
     + '3. advance-phase — run BACKGROUNDED (internally runs `ruff check .` + `mypy .` + `pytest --cov-fail-under=100` over the WHOLE project as sequential subprocess calls inside one opaque Bash call; harmless today at this project\'s size (~25s measured) but this cost only grows as more FRs/tests land, and a single opaque long Bash call is exactly what the 180s stall watchdog kills — same class of risk as GATE1, same fix):\n   a. Launch: `nohup ' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 3 --project ' + REPO + ' > /tmp/advance_r' + round + '.log 2>&1 & echo $!` — note the printed PID.\n   b. Poll: every 15s run `kill -0 <PID> 2>/dev/null && echo RUNNING || echo DONE`. Repeat until DONE (cap 40 polls / ~10min). Still RUNNING past the cap → `kill <PID>` (reaps the whole tree), report "ADVANCE: TIMEOUT".\n   c. Once DONE: `cat /tmp/advance_r' + round + '.log` for the full output — identical to what a synchronous run would have printed.\n   advance-phase independently re-verifies EVERYTHING before it will advance (lint, types, coverage, document quality, reliability lint, architecture drift, Phase Truth, and more) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says (it often includes the precise command to run), then repeat the advance-phase backgrounded procedure (a/b/c). Do NOT guess what might be wrong — trust only what advance-phase itself reports.\n   advance-phase is safe to re-run: it re-checks and re-reports without side effects until every check passes, so iterate within this round as many times as needed.\n'
     + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 4 (advance-phase atomically writes state.json when complete).\n\n'
     + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_4_PLAN: ' + REPO + '/.methodology/phase4_plan.md\n\n'
@@ -3397,7 +3397,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'Steps:\n'
     + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 5 ]`. If Phase 5 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
     + '1. RE-VERIFY GATE 3 (do this FIRST): `' + PY + ' ' + REPO + '/harness_cli.py verify-gate --project ' + REPO + ' --gate 3 --phase 4 --spec-threshold 80.0`\n   The earlier Gate 3 PASS was measured on the tree as it stood THEN; every step since has written the delivered tree, and advance-phase compares that verdict\'s digest against the tree it is about to record. This is what makes the verdict describe the tree being advanced. Non-zero exit: its [BLOCKED] line names which check regressed — fix it and re-run this step.\n'
-    + '2. PUSH ⑥ p4-pre-gate3 (if not already pushed): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`. (Idempotent; skip if already snapshotted.)\n'
+    + '2. PUSH ⑥ p4-pre-gate3 (skip if `jq -r --arg t p4-pre-gate3 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json` prints a sha): `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-pre-gate3 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`.\n'
     + '3. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 4 --project ' + REPO + ' --push`\n'
     + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
     + '4. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 5 (advance-phase atomically writes state.json when complete).\n\n'
@@ -3712,7 +3712,7 @@ log('push-milestone p5-baseline (after VERIFICATION_REPORT.md generated)')
 const milestoneReport = await dispatch(
   'YOU ARE THE P5 MILESTONE PUSHER.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-  + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P5): BASELINE.md" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
+  + '0. GUARD: `jq -r --arg t p5-baseline \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p5-baseline --project ' + REPO + '`\n'
   + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
@@ -4505,7 +4505,7 @@ log('push-milestone p7 (after risk register complete)')
 const milestoneReport = await dispatch(
   'YOU ARE THE P7 MILESTONE PUSHER.\n'
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-  + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P7" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
+  + '0. GUARD: `jq -r --arg t p7 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p7 --project ' + REPO + '`\n'
   + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
@@ -4963,7 +4963,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P8" -1`. If exists, report "P8-PUSH: PASS (already pushed)" and stop.\n'
+    + '0. GUARD: `jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "P8-PUSH: PASS (already pushed)" and stop.\n'
     + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion checks the `.methodology-archive/` presence + contents (its output tells you exactly what is missing — lint/types/coverage/Phase Truth are advance-phase\'s job, step 2 below, not this step\'s). If it prints "[BLOCKED] ..." or "[ERROR] P8 push blocked ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n'
     + '2. ADVANCE: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 8 --project ' + REPO + '`. This transitions into Phase 9 (Maintenance — steady-state, CR-driven). advance-phase independently re-verifies EVERYTHING (TDD-PRECHECK, HR-11 Phase Truth, HR-17 submodule guard, etc.) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction. It is safe to re-run repeatedly within this round.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase >= 8.\n\n'
@@ -4975,14 +4975,14 @@ if (pushReport === null || pushReport === undefined || pushReport === '' || type
   log('  final-push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
   return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
 }
-  const p8VerifyCmd = 'git -C ' + REPO + ' fetch origin main --quiet && git -C ' + REPO + ' log origin/main --oneline --grep="P8" -1'
+  const p8VerifyCmd = 'jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json'
   const p8v = await dispatch(
     'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout contains a commit line (non-empty) — this confirms the P8 commit reached origin, not merely local HEAD; reason = the verbatim stdout (or "empty").',
+    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is a sha (non-empty); reason = the verbatim stdout (or "empty").',
     { label: 'p8-verify-r' + round, phase: 'P8 · Final Push', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
   )
   p8Ok = !!(p8v && p8v.pass === true)
-  if (p8Ok) { log('  Final Push PASS [git-verified: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
+  if (p8Ok) { log('  Final Push PASS [recorded: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
   log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))
 }
 if (!p8Ok) return halt('p8-push', { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) })

@@ -1092,7 +1092,10 @@ _LINE_CEILING.update({
     # Previous: 2286.
     # 2026-10-03: +5 — Round 113 站9: the open-decision precheck import and call
     # site. Previous: 2288.
-    "cli/phase_cmds.py": 2293,
+    # 2026-10-05: +4 — the exit-milestone precheck import and call site (the
+    # call and its return): advance-phase refuses to close a phase whose
+    # push-milestone did not land on a green build. Previous: 2293.
+    "cli/phase_cmds.py": 2297,
     "core/quality_gate/arch_constraints.py": 760,
     "core/quality_gate/import_contracts.py": 313,
     # 2026-10-03: +42 — Round 113 站5: `cases_observing_nothing` (a case whose

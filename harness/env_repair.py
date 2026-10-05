@@ -254,19 +254,32 @@ def _manifest_search_roots(project: Path) -> "list[Path]":
     return roots
 
 
+def _declares_dependencies(manifest: Path) -> bool:
+    """A pyproject.toml that only configures tools ([tool.*]) declares nothing."""
+    if manifest.name != "pyproject.toml":
+        return True
+    import tomllib
+
+    try:
+        return "project" in tomllib.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+
+
 def project_manifest(project: "Path | str") -> "Path | None":
     """The first dependency manifest *project* declares, or None."""
     root = Path(project)
     for search_root in _manifest_search_roots(root):
         for name in PROJECT_MANIFESTS:
             candidate = search_root / name
-            if candidate.is_file():
+            if candidate.is_file() and _declares_dependencies(candidate):
                 return candidate
     return None
 
 
 def install_project_dependencies(
-    project: "Path | str", *, language: str = "python", run=subprocess.run
+    project: "Path | str", *, language: str = "python", run=subprocess.run,
+    scaffold_missing: bool = True,
 ) -> ProjectDepsOutcome:
     """Install what the project DECLARES it needs — never what it appears to use.
 
@@ -283,6 +296,9 @@ def install_project_dependencies(
     is. The two happen to point at the same file; they are different facts with
     different owners, and conflating them would be Round 38's shape (one
     dimension, several enforcers).
+
+    `scaffold_missing=False` (CI, `install-project-deps`) installs a manifest
+    that exists and otherwise reports nothing declared: CI must not author one.
     """
     outcome = ProjectDepsOutcome()
     root = Path(project)
@@ -297,6 +313,8 @@ def install_project_dependencies(
         return outcome
 
     manifest = project_manifest(root)
+    if manifest is None and not scaffold_missing:
+        return outcome
     if manifest is None:
         # SSOT scaffold fallback: SPEC.md / SAD.md / SRS.md are SSOTs the user
         # already confirmed in P0/P1/P2. Auto-scaffolding a requirements.txt

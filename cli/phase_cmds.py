@@ -72,6 +72,7 @@ from cli.advance_checks import (  # noqa: F401  re-export after Round 80 站7 sp
     _check_gate_score_variance,
     _gate1_per_fr_coverage_verdict,
     _regen_and_stage_view,
+    _precheck_exit_milestone_landed_green,
     _regen_traceability_views,
     _scope_debug_name_match,
     _scope_violation_scripts,
@@ -1990,6 +1991,9 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # Gate 1 per-FR check: every FR must have a finalized Gate 1 sentinel
     _fr_ids_for_finalize: list[str] = load_quality_manifest(project, lenient=True).get("fr_ids", [])
     _pre_rc = _precheck_per_fr_gate1_and_phase_truth(_fr_ids_for_finalize, _invalid_finalize, _missing_finalize, completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+    _pre_rc = _precheck_exit_milestone_landed_green(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

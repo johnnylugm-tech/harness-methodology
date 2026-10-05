@@ -524,3 +524,34 @@ def _scope_violation_scripts(project: Path) -> list[str]:
 def _scope_debug_name_match(stem: str) -> bool:
     tokens = re.split(r"[_\-\s]+", stem.lower())
     return any(t in _SCOPE_DEBUG_NAME_TOKENS for t in tokens)
+
+
+# The milestone push-milestone must have landed, on a green build, before each
+# phase may close. P1/P2 close on a peer review and P6 on a Gate 4 tag.
+_EXIT_MILESTONE = {3: "p3-post-gate2", 4: "p4-pre-gate3", 5: "p5-baseline", 7: "p7", 8: "p8"}
+
+
+def _precheck_exit_milestone_landed_green(completed_phase: int, project: Path) -> "int | None":
+    """Refuse to close a phase whose milestone push did not land on a green build.
+
+    push-milestone asks GitHub for the verdict after it pushes and records
+    `state.json.last_milestone_head[<type>]` only when CI is green (or the repo
+    has no CI to ask). Its exit 31 had no reader: taskq-open closed P3 and P5
+    on red builds because the workflow judged "pushed" as "passed".
+    """
+    milestone = _EXIT_MILESTONE.get(completed_phase)
+    if milestone is None:
+        return None
+    from cli.exit_codes import EX_ADVANCE_MILESTONE_NOT_GREEN
+    from core.state_io import load_state
+
+    recorded = (load_state(project, lenient=True) or {}).get("last_milestone_head") or {}
+    if isinstance(recorded, dict) and recorded.get(milestone):
+        return None
+    print(
+        f"\n[BLOCKED] advance-phase: milestone {milestone} has not landed on a green build.\n"
+        f"  push-milestone records it only after the push lands and CI reports green.\n"
+        f"  Run: python3 harness_cli.py push-milestone --type {milestone} --project {project}\n"
+        f"  If it prints [BLOCKED] CI is red, fix the job it names, commit, and run it again."
+    )
+    return EX_ADVANCE_MILESTONE_NOT_GREEN
