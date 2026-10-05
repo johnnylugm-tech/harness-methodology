@@ -321,6 +321,51 @@ const DA_CHALLENGE_SCHEMA = {
   },
   required: ['dim', 'challenge'],
 }""",
+    "HUNT_RESULT_SCHEMA": """\
+const HUNT_FINDING_PROPS = {
+  module: { type: 'string' }, lens: { type: 'string' },
+  severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+  title: { type: 'string' }, description: { type: 'string' }, file: { type: 'string' },
+  line_start: { type: 'integer' }, line_end: { type: 'integer' }, code_snippet: { type: 'string' },
+  reasoning: { type: 'string' }, suggested_fix: { type: 'string' },
+  confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+}
+const HUNT_FINDING_REQUIRED = ['module', 'severity', 'title', 'file', 'line_start', 'reasoning', 'confidence']
+const HUNT_RESULT_SCHEMA = {
+  type: 'object',
+  properties: { findings: { type: 'array', items: { type: 'object', properties: HUNT_FINDING_PROPS, required: HUNT_FINDING_REQUIRED } } },
+  required: ['findings'],
+}""",
+    "THREAT_HUNT_SCHEMA": """\
+const THREAT_HUNT_SCHEMA = {
+  type: 'object',
+  properties: Object.assign({
+    attack_vector: { type: 'string' }, attempted_exploit: { type: 'string' },
+    mitigation_effective: { type: 'boolean' }, evidence: { type: 'string', description: 'file:line the verdict rests on' },
+  }, HUNT_FINDING_PROPS),
+  required: ['attack_vector', 'attempted_exploit', 'mitigation_effective', 'evidence'].concat(HUNT_FINDING_REQUIRED),
+}""",
+    "VERIFY_SCHEMA": """\
+const VERIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    is_real: { type: 'boolean' }, refutation_attempt: { type: 'string' },
+    evidence: { type: 'string' }, severity_agrees: { type: 'boolean' },
+  },
+  required: ['is_real', 'refutation_attempt', 'evidence', 'severity_agrees'],
+}""",
+    "HUNT_RECORD_SCHEMA": """\
+const HUNT_RECORD_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exit code on the RC= line' },
+    findings: { type: 'integer', description: 'findings= from the RECORDED or PART line' },
+    confirmed: { type: 'integer', description: 'confirmed= from the RECORDED or PART line' },
+    first: { type: 'string', description: 'first= from the PART line' },
+    last: { type: 'string', description: 'last= from the PART line' },
+  },
+  required: ['rc', 'findings', 'confirmed'],
+}""",
     "FR_LIST_SCHEMA": """\
 const FR_LIST_SCHEMA = {
   type: 'object',

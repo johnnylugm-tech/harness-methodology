@@ -166,6 +166,26 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^gate1-retry-verify-$", "carrier", "js-regex",
      "verify_gate1_qc.py canonical stdout on the re-attempt; 站2a verdict "
      "from echoed stdout ONLY, same rule as gate1-verify"),
+    (r"^hunt-targets$", "carrier", "schema",
+     "bug-hunt-targets rc transcribed into RC_SCHEMA; the manifest itself "
+     "then arrives through the loadFileViaPython relay, not through prose"),
+    (r"^hunt-scout$", "judgment", "none",
+     "hunt_bugs.md Phase 1 CRG scan context shared by every hunter; read-only"),
+    (r"^hunt-$", "judgment", "schema",
+     "hunt_bugs.md hunters (HUNT_RESULT / THREAT_HUNT_SCHEMA) and the refute + "
+     "confirm verifiers per finding (VERIFY_SCHEMA); the strict confirmation "
+     "rule is applied in JS, never by an agent judging its own finding"),
+    (r"^hunt-record-$", "carrier", "schema",
+     "writes one <=12 KB part of the judged findings and transcribes "
+     "record-bug-hunt --part's echo (findings/confirmed/first/last), which JS "
+     "compares with what it sent"),
+    (r"^hunt-record-assemble$", "carrier", "schema",
+     "record-bug-hunt --assemble rc + totals, compared with the dispatched hunt"),
+    (r"^hunt-report-md$", "judgment", "none",
+     "human-readable markdown from bug_hunt_report.json; nothing reads it"),
+    (r"^hunt-resolve$", "judgment", "schema",
+     "fixes or refutes confirmed critical/high findings; Gate 3's framework-owned "
+     "adversarial_review re-reads the report, VERDICT_SCHEMA is narrative"),
     (r"^gate4-da-$", "judgment", "schema",
      "Gate 4 A3: one read-only Devil's Advocate challenger per Tier 3 dim, "
      "dispatched by the workflow (an orchestrator agent has no Agent tool). "
@@ -174,7 +194,7 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^(gate2-r|gate3-r|gate4-r)$", "judgment", "text-token",
      "gate orchestrator scores dims inline + fixes; its prose is "
      "narrative only — the -verify-r carrier is authoritative"),
-    (r"^(test-plan|coverage|bug-hunt|config-docs|archive|release-docs|"
+    (r"^(test-plan|coverage|config-docs|archive|release-docs|"
      r"risk-docs|verification-docs|sab-generation|"
      r"cleanup-r)$", "judgment", "text-token",
      "doc/artifact authoring steps; SAB/ACI/etc. verdicts come from "

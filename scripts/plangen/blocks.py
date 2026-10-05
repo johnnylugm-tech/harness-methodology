@@ -1612,7 +1612,7 @@ def _gate_exit_checkpoint(gate_num: int, phase: int, gate_meta: "dict | None" = 
         "",
         "- **[HUNT-RUN]** Execute the adversarial bug hunt:",
         "  - Protocol: `harness/harness/ssi/prompts/hunt_bugs.md` (4-phase: scout → lens hunters → verify → synthesize)",
-        "  - Reference workflow: `templates/workflows/hunt-bugs.js`",
+        "  - Workflow mode: `phase4-testing.js` dispatches scout/hunters/verifiers itself. Manual: dispatch each as its own sub-agent, then `record-bug-hunt --part I` per `.sessi-work/bug_hunt/part-I.json` and `--assemble N`",
         "  - **Use a model DIFFERENT from the developer model** to minimise same-source bias",
         "  - `threat_model` targets: verify the declared `mitigation` actually blocks the attack",
         "    (not just that defensive-looking code exists)",

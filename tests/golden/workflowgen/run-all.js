@@ -352,6 +352,47 @@ const DA_CHALLENGE_SCHEMA = {
   },
   required: ['dim', 'challenge'],
 }
+const HUNT_FINDING_PROPS = {
+  module: { type: 'string' }, lens: { type: 'string' },
+  severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+  title: { type: 'string' }, description: { type: 'string' }, file: { type: 'string' },
+  line_start: { type: 'integer' }, line_end: { type: 'integer' }, code_snippet: { type: 'string' },
+  reasoning: { type: 'string' }, suggested_fix: { type: 'string' },
+  confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+}
+const HUNT_FINDING_REQUIRED = ['module', 'severity', 'title', 'file', 'line_start', 'reasoning', 'confidence']
+const HUNT_RESULT_SCHEMA = {
+  type: 'object',
+  properties: { findings: { type: 'array', items: { type: 'object', properties: HUNT_FINDING_PROPS, required: HUNT_FINDING_REQUIRED } } },
+  required: ['findings'],
+}
+const THREAT_HUNT_SCHEMA = {
+  type: 'object',
+  properties: Object.assign({
+    attack_vector: { type: 'string' }, attempted_exploit: { type: 'string' },
+    mitigation_effective: { type: 'boolean' }, evidence: { type: 'string', description: 'file:line the verdict rests on' },
+  }, HUNT_FINDING_PROPS),
+  required: ['attack_vector', 'attempted_exploit', 'mitigation_effective', 'evidence'].concat(HUNT_FINDING_REQUIRED),
+}
+const VERIFY_SCHEMA = {
+  type: 'object',
+  properties: {
+    is_real: { type: 'boolean' }, refutation_attempt: { type: 'string' },
+    evidence: { type: 'string' }, severity_agrees: { type: 'boolean' },
+  },
+  required: ['is_real', 'refutation_attempt', 'evidence', 'severity_agrees'],
+}
+const HUNT_RECORD_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exit code on the RC= line' },
+    findings: { type: 'integer', description: 'findings= from the RECORDED or PART line' },
+    confirmed: { type: 'integer', description: 'confirmed= from the RECORDED or PART line' },
+    first: { type: 'string', description: 'first= from the PART line' },
+    last: { type: 'string', description: 'last= from the PART line' },
+  },
+  required: ['rc', 'findings', 'confirmed'],
+}
 
 
 async function runPhase1() {
@@ -2967,6 +3008,113 @@ log('HUNT_MODEL = ' + HUNT_MODEL)
 
 
 
+
+
+function firstLineHasAnchor(text, expectPrefix) {
+  if (!expectPrefix) return false
+  const nl = text.indexOf('\n')
+  const firstLine = nl === -1 ? text : text.slice(0, nl)
+  return firstLine.startsWith(expectPrefix)
+}
+
+const RELAY_MAX_BYTES = 24576
+function parseRelayFrame(text) {
+  const nl = text.indexOf('\n')
+  if (nl === -1) return null
+  const m = text.slice(0, nl).match(/^<<<HARNESS-RELAY v1 mode=(content|index) sha256=([0-9a-f]{64}) bytes=(\d+) lines=(\d+)>>>$/)
+  if (!m) return null
+  const end = '<<<HARNESS-RELAY-END sha256=' + m[2] + '>>>'
+  const body = text.slice(nl + 1).replace(/\s+$/, '')
+  if (!body.endsWith(end)) return null
+  if (m[1] === 'content' && Number(m[3]) > RELAY_MAX_BYTES) return null
+  return { mode: m[1], sha: m[2], bytes: Number(m[3]), lines: Number(m[4]),
+    payload: body.slice(0, body.length - end.length).replace(/\n$/, '') }
+}
+function isFileIndex(s) {
+  return typeof s === 'string' && /^FILE: .*\nFIRST-LINE: /.test(s)
+}
+function relayAnchorTarget(frame) {
+  if (frame.mode === 'content') return frame.payload
+  const m = frame.payload.match(/^FIRST-LINE: (.*)$/m)
+  return m ? m[1] : ''
+}
+
+const RELAYED_SHA = {}
+async function loadFileViaPython(relPath, expectPrefix, phaseName, opts) {
+  opts = opts || {}
+  const maxAttempts = opts.maxAttempts || 3
+  const filePath = REPO + '/' + relPath
+  const expectPrefixArg = expectPrefix ? ' --expect-prefix ' + JSON.stringify(expectPrefix) : ''
+  const safeName = relPath.replace(/[\/.]/g, '_')
+  const contentOut = '/tmp/load_' + safeName + '.txt'
+  const jsonOut = '/tmp/load_' + safeName + '.json'
+  const pythonCmd = 'rm -f ' + contentOut + ' ' + jsonOut + ' && ' + PY
+    + ' ' + REPO + '/harness_cli.py read-file --file ' + JSON.stringify(filePath)
+    + expectPrefixArg + ' --relay --relay-max-bytes ' + RELAY_MAX_BYTES
+    + ' --content-out ' + contentOut + ' --json-out ' + jsonOut + ' --quiet'
+
+  const prompt = 'You are a SHELL WRAPPER AGENT. Your ONLY job is to run ONE shell command and emit ONE file content verbatim.\n\n'
+    + 'STEPS (DO NOT DEVIATE):\n'
+    + '1. Use the Bash tool to run EXACTLY this command (no modifications):\n'
+    + '   ' + pythonCmd + '\n\n'
+    + '2. Use the Bash tool to run `cat ' + contentOut + '` — read the content file from disk.\n\n'
+    + '3. Your final assistant message = the EXACT output of `cat ' + contentOut + '` (verbatim bytes).\n\n'
+    + 'CRITICAL OUTPUT RULES (violations = failure):\n'
+    + '- DO NOT generate or paraphrase content based on your memory/inference.\n'
+    + '- ALWAYS read the actual file from disk. NEVER hallucinate file content.\n'
+    + '- DO NOT echo the JSON file. Only echo the content file.\n'
+    + '- DO NOT write any preamble or acknowledgment.\n'
+    + '- DO NOT add commentary, summary, or explanation.\n'
+    + '- Your final message = the verbatim cat output only.\n'
+    + '- If the command fails, return EXACTLY: ERROR_LOAD_FAILED: ' + filePath
+
+  let lastFailReason = 'unknown'
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    let res
+    try {
+      res = await dispatch(prompt, {
+        label: 'loadpy-' + relPath.replace(/[\/.]/g, '-') + '-a' + attempt,
+        phase: 'P4 · ' + phaseName,
+        agentType: 'general-purpose',
+      })
+    } catch (e) {
+      lastFailReason = 'agent_threw: ' + (e && e.message ? e.message : String(e)).slice(0, 80)
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' agent() threw: ' + (e && e.message ? e.message : String(e)).slice(0, 200))
+      continue
+    }
+    const rawText = (typeof res === 'string' ? res : String(res ?? '')).trim()
+    const text = rawText.replace(/^\s*<think>[\s\S]*?<\/think>\s*/, '')
+    if (text.startsWith('ERROR_LOAD_FAILED')) {
+      lastFailReason = 'ERROR_LOAD_FAILED'
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' ERROR_LOAD_FAILED')
+      continue
+    }
+    if (text.length < 50) {
+      lastFailReason = 'too_short(len=' + text.length + '): ' + text.slice(0, 60)
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' too short (len=' + text.length + ')')
+      continue
+    }
+    const frame = parseRelayFrame(text)
+    if (!frame) {
+      lastFailReason = 'relay_frame_broken: got=' + text.slice(0, 60)
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' relay frame broken (truncated in transit, or not what read-file wrote)')
+      continue
+    }
+    const anchorAt = relayAnchorTarget(frame)
+    if (expectPrefix && !firstLineHasAnchor(anchorAt, expectPrefix)) {
+      lastFailReason = 'prefix_mismatch: got=' + anchorAt.slice(0, 40)
+      log('  [' + relPath + '] attempt ' + attempt + '/' + maxAttempts + ' content-prefix-mismatch (expected first line to start with "' + expectPrefix + '", got: ' + anchorAt.slice(0, 80) + ')')
+      continue
+    }
+    log('  [' + relPath + '] relay ' + frame.mode + ': ' + frame.bytes + ' bytes / ' + frame.lines + ' lines')
+    RELAYED_SHA[relPath] = frame.sha
+    return frame.payload
+  }
+  return 'ERROR: LOADER_FAILED_AFTER_' + maxAttempts + '_ATTEMPTS: ' + relPath + ' (last: ' + lastFailReason + ')'
+}
+
+
+
 phase('P4 · Entry & Preflight')
 log('ENTRY-CHECK Gate2 + run-phase 4 (reliability/config/attestation fixes) + handoff + CI')
 const preflightReport = await dispatch(
@@ -3230,30 +3378,122 @@ if (!(coverageReport && coverageReport.pass === true)) {
 
 
 phase('P4 · Bug Hunt')
-log('Adversarial bug hunt (targets → scout → hunters → verify → synthesize → resolve)')
-const huntReport = await dispatch(
-  'YOU ARE THE ADVERSARIAL BUG HUNT ORCHESTRATOR (Step 4b, before Gate 3).\n'
-  + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-  + 'The Gate 3 dimension adversarial_review (threshold 100) BLOCKS the gate if .methodology/bug_hunt_report.json is absent or any confirmed critical/high finding is still "open". Run the hunt NOW.\n\n'
-  + 'Steps:\n'
-  + '1. HUNT-TARGETS: `' + PY + ' ' + REPO + '/harness_cli.py bug-hunt-targets --project ' + REPO + '` → .methodology/bug_hunt_targets.json (CRG hubs + mutation survivors + integration gaps). **IMPORTANT**: the file\'s `threat_model` entries (SAD.md §6 declared threats via `core.quality_gate.security_design:extract_security_block()`) are forced high-risk attack-vector seeds — INDEPENDENT of CRG/mutation signals — and MUST be present in the target list.\n'
-  + '2. HUNT-RUN: execute the 4-phase protocol in ' + REPO + '/harness/harness/ssi/prompts/hunt_bugs.md (scout → lens hunters → adversarial verify → synthesize). Reference workflow: ' + REPO + '/harness/templates/workflows/hunt-bugs.js. Spawn hunters/verifiers as sub-agents (you have the Agent tool); use model ' + HUNT_MODEL + ' (DIFFERENT from the developer model to minimise same-source bias). Build the CRG graph first if needed. **`threat_model` targets**: verify the declared `mitigation` actually blocks the attack (not just that defensive-looking code exists). For each `threat_model` entry, produce a finding row in `.methodology/bug_hunt_report.json` with `attack_vector`, `attempted_exploit`, and `mitigation_effective: true|false`.\n'
-  + '   Output: .methodology/bug_hunt_report.json (schema: harness/schemas/bug_hunt_report.schema.json) + human markdown under 03-development/.audit/.\n'
-  + '3. HUNT-RESOLVE: for EACH confirmed critical/high finding set resolution.status:\n'
-  + '   - resolved: include fix_commit (SHA) or repro_test (path in tests/).\n'
-  + '   - refuted: include refute_evidence (explanation + line citation).\n'
-  + '   Medium/low: record only (not required to resolve before Gate 3).\n\n'
-  + 'PERMITTED actions to populate `resolved` (the `DO NOT modify harness/` scope rule covers ONLY the `harness/` submodule — project source IS in scope for HUNT-RESOLVE):\n'
-  + '- Write a repro test under 03-development/tests/ that RED-fails on the bug. Apply the minimal source fix in 03-development/src/<module>.py. Confirm the repro test now PASSES (RED→GREEN anti-fabrication gate per hunt_bugs.md).\n'
-  + '- Commit the repro test + source fix with `fix(<module>): <title>` prefix.\n'
-  + '- Update .methodology/bug_hunt_report.json resolution.status to `resolved` with the fix_commit SHA + repro_test path.\n'
-  + 'Refuted is ALSO permitted: read the offending code, find a guard/fallback the finding missed, cite the exact line numbers as refute_evidence.\n\n'
-  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if bug_hunt_report.json was written AND all confirmed critical/high findings are resolved-or-refuted; reason = one-line summary. (Truth is enforced downstream: Gate 3\'s framework-owned adversarial_review dim re-reads the report itself.)\n\n'
-  + 'SCOPE RULES:\n- DO NOT run run-gate (Gate 3) / advance-phase / push-milestone.\n- DO NOT modify harness/ (running its scripts/prompts is fine; editing is NOT — HR-17).\n- ONLY targets + hunt + resolve + write bug_hunt_report.json.',
-  { label: 'bug-hunt', phase: 'P4 · Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL, schema: VERDICT_SCHEMA },
+log('Adversarial bug hunt (hunt_bugs.md): targets → scout → hunters → refute+confirm → record → resolve')
+const HUNT_LENSES = {"correctness": "Business logic errors, boundary conditions, null/empty handling, off-by-one, type mismatches, incorrect assumptions about input data.", "concurrency": "Race conditions, thread safety, async/await issues, shared mutable state, lock ordering, ordering of side effects, lifecycle of long-lived objects across awaits.", "resilience": "Error handling gaps, missing timeouts, broken fallbacks, resource leaks (files/sockets/connections/child procs), partial-failure handling, error swallowing, NFR compliance for degraded modes.", "general": "Any concrete, reachable bug — wrong return type, broken validation, dead branch, leaked resource, missing rollback, incorrect status code, log/PII leak, input size limit (DoS), wrong default. Skip stylistic nits and hypotheticals."}
+const htRc = await dispatch(
+  'Run EXACTLY this via the Bash tool:\n`' + PY + ' ' + REPO + '/harness_cli.py bug-hunt-targets --project ' + REPO + '; echo RC=$?`\n'
+  + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',
+  { label: 'hunt-targets', phase: 'P4 · Bug Hunt', agentType: 'general-purpose', schema: RC_SCHEMA },
 )
-if (!(huntReport && huntReport.pass === true)) {
-  return halt('bug-hunt', { error: 'Phase 4 bug hunt did not PASS (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' })
+if (!(htRc && htRc.rc === 0)) return halt('bug-hunt', { error: 'bug-hunt-targets did not exit 0', owner: 'infra', rc: htRc ? htRc.rc : null })
+const huntManifestText = await loadFileViaPython('.methodology/bug_hunt_targets.json', '', 'Bug Hunt')
+let huntTargets = null
+try { huntTargets = JSON.parse(huntManifestText) } catch (e) { huntTargets = null }
+if (!huntTargets || !Array.isArray(huntTargets.high_risk) || !Array.isArray(huntTargets.standard)) {
+  return halt('bug-hunt', { error: 'bug_hunt_targets.json was not relayed intact', owner: 'infra', detail: String(huntManifestText).slice(0, 200) })
+}
+const huntPairs = []
+for (const m of huntTargets.high_risk) for (const k of ['correctness', 'concurrency', 'resilience']) huntPairs.push({ kind: 'lens', lens: k, name: m.name, path: m.path, note: (m.reasons || []).join('; ') })
+for (const m of huntTargets.standard) huntPairs.push({ kind: 'lens', lens: 'general', name: m.name, path: m.path, note: m.survivors ? m.survivors + ' mutation survivor(s) — prioritise their functions' : '' })
+for (const t of (huntTargets.threat_model || [])) if (t.path) huntPairs.push({ kind: 'threat', lens: 'threat-model', name: t.threat_id, path: t.path, threat: t })
+log('  ' + huntPairs.length + ' hunters (' + huntTargets.high_risk.length + ' high-risk x3, ' + huntTargets.standard.length + ' standard x1, ' + (huntTargets.threat_model || []).filter((t) => t.path).length + ' threats)')
+const huntScout = await dispatch(
+  'YOU ARE THE CRG SCOUT for an adversarial bug hunt (hunt_bugs.md Phase 1). REPO: ' + REPO + '\n'
+  + 'Targets: ' + REPO + '/.methodology/bug_hunt_targets.json (read it). For each target call CRG get_review_context (include_source, max_depth=2); for high_risk also tests_for / callers_of on key functions; then list_flows. Mark mutation-survivor functions and each threat owner module PRIORITY.\n'
+  + 'Output markdown, at most 5000 words: per module key functions @line, callers, test coverage, suspicious patterns, PRIORITY marks; top flows. READ ONLY.',
+  { label: 'hunt-scout', phase: 'P4 · Bug Hunt', agentType: 'Explore', model: HUNT_MODEL },
+)
+if (typeof huntScout !== 'string' || huntScout.length < 50) return halt('bug-hunt', { error: 'CRG scout returned nothing', owner: 'infra' })
+const huntPrompt = (p) => (p.kind === 'threat'
+  ? 'YOU ARE A THREAT-MODEL HUNTER (hunt_bugs.md). Declared threat ' + p.threat.threat_id + ' (' + p.threat.category + '): ' + p.threat.description + '\nDeclared mitigation: ' + p.threat.mitigation + '\nOwner file: ' + REPO + '/' + p.path + '\n'
+    + 'Try to carry out the attack against the code as written. Decide whether the declared mitigation actually blocks it (not merely whether defensive-looking code exists). Report one row: attack_vector, attempted_exploit, mitigation_effective, evidence (file:line), plus the finding fields (severity per the hunt_bugs.md rubric if the mitigation fails, else low).\n'
+  : 'YOU ARE A BUG HUNTER, LENS=' + p.lens + ' (hunt_bugs.md Phase 2). LENS FOCUS: ' + HUNT_LENSES[p.lens] + '\nTARGET: ' + REPO + '/' + p.path + (p.note ? '\nNOTE: ' + p.note : '') + '\n'
+    + 'Read the target fully; use CRG callers_of/callees_of/tests_for. Report only bugs reachable on the current code path with a concrete failure scenario; no style nits, no hypotheticals, nothing static preflight already blocks. An empty findings list is a valid result.\n')
+  + 'Each finding: module, lens, severity, title, description, file (project-relative), line_start, line_end, code_snippet (<=8 verbatim lines), reasoning (cite the proving line + trigger), suggested_fix, confidence. READ ONLY — edit nothing.\n\nSCOUT CONTEXT:\n' + huntScout
+const huntHunt = async (p, i, sfx) => await dispatch(huntPrompt(p), { label: 'hunt-' + i + '-' + p.lens + sfx, phase: 'P4 · Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: p.kind === 'threat' ? THREAT_HUNT_SCHEMA : HUNT_RESULT_SCHEMA })
+const huntVerify = async (f, i, j, role) => await dispatch(
+  (role === 'refute'
+    ? 'Try to REFUTE this bug finding (hunt_bugs.md Phase 3). Default is_real=false unless undeniable. Is the cited code at the cited line? Does surrounding code already guard it? Is the scenario reachable? Cite line numbers.\n'
+    : 'Independently CONFIRM this bug finding (hunt_bugs.md Phase 3). Default is_real=false unless provable: trace the data flow to the line, check tests_for (a passing test on this path suggests it is handled), and confirm only with a concrete trigger + expected vs actual, citing line numbers.\n')
+  + 'REPO: ' + REPO + '\nFINDING:\n' + JSON.stringify(f) + '\nREAD ONLY.',
+  { label: 'hunt-' + i + '-' + j + '-' + role, phase: 'P4 · Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: VERIFY_SCHEMA })
+const huntCited = (v) => /(:\d+|line\s*\d+|L\d+)/i.test(String(v.evidence) + ' ' + String(v.refutation_attempt))
+const huntJudge = async (res, p, i) => {
+  if (!res) return null
+  const raw = p.kind === 'threat' ? [res] : (res.findings || [])
+  const out = []
+  for (let j = 0; j < raw.length; j++) {
+    const f = Object.assign({}, raw[j], { lens: p.lens, module: raw[j].module || p.name })
+    if (p.kind === 'threat' && f.mitigation_effective === true) { out.push({ f: f, confirmed: false, refute: String(f.evidence || '') }); continue }
+    const vs = (await parallel([() => huntVerify(f, i, j, 'refute'), () => huntVerify(f, i, j, 'confirm')])).filter(Boolean)
+    const real = vs.filter((v) => v.is_real)
+    const confirmed = real.length === 2 || (real.length === 1 && huntCited(real[0]))
+    const refuter = vs.find((v) => !v.is_real)
+    out.push({ f: f, confirmed: confirmed, evidence: real.length ? String(real[0].evidence) : '', refute: refuter ? String(refuter.refutation_attempt || refuter.evidence) : 'no verifier confirmed' })
+  }
+  return out
+}
+const huntRows = await pipeline(huntPairs, (p, _p, i) => huntHunt(p, i, ''), huntJudge)
+for (let i = 0; i < huntPairs.length; i++) {
+  if (huntRows[i] === null) huntRows[i] = await huntJudge(await huntHunt(huntPairs[i], i, '-retry'), huntPairs[i], i)
+}
+const huntMissing = huntPairs.filter((p, i) => huntRows[i] === null).map((p) => p.lens + ':' + p.path)
+if (huntMissing.length) return halt('bug-hunt', { error: huntMissing.length + ' hunter(s) returned nothing after a retry — the hunt did not cover ' + huntMissing.slice(0, 5).join(', '), owner: 'infra' })
+const huntSeq = {}
+const huntFindings = []
+for (const rows of huntRows) for (const r of rows) {
+  const m = String(r.f.module)
+  huntSeq[m] = (huntSeq[m] || 0) + 1
+  const row = Object.assign({}, r.f, { id: m + '#' + huntSeq[m], confirmed: r.confirmed, verify_evidence: r.evidence || '' })
+  row.resolution = r.confirmed ? { status: 'open' } : { status: 'refuted', refute_evidence: r.refute }
+  huntFindings.push(row)
+}
+const huntConfirmed = huntFindings.filter((f) => f.confirmed).length
+log('  hunt: ' + huntFindings.length + ' finding(s), ' + huntConfirmed + ' confirmed by adversarial verify')
+const huntParts = []
+for (const f of huntFindings) {
+  const last = huntParts[huntParts.length - 1]
+  if (!last || JSON.stringify(last).length + JSON.stringify(f).length > 12000) huntParts.push([f])
+  else last.push(f)
+}
+const huntPartOk = (k, r) => !!(r && r.rc === 0 && r.findings === huntParts[k].length
+  && r.confirmed === huntParts[k].filter((f) => f.confirmed).length && r.first === huntParts[k][0].id && r.last === huntParts[k][huntParts[k].length - 1].id)
+const huntWritePart = async (k, sfx) => await dispatch(
+  'Write the JSON between the markers to ' + REPO + '/.sessi-work/bug_hunt/part-' + (k + 1) + '.json with the Write tool, byte for byte (do not edit, reformat or summarise it). Then run via Bash: `' + PY + ' ' + REPO + '/harness_cli.py record-bug-hunt --project ' + REPO + ' --part ' + (k + 1) + '; echo RC=$?`\n'
+  + 'Report via the StructuredOutput tool: rc from the RC= line; findings, confirmed, first, last from its PART line.\n<<<JSON\n' + JSON.stringify({ findings: huntParts[k] }) + '\nJSON>>>',
+  { label: 'hunt-record-' + (k + 1) + sfx, phase: 'P4 · Bug Hunt', agentType: 'general-purpose', schema: HUNT_RECORD_SCHEMA })
+const huntPartRes = await parallel(huntParts.map((_, k) => () => huntWritePart(k, '')))
+for (let k = 0; k < huntParts.length; k++) if (!huntPartOk(k, huntPartRes[k])) huntPartRes[k] = await huntWritePart(k, '-retry')
+const huntBadParts = huntParts.map((_, k) => k + 1).filter((n) => !huntPartOk(n - 1, huntPartRes[n - 1]))
+if (huntBadParts.length) return halt('bug-hunt', { error: 'bug-hunt part(s) ' + huntBadParts.join(', ') + ' of ' + huntParts.length + ' were not recorded as dispatched', owner: 'infra' })
+const huntRec = await dispatch(
+  'Run EXACTLY this via the Bash tool:\n`' + PY + ' ' + REPO + '/harness_cli.py record-bug-hunt --project ' + REPO + ' --assemble ' + huntParts.length + ' --lenses threat-model,correctness,concurrency,resilience,general; echo RC=$?`\n'
+  + 'Report via the StructuredOutput tool: rc from the RC= line; findings and confirmed from its RECORDED line (0 and 0 if there is none).',
+  { label: 'hunt-record-assemble', phase: 'P4 · Bug Hunt', agentType: 'general-purpose', schema: HUNT_RECORD_SCHEMA },
+)
+if (!(huntRec && huntRec.rc === 0 && huntRec.findings === huntFindings.length && huntRec.confirmed === huntConfirmed)) {
+  return halt('bug-hunt', { error: 'record-bug-hunt did not assemble the hunt as dispatched (expected ' + huntFindings.length + ' findings / ' + huntConfirmed + ' confirmed)', owner: 'infra', got: huntRec })
+}
+await dispatch(
+  'Write a concise markdown bug report in Traditional Chinese at ' + REPO + '/03-development/.audit/bug-report-hunt.md from ' + REPO + '/.methodology/bug_hunt_report.json (read it): summary table (module x severity), confirmed bugs by severity (location, problem, evidence, fix), refuted findings (one line each), fix priority, method. Cite file:line; at most 2000 words. Edit nothing else.',
+  { label: 'hunt-report-md', phase: 'P4 · Bug Hunt', agentType: 'general-purpose' },
+)
+const huntBlocking = huntFindings.filter((f) => f.confirmed && (f.severity === 'critical' || f.severity === 'high'))
+if (huntBlocking.length === 0) {
+  log('  no confirmed critical/high finding — nothing to resolve before Gate 3')
+} else {
+  const huntReport = await dispatch(
+    'YOU ARE THE BUG-HUNT RESOLVER (Step 4b, before Gate 3). REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + 'Gate 3 adversarial_review BLOCKS while any confirmed critical/high finding in .methodology/bug_hunt_report.json is "open". These ' + huntBlocking.length + ' are: ' + huntBlocking.map((f) => f.id).join(', ') + '.\n'
+    + 'For EACH set resolution.status:\n- resolved: write a repro test under 03-development/tests/ that RED-fails on the bug, apply the minimal source fix, confirm GREEN, commit `fix(<module>): <title>`, then record fix_commit (SHA) and repro_test (path).\n- refuted: read the code, find the guard the finding missed, record refute_evidence with exact line numbers.\n'
+    + 'Edit only those findings\' resolution fields in the report; never change confirmed, severity or the verify evidence.\n\n'
+    + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if every one of them is resolved-or-refuted; reason = one-line summary.\n\n'
+    + 'SCOPE RULES:\n- DO NOT run run-gate (Gate 3) / advance-phase / push-milestone.\n- DO NOT modify harness/ (HR-17).\n- ONLY the fixes, repro tests and resolution fields for the findings named above.',
+    { label: 'hunt-resolve', phase: 'P4 · Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL, schema: VERDICT_SCHEMA },
+  )
+  if (!(huntReport && huntReport.pass === true)) {
+    return halt('bug-hunt', { error: 'confirmed critical/high bug-hunt findings are still open (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' })
+  }
 }
 
 

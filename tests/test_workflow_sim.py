@@ -151,4 +151,9 @@ def test_sim_testbed_passes():
     # dispatched by the workflow — order + verbatim injection (phase6 and
     # run-all), infra halt after a failed retry, retry of only the bad one,
     # a challenge filed under the wrong dim, and a fresh round-2 challenge.
-    assert int(m.group(1)) >= 157, f"sim suite shrank: only {m.group(1)} passing tests (floor 157)"
+    # 157 -> 167 (2026-10-05): the P4 bug hunt is dispatched by the workflow —
+    # per-pair/threat hunters after the scout (phase4 and run-all), both halves
+    # of the strict confirmation rule, threat mitigation effective vs failing,
+    # hunter retry then infra halt, part echo mismatch, a large hunt split into
+    # parts and reassembled, assemble total mismatch, and a broken manifest relay.
+    assert int(m.group(1)) >= 167, f"sim suite shrank: only {m.group(1)} passing tests (floor 167)"

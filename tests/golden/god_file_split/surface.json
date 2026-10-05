@@ -351,6 +351,14 @@
       "--step",
       "-h"
     ],
+    "record-bug-hunt": [
+      "--assemble",
+      "--help",
+      "--lenses",
+      "--part",
+      "--project",
+      "-h"
+    ],
     "reload-policy": [
       "--help",
       "--policy-file",
@@ -535,7 +543,7 @@
     "cli.check_cmds::_print_constitution_result": "17b9e34ecf7726bf",
     "cli.check_cmds::_resolve_deliverable_ids": "fdb8c41ae3884a15",
     "cli.check_cmds::_run_gap_analysis": "5347c0b6ac61b79b",
-    "cli.check_cmds::cmd_bug_hunt_targets": "ecee061ed581c30e",
+    "cli.check_cmds::cmd_bug_hunt_targets": "fb8f0186b2010dbd",
     "cli.check_cmds::cmd_build_trace_attestation": "3b124162533becfc",
     "cli.check_cmds::cmd_check_artifact_consistency": "7705d92aa73435db",
     "cli.check_cmds::cmd_check_constitution": "67e6309860970ac6",

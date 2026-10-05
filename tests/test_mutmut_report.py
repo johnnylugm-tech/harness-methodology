@@ -33,6 +33,7 @@ round-trip test holds them together.
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
 
 import harness_cli  # noqa: F401  entry-first load order
 from core.quality_gate.mutation_enforcer import (  # noqa: E402
@@ -172,6 +173,13 @@ def test_survivors_reach_the_bug_hunt_manifest(tmp_path):
         "what the tool said must sit beside what we parsed — that pairing is "
         "the only thing that makes a silent parse failure visible"
     )
+
+    # mutmut ran in its own workdir (/tmp/proj); the files it mutated are this
+    # project's, and bug-hunt-targets maps the foreign paths back onto them.
+    for s in artifact["survivors"]:
+        rel = Path(s["file"]).parts[3:]  # drop "/", "tmp", "proj"
+        (tmp_path / Path(*rel)).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / Path(*rel)).write_text("x = 1\n", encoding="utf-8")
 
     rc = harness_cli.cmd_bug_hunt_targets(argparse.Namespace(project=str(tmp_path)))
     assert rc == 0

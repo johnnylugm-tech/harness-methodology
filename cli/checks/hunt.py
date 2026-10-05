@@ -19,6 +19,57 @@ from pathlib import Path
 from core.state_io import load_quality_manifest
 from core.utils.project_layout import ProjectLayout
 
+def _target_resolver(project: Path):
+    """One spelling per hunt target: every source names a file its own way
+    (declared = dotted module, survivors = absolute path in whatever workdir
+    mutmut ran in, CRG = either). Keyed by the raw spelling, the manifest
+    listed one file twice and listed modules that are not files.
+
+    Returns (target_path, owner_module_path, unresolved): both resolvers give a
+    project-relative path to an existing file or None, and every spelling that
+    could not be placed is appended to `unresolved` for the manifest to say so.
+    """
+    from detection.drift_detector import sab_module_to_path_variants
+
+    unresolved: list[str] = []
+
+    def owner_module_path(dotted: str) -> str | None:
+        """dotted SAB/SEC module name -> on-disk relative path, same
+        candidate expansion preflight_sab_check uses for SAB modules."""
+        for rel_dir in ("03-development/src", "src"):
+            for cand in sab_module_to_path_variants(dotted, rel_dir):
+                candidate = project / cand
+                if candidate.is_file():
+                    return str(candidate.relative_to(project))
+        return None
+
+    def target_path(raw: str) -> str | None:
+        cand = Path(raw)
+        if not cand.is_absolute() and (project / raw).is_file():
+            return str((project / raw).resolve().relative_to(project))
+        if cand.is_absolute():
+            try:
+                rel = cand.resolve().relative_to(project)
+                if (project / rel).is_file():
+                    return str(rel)
+            except ValueError:
+                # Outside the project (a mutation workdir): the longest suffix
+                # that names a file here is the same file. A bare filename is
+                # not evidence of which file, so a suffix keeps a directory.
+                parts = cand.parts[1:]
+                for k in range(len(parts) - 1):
+                    if (project / Path(*parts[k:])).is_file():
+                        return str(Path(*parts[k:]))
+        elif "/" not in raw and not raw.endswith(".py"):
+            resolved = owner_module_path(raw)
+            if resolved:
+                return resolved
+        unresolved.append(raw)
+        return None
+
+    return target_path, owner_module_path, unresolved
+
+
 def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     """v2.9 C4: aggregate hunt-targeting signals into bug_hunt_targets.json.
 
@@ -79,10 +130,6 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     except (OSError, json.JSONDecodeError):
         pass
     sources["mutation_survivors"] = len(survivors)
-    survivors_by_file: dict[str, int] = {}
-    for s in survivors:
-        if s.get("file"):
-            survivors_by_file[s["file"]] = survivors_by_file.get(s["file"], 0) + 1
 
     # 4. integration_coverage from the latest gate result
     integration: dict | None = None
@@ -103,7 +150,6 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     # honest applicability: none (or a missing/malformed block) contributes
     # zero threats, same as every other best-effort source above.
     from core.quality_gate.security_design import extract_security_block
-    from detection.drift_detector import sab_module_to_path_variants
 
     threats: list[dict] = []
     try:
@@ -115,38 +161,46 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
         pass
     sources["threat_model"] = len(threats)
 
-    def _resolve_owner_module_path(dotted: str) -> str | None:
-        """dotted SAB/SEC module name -> on-disk relative path, same
-        candidate expansion preflight_sab_check uses for SAB modules."""
-        for rel_dir in ("03-development/src", "src"):
-            for cand in sab_module_to_path_variants(dotted, rel_dir):
-                candidate = project / cand
-                if candidate.is_file():
-                    return str(candidate.relative_to(project))
-        return None
+
+    _target_path, _resolve_owner_module_path, unresolved = _target_resolver(project)
 
     # 6. Assemble: reasons accumulate per module path
     reasons: dict[str, list[str]] = {}
     for d in declared:
         note = f"declared{': ' + d['risk'] if d['risk'] else ''}"
-        reasons.setdefault(d["path"], []).append(note)
+        path = _target_path(d["path"])
+        if path:
+            reasons.setdefault(path, []).append(note)
     for hub in crg_hubs:
-        reasons.setdefault(hub["file"], []).append(
-            f"crg_hub:{hub['severity']} fan_in={hub.get('fan_in')}"
-            + (" untested" if hub.get("untested") else "")
-        )
+        path = _target_path(hub["file"])
+        if path:
+            reasons.setdefault(path, []).append(
+                f"crg_hub:{hub['severity']} fan_in={hub.get('fan_in')}"
+                + (" untested" if hub.get("untested") else "")
+            )
+    survivors_by_file: dict[str, int] = {}
+    for s in survivors:
+        path = _target_path(s["file"]) if s.get("file") else None
+        if path:
+            s["file"] = path
+            survivors_by_file[path] = survivors_by_file.get(path, 0) + 1
     # Survivor density ≥3 in one file promotes it to high-risk; fewer stay
     # as annotations on the standard tier.
     for fpath, count in survivors_by_file.items():
         if count >= 3:
             reasons.setdefault(fpath, []).append(f"mutation_survivors:{count}")
+    threat_paths: dict[str, str | None] = {}
     for t in threats:
         owner_module = t.get("owner_module")
         resolved = _resolve_owner_module_path(owner_module) if owner_module else None
+        threat_paths[str(t.get("id"))] = resolved
         if resolved:
             reasons.setdefault(resolved, []).append(
                 f"threat_model:{t.get('id')} {t.get('category')}"
             )
+        elif owner_module:
+            unresolved.append(owner_module)
+    sources["unresolved"] = sorted(set(unresolved))
 
     inventory: list[str] = []
     for rel_dir in ("03-development/src", "src"):
@@ -180,7 +234,9 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
     threat_model_out = [
         {"threat_id": t.get("id"), "category": t.get("category"),
          "description": t.get("description"), "owner_module": t.get("owner_module"),
-         "boundary": t.get("boundary")}
+         "path": threat_paths.get(str(t.get("id"))),
+         "boundary": t.get("boundary"), "mitigation": t.get("mitigation"),
+         "verified_by": t.get("verified_by")}
         for t in threats
     ]
 
@@ -204,10 +260,101 @@ def cmd_bug_hunt_targets(args: argparse.Namespace) -> int:
           f"{len(standard)} standard (1-lens) → {out_path.relative_to(project)}")
     for hr in high_risk:
         print(f"  HIGH {hr['path']}  ({'; '.join(hr['reasons'])})")
+    if unresolved:
+        print(f"  UNRESOLVED (no file on disk, not targeted): {', '.join(sorted(set(unresolved)))}")
     if not high_risk:
         print("  NOTE: no high-risk signals found — declare high_risk_modules in "
               ".methodology/quality_manifest.json, or run CRG recon / mutation "
               "precheck first for richer targeting.")
+    return 0
+
+
+_HUNT_PARTS_DIR = Path(".sessi-work") / "bug_hunt"
+
+
+def _read_hunt_part(project: Path, part: int) -> "tuple[list | None, str]":
+    path = project / _HUNT_PARTS_DIR / f"part-{part}.json"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"cannot read {path.relative_to(project)}: {exc}"
+    from core.quality_gate.bug_hunt_verifier import _REQUIRED_FINDING_FIELDS
+
+    findings = doc.get("findings") if isinstance(doc, dict) else None
+    if not isinstance(findings, list) or not all(isinstance(f, dict) for f in findings):
+        return None, f"{path.relative_to(project)}: 'findings' must be a list of objects"
+    for f in findings:
+        missing = [k for k in _REQUIRED_FINDING_FIELDS if k not in f]
+        if missing:
+            return None, f"{path.relative_to(project)}: {f.get('id', '?')} is missing {missing}"
+    return findings, ""
+
+
+def cmd_record_bug_hunt(args: argparse.Namespace) -> int:
+    """Write .methodology/bug_hunt_report.json from a workflow-dispatched hunt.
+
+    The workflow fans out hunters and verifiers and decides each finding's
+    `confirmed` itself. It has no filesystem, so agents hand the findings over
+    in parts small enough for one tool call each (`--part I`, which echoes what
+    it read), and `--assemble N` stitches parts 1..N into the report. Every
+    count is derived here, not taken from the caller.
+    """
+    from datetime import datetime, timezone
+
+    from core.quality_gate.bug_hunt_verifier import REPORT_RELPATH, verify_bug_hunt_report
+    from core.utils.subprocess_group import run_isolated
+
+    project = Path(args.project).resolve()
+    if args.part is not None:
+        findings, err = _read_hunt_part(project, args.part)
+        if findings is None:
+            print(f"[record-bug-hunt] BLOCKED: {err}")
+            return 1
+        ids = [str(f.get("id", "")) for f in findings]
+        confirmed = sum(1 for f in findings if f.get("confirmed") is True)
+        print(f"[record-bug-hunt] PART {args.part} findings={len(findings)} confirmed={confirmed} "
+              f"first={ids[0] if ids else '-'} last={ids[-1] if ids else '-'}")
+        return 0
+
+    findings = []
+    for part in range(1, args.assemble + 1):
+        chunk, err = _read_hunt_part(project, part)
+        if chunk is None:
+            print(f"[record-bug-hunt] BLOCKED: {err}")
+            return 1
+        findings.extend(chunk)
+    git_sha = run_isolated(["git", "rev-parse", "HEAD"], timeout=10, cwd=str(project)).stdout.strip()
+    confirmed = sum(1 for f in findings if f.get("confirmed") is True)
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "git_sha": git_sha,
+        "targets_manifest": str(REPORT_RELPATH.parent / "bug_hunt_targets.json"),
+        "lenses": [s for s in (args.lenses or "").split(",") if s],
+        "raw_count": len(findings),
+        "confirmed_count": confirmed,
+        "refuted_count": len(findings) - confirmed,
+        "findings": findings,
+    }
+    out = project / REPORT_RELPATH
+    out.parent.mkdir(parents=True, exist_ok=True)
+    previous = out.read_bytes() if out.exists() else None
+    out.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    # A confirmed critical/high is OPEN until the resolver acts; anything else is malformed.
+    malformed = [r for r in verify_bug_hunt_report(str(project)).reasons if "is OPEN" not in r]
+    if malformed:
+        rejected = project / ".sessi-work" / "bug_hunt_report.rejected.json"
+        rejected.parent.mkdir(parents=True, exist_ok=True)
+        rejected.write_bytes(out.read_bytes())
+        if previous is None:
+            out.unlink()
+        else:
+            out.write_bytes(previous)
+        for reason in malformed:
+            print(f"[record-bug-hunt] INVALID: {reason}")
+        print(f"[record-bug-hunt] NOT RECORDED — the previous report is unchanged; rejected copy: {rejected.relative_to(project)}")
+        return 1
+    print(f"[record-bug-hunt] RECORDED findings={len(findings)} confirmed={confirmed} "
+          f"refuted={len(findings) - confirmed} → {REPORT_RELPATH}")
     return 0
 
 
@@ -309,6 +456,19 @@ def register(sub) -> None:
     )
     bht.add_argument("--project", default=".", help="Project root (default: .)")
     bht.set_defaults(func=cmd_bug_hunt_targets)
+
+    rbh = sub.add_parser(
+        "record-bug-hunt",
+        help="Write .methodology/bug_hunt_report.json from a workflow-dispatched hunt's findings",
+    )
+    rbh.add_argument("--project", default=".", help="Project root (default: .)")
+    mode = rbh.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--part", type=int, default=None,
+                      help="check .sessi-work/bug_hunt/part-I.json and echo what it holds")
+    mode.add_argument("--assemble", type=int, default=None,
+                      help="write the report from parts 1..N")
+    rbh.add_argument("--lenses", default="", help="comma-separated lenses applied (with --assemble)")
+    rbh.set_defaults(func=cmd_record_bug_hunt)
 
     # run-gap-analysis (M3)
     ga = sub.add_parser(

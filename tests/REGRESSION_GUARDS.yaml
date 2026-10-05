@@ -6209,3 +6209,43 @@
 - test: tests/test_gate4_completes_in_workflow.py::test_gate4_challengers_are_dispatched_by_the_workflow
   bug: "the Gate 4 orchestrator was told to dispatch its Devil's Advocate challengers with an Agent tool a workflow agent does not have (spawnDepth 1); taskq-open rounds 1 and 3 refused, round 2 wrote all five critiques itself and the length-only validator accepted them. Control flow is guarded in scripts/workflowgen/js_src/sim_runner.test.mjs (Gate 4 A3 section) via tests/test_workflow_sim.py"
   fixed_in: "gate 4 completes inside the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_every_spelling_resolves_to_one_project_file_or_is_reported
+  bug: "bug-hunt-targets keyed targets by each source's own spelling: declared dotted modules became 'paths' that are not files, a survivor's absolute path (another workdir, or another tree) sat beside the same file's relative path (taskq-open: 4 non-files + 1 duplicate in 16 high-risk)"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_an_absolute_path_inside_the_project_becomes_relative
+  bug: "an in-project absolute path must collapse onto the relative spelling of the same file"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_the_manifest_lists_each_file_once_and_only_files
+  bug: "the targets manifest listed a file twice and listed modules that are not files; survivor annotations never reached standard modules"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_threat_rows_carry_the_declared_mitigation_and_the_file
+  bug: "hunters were told to verify each threat's declared mitigation, but bug-hunt-targets dropped the mitigation (and the owner file) from SAD §6"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_parts_echo_what_they_hold_and_assemble_into_a_report_gate3_accepts
+  bug: "a workflow-judged hunt needs a writer that derives the counts itself and produces a report Gate 3's adversarial_review accepts, threat rows included"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_a_part_missing_required_fields_is_refused_at_the_part
+  bug: "a malformed part must be refused where it can be retried alone, not only at assembly"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_assemble_refuses_a_missing_part
+  bug: "a report assembled without one of its parts would silently drop findings"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_a_malformed_hunt_leaves_the_previous_report_untouched
+  bug: "a rejected hunt must not overwrite the report Gate 3 reads"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_a_hunt_with_no_findings_is_a_valid_empty_report
+  bug: "a hunt that finds nothing is a result, not a failure"
+  fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_bug_hunt_runs_as_the_workflow.py::test_the_hunt_is_dispatched_by_the_workflow
+  bug: "P4's Bug Hunt was one agent told to spawn hunters/verifiers with an Agent tool a workflow agent does not have; on taskq-open it ran 0 sub-agents and judged its own findings. Control flow is guarded in scripts/workflowgen/js_src/sim_runner.test.mjs (P4 bug hunt section) via tests/test_workflow_sim.py"
+  fixed_in: "the bug hunt runs as the workflow"

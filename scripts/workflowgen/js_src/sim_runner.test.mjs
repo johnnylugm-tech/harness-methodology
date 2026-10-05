@@ -1609,3 +1609,119 @@ test('phase6 Gate 4: round 2 is challenged afresh, under distinct labels and pro
   assert.ok(r2 >= 0 && r2 < ls.indexOf('gate4-r2'))
   assert.notEqual(events.agents[r1].prompt, events.agents[r2].prompt)
 })
+
+// ── P4 bug hunt: hunt_bugs.md is run by the workflow ─────────────────────────
+// A workflow agent() child has no Agent tool; the one agent told to spawn
+// hunters/verifiers ran 0 of them (measured on a real P4). The script now
+// dispatches scout, hunters (per (module, lens) and per threat) and the two
+// verifiers per finding, and records the report in parts.
+const huntFinding = (o = {}) => Object.assign({ module: 'auth', severity: 'high', title: 'bypass', file: 'src/auth.py', line_start: 12, reasoning: 'src/auth.py:12', confidence: 'high' }, o)
+
+function huntResponder(over = []) {
+  return makeHappyResponder([
+    { match: /^phase-cursor/, respond: { current_phase: 4 } },
+    ...over,
+  ])
+}
+const huntLabels = (ev) => ev.agents.map((a) => a.label)
+const huntRecord = (ev) => ({ findings: ev.agents.filter((x) => /^hunt-record-\d+$/.test(x.label))
+  .flatMap((a) => JSON.parse(a.prompt.match(/<<<JSON\n([\s\S]*?)\nJSON>>>/)[1]).findings) })
+
+for (const name of ['phase4-testing.js', 'run-all.js']) {
+  test(`${name}: every (module, lens) pair and every threat gets its own hunter, after the scout`, async () => {
+    const { events } = await runWorkflow(WF(name), huntResponder())
+    const ls = huntLabels(events)
+    const hunters = ls.filter((l) => /^hunt-\d+-[a-z-]+$/.test(l))
+    assert.deepEqual(hunters.map((l) => l.replace(/^hunt-\d+-/, '')).sort(),
+      ['concurrency', 'correctness', 'general', 'resilience', 'threat-model'])
+    assert.ok(ls.indexOf('hunt-scout') < ls.indexOf(hunters[0]))
+    assert.ok(!events.agents.some((a) => /you have the Agent tool/.test(a.prompt)))
+    assert.ok(!ls.includes('hunt-resolve'), 'nothing confirmed, nothing to resolve')
+  })
+}
+
+test('confirmation rule: 1/2 is_real with a line citation confirms; the resolver is dispatched for a confirmed high', async () => {
+  const { events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-\d+-correctness$/, respond: { findings: [huntFinding()] } },
+    { match: /-refute$/, respond: { is_real: false, refutation_attempt: 'none', evidence: 'none', severity_agrees: true } },
+    { match: /-confirm$/, respond: { is_real: true, refutation_attempt: 'tried', evidence: 'reached at src/auth.py:12', severity_agrees: true } },
+  ]))
+  const f = huntRecord(events).findings.find((x) => x.lens === 'correctness')
+  assert.equal(f.confirmed, true)
+  assert.equal(f.resolution.status, 'open')
+  assert.equal(f.verify_evidence, 'reached at src/auth.py:12')
+  assert.ok(huntLabels(events).includes('hunt-resolve'))
+})
+
+test('confirmation rule: 1/2 is_real WITHOUT a citation is refuted with the refuter\'s words', async () => {
+  const { events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-\d+-correctness$/, respond: { findings: [huntFinding()] } },
+    { match: /-refute$/, respond: { is_real: false, refutation_attempt: 'guarded by the caller', evidence: 'x', severity_agrees: true } },
+    { match: /-confirm$/, respond: { is_real: true, refutation_attempt: 'tried', evidence: 'seems real', severity_agrees: true } },
+  ]))
+  const f = huntRecord(events).findings.find((x) => x.lens === 'correctness')
+  assert.equal(f.confirmed, false)
+  assert.deepEqual(f.resolution, { status: 'refuted', refute_evidence: 'guarded by the caller' })
+  assert.ok(!huntLabels(events).includes('hunt-resolve'))
+})
+
+test('a threat whose mitigation fails goes through adversarial verify; an effective one does not', async () => {
+  const threat = (eff) => ({ match: /^hunt-\d+-threat-model$/, respond: Object.assign(huntFinding({ module: 'T-01' }), { attack_vector: 'v', attempted_exploit: 'e', mitigation_effective: eff, evidence: 'src/auth.py:3' }) })
+  const ok = await runWorkflow(WF('phase4-testing.js'), huntResponder([threat(true)]))
+  const oi = huntLabels(ok.events).find((x) => /threat-model$/.test(x)).split('-')[1]
+  assert.ok(!huntLabels(ok.events).includes(`hunt-${oi}-0-refute`))
+  assert.equal(huntRecord(ok.events).findings.find((f) => f.lens === 'threat-model').resolution.status, 'refuted')
+  const bad = await runWorkflow(WF('phase4-testing.js'), huntResponder([threat(false)]))
+  const ti = huntLabels(bad.events).find((x) => /threat-model$/.test(x)).split('-')[1]
+  assert.ok(huntLabels(bad.events).includes(`hunt-${ti}-0-refute`) && huntLabels(bad.events).includes(`hunt-${ti}-0-confirm`))
+})
+
+test('a hunter that fails once is retried; failing twice halts as infra before anything is recorded', async () => {
+  const once = await runWorkflow(WF('phase4-testing.js'), huntResponder([{ match: /^hunt-\d+-general$/, respond: null }]))
+  assert.ok(huntLabels(once.events).some((l) => /^hunt-\d+-general-retry$/.test(l)))
+  const twice = await runWorkflow(WF('phase4-testing.js'), huntResponder([{ match: /^hunt-\d+-general(-retry)?$/, respond: null }]))
+  assert.equal(twice.result.halt_step, 'bug-hunt')
+  assert.equal(twice.result.owner, 'infra')
+  assert.match(twice.result.error, /general:src\/app\.py/)
+  assert.ok(!huntLabels(twice.events).some((l) => /^hunt-record/.test(l)))
+})
+
+test('a part that echoes something other than what was written is retried, then halts before assembling', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-record-\d+(-retry)?$/, respond: { rc: 0, findings: 99, confirmed: 0, first: 'x', last: 'y' } },
+  ]))
+  assert.ok(huntLabels(events).includes('hunt-record-1-retry'))
+  assert.equal(result.halt_step, 'bug-hunt')
+  assert.match(result.error, /part\(s\) 1 of 1/)
+  assert.ok(!huntLabels(events).includes('hunt-record-assemble'))
+})
+
+test('a large hunt is recorded in parts of at most ~12 KB, assembled in order, all of it', async () => {
+  const many = Array.from({ length: 40 }, (_, n) => huntFinding({ severity: 'low', title: 't' + n, reasoning: 'r'.repeat(900) }))
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-\d+-correctness$/, respond: { findings: many } },
+  ]))
+  const parts = events.agents.filter((a) => /^hunt-record-\d+$/.test(a.label))
+  assert.ok(parts.length >= 3, `expected several parts, got ${parts.length}`)
+  for (const a of parts) assert.ok(a.prompt.match(/<<<JSON\n([\s\S]*?)\nJSON>>>/)[1].length <= 12000 + 2000)
+  assert.equal(huntRecord(events).findings.filter((f) => f.lens === 'correctness').length, 40)
+  assert.ok(huntLabels(events).includes('hunt-record-assemble'))
+  assert.notEqual(result.halt_step, 'bug-hunt', JSON.stringify(result).slice(0, 200))
+})
+
+test('assemble reporting a different total than was dispatched halts', async () => {
+  const { result } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-record-assemble$/, respond: { rc: 0, findings: 0, confirmed: 0 } },
+  ]))
+  assert.equal(result.halt_step, 'bug-hunt')
+  assert.match(result.error, /assemble/)
+})
+
+test('a targets manifest that does not survive the relay halts as infra, before any hunter', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^loadpy-.*bug_hunt_targets/, respond: relayFrame('content', '{"high_risk": [trunc') },
+  ]))
+  assert.equal(result.halt_step, 'bug-hunt')
+  assert.equal(result.owner, 'infra')
+  assert.ok(!huntLabels(events).includes('hunt-scout'))
+})

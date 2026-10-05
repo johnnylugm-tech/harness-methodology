@@ -74,12 +74,19 @@ export async function runWorkflow(filePath, respond, opts = {}) {
   }
   // Runtime semantics: a barrier; a thunk that throws resolves to null.
   const parallelFn = async (thunks) => Promise.all(thunks.map((t) => Promise.resolve().then(t).catch(() => null)))
+  // pipeline(items, ...stages): each item runs its stages independently;
+  // stage callbacks get (prevResult, originalItem, index); a throw drops it to null.
+  const pipelineFn = async (items, ...stages) => Promise.all(items.map(async (item, i) => {
+    let v = item
+    try { for (const s of stages) v = await s(v, item, i) } catch { return null }
+    return v
+  }))
   const fn = new AsyncFunction(
-    'agent', 'parallel', 'phase', 'log', 'args', 'budget',
+    'agent', 'parallel', 'pipeline', 'phase', 'log', 'args', 'budget',
     `${body}\n;return { __fell_through: true, meta }`,
   )
   const result = await fn(
-    agentFn, parallelFn, phaseFn, logFn,
+    agentFn, parallelFn, pipelineFn, phaseFn, logFn,
     opts.args ?? { repo: '/sim/project' },
     undefined,
   )
@@ -128,6 +135,14 @@ export function relayIndex(path, firstLine, rows = 'LINES         LVL  HEADING\n
     { bytes: 341375, lines: 7464 })
 }
 
+// Smallest manifest bug-hunt-targets writes: one target per tier, one threat.
+export const SIM_HUNT_TARGETS = {
+  high_risk: [{ name: 'auth', path: 'src/auth.py', reasons: ['threat_model:T-01 spoofing'] }],
+  standard: [{ name: 'app', path: 'src/app.py' }],
+  threat_model: [{ threat_id: 'T-01', category: 'spoofing', description: 'forged key', mitigation: 'hmac compare', path: 'src/auth.py' }],
+  mutation_survivors: [],
+}
+
 export function makeHappyResponder(overrides = []) {
   return (call, events) => {
     for (const o of overrides) {
@@ -145,6 +160,9 @@ export function makeHappyResponder(overrides = []) {
     // length >= 50 plus an optional `--expect-prefix "X"` heading anchor
     // embedded in the prompt's read-file command. Synthesize matching
     // content instead of forcing every scenario pack to re-derive it.
+    if (/^loadpy-/.test(call.label) && call.prompt.includes('bug_hunt_targets.json')) {
+      return relayFrame('content', JSON.stringify(SIM_HUNT_TARGETS))
+    }
     if (/^loadpy-/.test(call.label)) {
       const m = call.prompt.match(/--expect-prefix\s+"([^"]+)"/)
       const heading = m ? m[1].replace(/^#\s*/, '') : 'Simulated Document'
@@ -166,6 +184,27 @@ export function makeHappyResponder(overrides = []) {
         const m = call.label.match(/^gate4-da-([a-z_]+)-r/)
         return { dim: m ? m[1] : '', challenge: 'simulated challenger critique citing src/app.py:1 '.repeat(3) }
       }
+      if (has('rc') && has('findings') && has('confirmed')) {
+        // HUNT_RECORD_SCHEMA: report back what record-bug-hunt would derive.
+        // A part echoes its own findings; assemble echoes every part written so far.
+        const m = call.prompt.match(/<<<JSON\n([\s\S]*?)\nJSON>>>/)
+        if (m) {
+          const fs = JSON.parse(m[1]).findings
+          events.huntRecorded = (events.huntRecorded || []).concat(fs)
+          return { rc: 0, findings: fs.length, confirmed: fs.filter((f) => f.confirmed).length,
+                   first: fs.length ? fs[0].id : '-', last: fs.length ? fs[fs.length - 1].id : '-' }
+        }
+        const all = events.huntRecorded || []
+        return { rc: 0, findings: all.length, confirmed: all.filter((f) => f.confirmed).length }
+      }
+      if (has('mitigation_effective')) {
+        return { attack_vector: 'sim', attempted_exploit: 'sim', mitigation_effective: true, evidence: 'src/app.py:1',
+                 module: 'sim', severity: 'low', title: 'sim', file: 'src/app.py', line_start: 1, reasoning: 'sim', confidence: 'low' }
+      }
+      if (has('is_real') && has('refutation_attempt')) {
+        return { is_real: false, refutation_attempt: 'guard at src/app.py:1', evidence: 'src/app.py:1', severity_agrees: true }
+      }
+      if (has('findings')) return { findings: [] }
       if (has('rc')) {
         // RC family (RC_SCHEMA + ENV_CHECK_SCHEMA). ENV_CHECK_SCHEMA
         // (Round 23) adds a `ready` field for the Bug #127 cross-check;
