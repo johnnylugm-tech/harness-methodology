@@ -138,14 +138,17 @@ OWNER_BY_EXIT: dict[int, str] = {
     22: Owner.PROJECT,
     23: Owner.INFRA,  # connectors disabled / ANTHROPIC_* overrides
     24: Owner.INFRA,  # spawn-substrate preflight probe failed
-    # Round 72 站3: INFRA, and only INFRA. Round 70 站2 gave the two classes
-    # two codes — `cli/fr_cmds.py::_abort_dispatch_infra_or_harness_bug` is
-    # the ONLY producer of 25 and its last line reads
-    # `EX_HARNESS_BUG if cls == "HARNESS_BUG" else EX_FR_STEP_INFRA_ABORT`.
-    # The UNKNOWN here and the HARNESS_BUG rule in _DISCRIMINATORS were the
-    # part of that round that never landed: the number carries the answer now,
-    # and asking the message for it could only re-open the ambiguity.
-    25: Owner.INFRA,
+    # Round 72 站3 made this INFRA on the reading that the only producer of 25
+    # (`cli/fr_cmds.py::_abort_dispatch_infra_or_harness_bug`) means INFRA.
+    # Round 114 站4 read the classifier it routes on: `_classify_infra_or_
+    # harness_bug` returns "UNREGISTERED" for both "Unregistered modules
+    # detected" and "Architecture Amendment Protocol violation" before its
+    # INFRA fallback is reached, and the fallback's signatures are those same
+    # two strings — so 25 only ever means code->SAB drift: the codebase holds
+    # a module the SAB does not declare. Its mirror, PHANTOM (45, below), was
+    # already PROJECT. taskq-open's sixteen "infra" GATE1 rows were the
+    # undeclared `taskq_api.__main__`, repaired by `amend-sab --declare`.
+    25: Owner.PROJECT,
     # Round 100 站1. PHANTOM direction (SAB→code). Same owner-class as 25
     # was historically — both halves of the two-way drift — but a different
     # *remediation channel*: amend-sab --resolve-phantom ... --reason

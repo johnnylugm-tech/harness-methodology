@@ -48,6 +48,8 @@ __all__ = [
     "open_blocks",
     "harness_owned_open_blocks",
     "resolve_block",
+    "resolve_completed_phase_blocks",
+    "current_enforcer",
 ]
 
 # Beside degradations.jsonl, and for the same reason Round 27 站3 moved that
@@ -135,6 +137,9 @@ def record_block(
         "evidence": evidence,
         "resolved": False,
         "recurred_after_resolution": recurred,
+        # Round 114 站4: which harness enforced when the run stopped, so the
+        # row that later closes it can say whether the harness had changed.
+        "enforcer_sha": current_enforcer(),
     }
     if recurred and prior is not None:
         # The repair that did not hold is named on the row that closed the
@@ -234,7 +239,8 @@ def unattributed_open_blocks(project: "str | Path") -> list[dict]:
 
 
 def resolve_block(
-    project: "str | Path", signature: str, *, resolution: str
+    project: "str | Path", signature: str, *, resolution: str,
+    extra: "dict | None" = None,
 ) -> None:
     """Record that a previously-seen block is gone, with what closed it.
 
@@ -262,6 +268,51 @@ def resolve_block(
         "evidence": prior.get("evidence", ""),
         "resolved": True,
         "resolution": resolution,
+        **(extra or {}),
     }
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def current_enforcer() -> "str | None":
+    """The enforcing harness commit, or None when it cannot be named."""
+    from core.harness_provenance import enforcer_sha
+
+    sha = enforcer_sha()
+    return None if not sha or sha == "unknown" else sha
+
+
+def resolve_completed_phase_blocks(project: "str | Path", completed_phase: int) -> "list[str]":
+    """Close every open halt in phases <= *completed_phase*; return their signatures.
+
+    Round 114 站4. `resolve_block` had one caller, `repair-harness`, so a halt
+    repaired any other way stayed open forever: taskq-open completed P1-P8
+    and still listed all eleven of its halts as open. Completing a phase is
+    the moment the framework knows every halt in it was passed.
+
+    The closing row carries the enforcer at the halt and at the pass, and
+    `harness_changed` — None when either is unknown (rows written before this
+    round have none), never guessed. It is evidence beside the owner; the
+    owner itself is not rewritten (Round 48: a halt states what it knew).
+    Replayed on taskq-open: ten of eleven halts passed on a different harness,
+    and the one that did not is the Gate 1 failure the project fixed.
+    """
+    now = current_enforcer()
+    closed: list[str] = []
+    for row in open_blocks(project):
+        try:
+            phase = int(row.get("phase") or 0)
+        except (TypeError, ValueError):
+            continue
+        if phase > completed_phase:
+            continue
+        before = row.get("enforcer_sha")
+        changed = (before != now) if (before and now) else None
+        resolve_block(
+            project, row["signature"],
+            resolution=f"phase {completed_phase} completed (advance-phase)",
+            extra={"enforcer_at_block": before, "enforcer_at_resolution": now,
+                   "harness_changed": changed},
+        )
+        closed.append(row["signature"])
+    return closed

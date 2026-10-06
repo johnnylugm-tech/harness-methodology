@@ -100,12 +100,16 @@ def test_exit_25_carries_its_answer_in_the_number(tmp_path):
     of 25 — able to return it for INFRA alone. The fault table went on saying
     the number was ambiguous and kept a HARNESS_BUG discriminator for it, so
     the same block still classified as UNKNOWN without its message.
+
+    Round 114 站4 kept the property and corrected the answer: the classifier
+    behind that producer reaches only UNREGISTERED (code->SAB drift), so the
+    number's owner is PROJECT, like its mirror PHANTOM (45).
     """
     from core.fault_owner import DISCRIMINATED_EXITS, Owner, classify_fault
 
     assert 25 not in DISCRIMINATED_EXITS
-    assert classify_fault(exit_code=25).owner == Owner.INFRA
+    assert classify_fault(exit_code=25).owner == Owner.PROJECT
     # And with the message alongside, which used to flip it to HARNESS.
     assert classify_fault(
         exit_code=25, text="[FATAL] FR-01 GATE1: HARNESS_BUG detected",
-    ).owner == Owner.INFRA
+    ).owner == Owner.PROJECT

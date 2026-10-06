@@ -35,6 +35,7 @@ def _advance_commit_targets(
     attestation_exists: bool = False,
     setup_cfg_written: bool = False,
     degradation_ledger_exists: bool = False,
+    workflow_blocks_exists: bool = False,
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -66,6 +67,10 @@ def _advance_commit_targets(
     manifest — and the advance's own prechecks append to it. Staged the way
     gate_timestamps.jsonl is: when present, while staying volatile so an
     append never moves the delivered-tree digest (2245e64).
+
+    .methodology/workflow_blocks.jsonl (Round 114 站4), the same way: the
+    advance closes the completed phase's halts in it, and a closing row that
+    stays in the working tree is a record a clone never sees (Round 90).
     """
     targets = [
         ".methodology/state.json", "HANDOVER.md",
@@ -83,6 +88,8 @@ def _advance_commit_targets(
         targets.append(".methodology/gate_timestamps.jsonl")
     if degradation_ledger_exists:
         targets.append(".methodology/degradations.jsonl")
+    if workflow_blocks_exists:
+        targets.append(".methodology/workflow_blocks.jsonl")
     if manifest_regenerated:
         targets.append(".methodology/quality_manifest.json")
     if stage_pass_exists:
@@ -154,6 +161,7 @@ def _uncommitted_deliverables(
         gate_timestamps_exists=True, stage_pass_exists=True,
         plan_exists=True, attestation_exists=True, setup_cfg_written=True,
         degradation_ledger_exists=True,
+        workflow_blocks_exists=True,
     ))
 
     dirty: set[str] = set()

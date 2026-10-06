@@ -137,7 +137,10 @@ def test_abort_message_distinguishes_infra_from_harness_bug(capsys):
         "FR-01", "GATE1-DELTA", 4, Path("/tmp/project"), "INFRA", "phantom module"
     )
     err = capsys.readouterr().err
-    assert "infrastructure precondition failure" in err
+    # Round 114 站4: the class this path reaches is code->SAB drift, an
+    # architecture state the project repairs — not infrastructure.
+    assert "architecture precondition failure" in err
+    assert "a bug in harness-methodology itself" not in err
     assert "phantom module" in err
 
 

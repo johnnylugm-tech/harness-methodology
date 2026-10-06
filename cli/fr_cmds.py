@@ -1406,9 +1406,9 @@ def _abort_dispatch_infra_or_harness_bug(
                   "--project <REPO> --resolve-phantom <declared> --to <target>|--drop "
                   "--reason \">=20 chars\"`.\n")
     else:
-        kind = ("an infrastructure precondition failure (UNREGISTERED direction "
+        kind = ("an architecture precondition failure (UNREGISTERED direction "
                 "— code→SAB drift; the codebase has a module SAB.json does not "
-                "declare, or a tool that never ran)")
+                "declare)")
         repair = ("  Repair: run `harness_cli.py amend-sab --project <REPO>`, "
                   "then re-run this FR.\n")
     if cls == "HARNESS_BUG":

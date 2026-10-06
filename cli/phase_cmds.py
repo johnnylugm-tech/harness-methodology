@@ -768,6 +768,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
         project / ".methodology" / "state.json",
         project / ".methodology" / "fr_progress.json",
         project / ".methodology" / "gate_timestamps.jsonl",
+        project / ".methodology" / "workflow_blocks.jsonl",
         project / ".methodology" / "quality_manifest.json",
         project / ".methodology" / f"phase{args.completed_phase}_plan.md",
         project / "HANDOVER.md",

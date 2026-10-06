@@ -11117,3 +11117,32 @@ block 內唯一的 `SAD.md:N` 引用就是 resolution_ref)。78f79c15 的 4 支�
 
 反證:taskq-open 副本刪 8 行 → 新規則 OK;改一行為 `unresolved` → BLOCKED。三個 .py 各自換回舊版 →
 3 / 1 / 1 紅;`cp` 還原 sha256 一致。run-all 443903 → 443885,上限收割 444003 → 443985。
+
+### 站4 — 中止由 phase 完成來結案;exit 25 的 owner 與它的鏡像一致
+
+taskq-open 的 11 次中止(8 個簽章)在 P1–P8 全部走完後,`workflow_blocks.jsonl` 仍全列 open:
+`resolve_block` 唯一的呼叫者是 `repair-harness`,而那些修復都不是走它。於是 `open_blocks`、
+`unattributed_open_blocks`、doctor、run-report 把一個完成的專案讀成 8 個懸案,
+`recurred_after_resolution` 永遠不會觸發(R30 半座機制)。
+
+**4c**:`advance-phase --completed N` 是框架知道「phase ≤ N 的每個中止都已被通過」的時點。新
+`resolve_completed_phase_blocks` 在 handover commit 前結案,結案列記 `enforcer_at_block` /
+`enforcer_at_resolution` / `harness_changed`(任一側未記錄就是 None,不猜),**不改寫 owner**。
+`record_block` 起記 `enforcer_sha`。ledger 進 advance 的 FileSnapshot(commit 失敗則結案列隨 state.json
+一起回滾)並在存在時被 stage(R90;照 R113 站8 的 degradations 前例,保持 volatile)。
+重放 taskq-open(以專案 submodule 指標重建當時的 enforcer):8 個簽章全結案,7 個 `harness_changed=true`,
+唯一 false 是 FR-03 Gate 1 —— 專案自己修的那一個。
+
+**4a**:exit 25 唯一的 producer 是 `_abort_dispatch_infra_or_harness_bug`;它所依據的
+`_classify_infra_or_harness_bug` 對兩個簽章都先回 "UNREGISTERED",INFRA 分支的簽章正是那兩個字串,
+走不到。所以 25 實際只代表 code→SAB 漂移;它的鏡像 PHANTOM(45)早是 PROJECT,25 卻是 INFRA
+(R72 站3 依「唯一 producer」推論 INFRA,沒讀到分類器)。改 PROJECT;訊息刪「or a tool that never ran」。
+常數名稱 `EX_FR_STEP_INFRA_ABORT` 不改(引用處含既有測試,範圍外);定義處的註記寫明實義。
+既有專案已寫入的列不改(R44)。
+
+**4b 撤回**(第二輪驗證):halt 帶 exit code 也路由不到 harness —— taskq-open 的 harness 缺陷都經由
+48 / 5 / 25 這些被判 project 的碼或無碼路徑出現;R79、R96 已裁定 owner 由 producer 陳述。事後證據由
+4c 提供。
+
+反證:拿掉結案呼叫、從 snapshot 拿掉 ledger、25 改回 INFRA、拿掉 stage 參數 → 各 1 紅;`cp` 還原一致。
+函式 ratchet:`_advance_step_commit_and_push` 393 → 399、`cmd_advance_phase` 413 → 414;split golden 重生。

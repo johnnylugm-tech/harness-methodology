@@ -377,6 +377,11 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
     makes this a move rather than a rewrite.
     """
     _record_was_writable = False
+    # Round 114 站4: the completed phase's halts were passed. Closed before the
+    # commit so the rows land in it; `_advance_snap` holds the ledger, so a
+    # commit that fails rolls the closing rows back with state.json.
+    from core.workflow_blocks import resolve_completed_phase_blocks
+    resolve_completed_phase_blocks(project, args.completed_phase)
     if os.environ.get("HARNESS_NO_GIT"):
         print("[advance-phase] HARNESS_NO_GIT=1 — skipping git commit")
     else:
@@ -406,6 +411,7 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
             attestation_exists=(project / ".methodology" / "trace" / "attestation.json").exists(),
             setup_cfg_written=_setup_cfg_written,
             degradation_ledger_exists=(project / ".methodology" / "degradations.jsonl").exists(),
+            workflow_blocks_exists=(project / ".methodology" / "workflow_blocks.jsonl").exists(),
         )
         _commit_failure: Optional[str] = None
         add_result = subprocess.run(

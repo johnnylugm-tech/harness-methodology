@@ -6337,3 +6337,23 @@
 - test: tests/test_post_p2_architecture_amendment.py::test_declare_keeps_decision_refs_resolving
   bug: "an architecture amendment above the decision records must leave their references resolving without rewriting them"
   fixed_in: "Round 114 站3 (replaces 78f79c15's four line-arithmetic tests)"
+
+- test: tests/test_a_completed_phase_closes_its_halts.py::test_completing_a_phase_closes_its_halts_and_no_later_ones
+  bug: "resolve_block had one caller (repair-harness), so a halt repaired any other way stayed open forever: taskq-open completed P1-P8 and workflow_blocks.jsonl still listed all eleven halts as open, so open_blocks / doctor / run-report read a finished project as eleven unanswered halts and recurred_after_resolution could never fire"
+  fixed_in: "Round 114 站4 (resolve_completed_phase_blocks, called by advance-phase before its handover commit)"
+
+- test: tests/test_a_completed_phase_closes_its_halts.py::test_the_closing_row_says_whether_the_harness_changed
+  bug: "the closing row must say whether the harness that passed the step is the one that halted on it — unknown when either side is unrecorded, never guessed — without rewriting the halt's owner"
+  fixed_in: "Round 114 站4 (record_block writes enforcer_sha; replay on taskq-open: 8 signatures closed, 7 harness_changed, the one false is the project-fixed FR-03 Gate 1)"
+
+- test: tests/test_a_completed_phase_closes_its_halts.py::test_an_advance_commits_the_closed_halt
+  bug: "a closing row left in the working tree is a record a clone never sees (Round 90)"
+  fixed_in: "Round 114 站4 (workflow_blocks.jsonl staged by the advance commit when present, volatile like gate_timestamps.jsonl)"
+
+- test: tests/test_a_completed_phase_closes_its_halts.py::test_a_failed_advance_closes_nothing
+  bug: "closing a phase's halts before the commit must not survive a commit that fails — the phase did not complete"
+  fixed_in: "Round 114 站4 (workflow_blocks.jsonl in the advance FileSnapshot)"
+
+- test: tests/test_a_completed_phase_closes_its_halts.py::test_exit_25_is_the_projects_like_its_mirror_45
+  bug: "fault_owner mapped exit 25 to INFRA, but its only producer's only reachable class is UNREGISTERED (code->SAB drift; both signatures of the INFRA fallback are claimed first by UNREGISTERED). Its mirror PHANTOM (45) was PROJECT; taskq-open's sixteen 'infra' GATE1 rows were the undeclared taskq_api.__main__"
+  fixed_in: "Round 114 站4"
