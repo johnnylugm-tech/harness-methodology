@@ -6381,3 +6381,27 @@
 - test: tests/test_declared_tests_have_a_deadline.py::test_advance_phase_asks_the_deadline
   bug: "the deadline is only real if the advance pipeline calls it"
   fixed_in: "Round 114 站5"
+
+- test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_at_p1_the_render_lists_every_srs_requirement
+  bug: "build_traceability's requirement universe was SAD.md ∪ code ∪ tests — never the SRS; at P1 (no SAD) the render found the template's two FRs, so the matrix could only be an agent-authored document there, which the P3 render then replaced (one file, two owners)"
+  fixed_in: "Round 114 站7 (requirements from SRS.md via spec_alignment.structural_fr_ids; matrix rendered at every advance)"
+
+- test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_an_srs_requirement_missing_from_the_sad_is_a_named_gap
+  bug: "deleting FR-10 from a copy of taskq-open's SAD left check-artifact-consistency, check-spec-alignment and the P2 transition green; the matrix column labelled SRS literally said 'SAD.md'"
+  fixed_in: "Round 114 站7 (fr_without_design gap; srs_section names the SRS)"
+
+- test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_both_builders_answer_from_the_same_universe
+  bug: "build_traceability (the render) and scanner.check_traceability (the gate's trace dimension) are 'kept in step' by hand; changing one requirement universe without the other would make them disagree"
+  fixed_in: "Round 114 站7"
+
+- test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_the_advance_renders_the_matrix_from_phase_1
+  bug: "the view regen was gated to completed_phase >= 3, so the P1/P2 matrix was whatever an agent wrote and Agent B reviewed, replaced at P3 (taskq-open: ~470 lines -> 60; two agent reverts of the render, d185fc4 / 5fa5d92)"
+  fixed_in: "Round 114 站7"
+
+- test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_the_p1_matrix_is_not_a_reviewed_deliverable
+  bug: "a B approval of a framework-rendered view reviews the renderer and is stale by construction at the next render"
+  fixed_in: "Round 114 站7 (TRACEABILITY_MATRIX.md out of PHASE_DELIVERABLES[1]; still in PHASE_DELIVERABLE_PATHS)"
+
+- test: tests/e2e/test_cli_journeys.py::TestAdvanceJourneys::test_rejected_commit_rolls_back_exit_6
+  bug: "the views advance-phase renders were not in its commit targets or owned set: after a rejected commit and rollback, the retry refused (exit 38) on the matrix the previous attempt had rendered — latent from P3 on, exposed when the matrix render moved to P1"
+  fixed_in: "Round 114 站7 (_rendered_view_paths in _advance_commit_targets and _uncommitted_deliverables)"

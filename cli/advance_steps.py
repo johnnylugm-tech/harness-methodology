@@ -34,6 +34,7 @@ from cli.advance_commit import (
     _advance_fsm,
     _enforcer_moved_note,
     _git_head_short,
+    _rendered_view_paths,
 )
 from core import claude_md
 from core.atomic_io import atomic_write_json, file_lock, state_lock_path
@@ -412,6 +413,7 @@ def _advance_step_commit_and_push(_advance_snap, _manifest_regenerated, _saved_c
             setup_cfg_written=_setup_cfg_written,
             degradation_ledger_exists=(project / ".methodology" / "degradations.jsonl").exists(),
             workflow_blocks_exists=(project / ".methodology" / "workflow_blocks.jsonl").exists(),
+            rendered_views=_rendered_view_paths(project, args.completed_phase),
         )
         _commit_failure: Optional[str] = None
         add_result = subprocess.run(

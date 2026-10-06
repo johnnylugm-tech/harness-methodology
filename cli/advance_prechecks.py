@@ -393,17 +393,15 @@ def _precheck_early_stage_pass(_early_sp_path, completed_phase, project) -> None
     # phase advance can't leave a stale/hand-mocked matrix; staged only if
     # changed (same no-op guard as STAGE_PASS).
     #
-    # Gated to completed_phase >= 3: at P1/P2, 01-requirements/TRACEABILITY_MATRIX.md
-    # is the legal_artifacts.py SSOT's peer-reviewed P1 deliverable (phase1_plan.md
-    # Sub-Task 3/4), not yet a "render-only view" — no code exists yet for
-    # build_traceability to scan, so the regen silently replaced the approved
-    # deliverable with an all-zero empty scaffold (Total Requirements: 0, every
-    # SWE.3 practice FAIL) on every single P1->P2 advance. The "stale/hand-mocked
-    # matrix" drift this regen guards against is a post-implementation concern
-    # (matches the completed_phase >= 3 threshold already used above for
-    # PhaseTruthVerifier, the first point real code exists to scan).
-    if completed_phase >= 3:
-        _regen_traceability_views(project)
+    # Round 114 站7: the matrix is rendered at EVERY advance, P1 included.
+    # It used to be gated to completed_phase >= 3 because at P1/P2 it was an
+    # agent-written, peer-reviewed deliverable and the render — whose
+    # requirements came from SAD.md alone — produced an empty scaffold there.
+    # The requirements now come from SRS.md, the P1 authoring sub-task is
+    # retired, and the matrix has one owner. SPEC_TRACKING.md stays an
+    # authored deliverable whose Status column is refreshed from P3, the
+    # first point there is code whose status could differ from "pending".
+    _regen_traceability_views(project, spec_tracking=completed_phase >= 3)
 
 
 def _precheck_deliverable_anchors(_anchor_breaks, completed_phase, project) -> "int | None":

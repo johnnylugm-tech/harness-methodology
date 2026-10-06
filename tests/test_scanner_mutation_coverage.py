@@ -69,18 +69,23 @@ def test_ghost_frs_is_list_not_none(fixture_repo):
     assert "FR-99" in report["ghost_frs"]
 
 
-def test_srs_section_assigned_from_sad(fixture_repo):
-    """Kills mutants that invert `if fr_id in sad_frs` (Mutant 130).
+def test_srs_section_names_the_srs(fixture_repo):
+    """Kills mutants that invert the SRS membership test (was Mutant 130 on
+    `if fr_id in sad_frs`).
 
-    FR-01 is in SAD → srs_section="SAD.md".
-    FR-99 is NOT in SAD → srs_section=None.
+    Round 114 站7: the column names the SRS. It used to read "SAD.md" for
+    every FR the SAD listed — a requirement's SRS section was never looked up.
+    FR-01 is in SRS.md → "SRS.md"; FR-99 (a ghost) is not → None.
     """
     sys_path = str(Path(__file__).resolve().parent.parent)
     if sys_path not in __import__("sys").path:
         __import__("sys").path.insert(0, sys_path)
     from core.traceability.scanner import check_traceability
+    srs = fixture_repo / "01-requirements" / "SRS.md"
+    srs.parent.mkdir()
+    srs.write_text("### FR-01: alpha\n", encoding="utf-8")
     rt, _report = check_traceability(fixture_repo)
-    assert rt.requirements["FR-01"].srs_section == "SAD.md"
+    assert rt.requirements["FR-01"].srs_section == "SRS.md"
     assert rt.requirements["FR-99"].srs_section is None
 
 

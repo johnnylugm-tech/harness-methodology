@@ -33,6 +33,7 @@ from core.traceability.overlay import (  # noqa: E402
 from core.utils.project_layout import ProjectLayout  # noqa: E402
 from core.traceability.scanner import (  # noqa: E402
     extract_fr_ids_from_sad,
+    extract_fr_ids_from_srs,
     extract_nfr_ids_from_srs,
     scan_python_fr_annotations,
     scan_test_fr_absent_witnesses,
@@ -59,8 +60,11 @@ def build_traceability(
     if sad_path is None:
         sad_path = ProjectLayout(project).sad_path
 
-    # 1. Extract FRs from SAD.md (source of truth)
+    # 1. Requirements: SRS.md declares them, SAD.md designs them (Round 114
+    # 站7 — the SRS was never read here, so an SRS FR the SAD dropped was
+    # invisible and the P1 render showed the template's two FRs).
     sad_frs = extract_fr_ids_from_sad(sad_path)
+    srs_frs = extract_fr_ids_from_srs(ProjectLayout(project).srs_path)
     sad_modules = scan_sad_fr_modules(sad_path)
 
     # 2. Scan code for [FR-XX] annotations
@@ -109,14 +113,14 @@ def build_traceability(
     )
 
     # 4. Merge all FR IDs
-    all_frs: Set[str] = set(sad_frs)
+    all_frs: Set[str] = set(sad_frs) | set(srs_frs)
     all_frs.update(code_fr_map.keys())
     all_frs.update(test_fr_map.keys())
     all_frs.update(sad_modules.keys())
 
     # 5. Populate model
     for fr_id in sorted(all_frs):
-        srs_section = "SAD.md" if fr_id in sad_frs else None
+        srs_section = "SRS.md" if fr_id in srs_frs else None
 
         # Determine status from coverage completeness
         has_code = fr_id in code_fr_map
@@ -131,7 +135,7 @@ def build_traceability(
             status = TraceStatus.VERIFIED
         elif has_code or has_module:
             status = TraceStatus.IN_PROGRESS
-        elif fr_id in sad_frs:
+        elif fr_id in sad_frs or fr_id in srs_frs:
             status = TraceStatus.PENDING
         else:
             status = TraceStatus.NOT_IMPLEMENTED

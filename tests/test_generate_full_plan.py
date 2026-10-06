@@ -791,15 +791,16 @@ class TestDecompositionSection:
         assert "Task Decomposition" in joined
         assert "SRS.md" in joined
         assert "SPEC_TRACKING.md" in joined
-        assert "TRACEABILITY_MATRIX.md" in joined
+        assert "TEST_INVENTORY.yaml" in joined
 
     def test_phase1_lists_sequential_order(self):
+        # Round 114 站7: TRACEABILITY_MATRIX.md is rendered by the framework, not a P1 sub-task.
         lines = _decomposition_section(1)
         joined = "\n".join(lines)
         idx_srs = joined.find("SRS.md")
         idx_spec = joined.find("SPEC_TRACKING.md")
-        idx_trace = joined.find("TRACEABILITY_MATRIX.md")
-        assert idx_srs < idx_spec < idx_trace, "Deliverables must be in dependency order"
+        idx_inv = joined.find("TEST_INVENTORY.yaml")
+        assert idx_srs < idx_spec < idx_inv, "Deliverables must be in dependency order"
 
     def test_phase2_returns_non_empty(self):
         lines = _decomposition_section(2)
@@ -978,15 +979,15 @@ class TestPhase1Generator:
         assert "Execution rule" in joined
 
     def test_has_serial_per_deliverable_ab(self, project: Path):
-        """P1 plan must have 4 serial sub-tasks with individual A/B loops."""
+        """P1 plan has 3 serial sub-tasks with individual A/B loops (Round 114 站7: TRACEABILITY_MATRIX.md is rendered by the framework, not a P1 sub-task.)"""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "Sub-Task 1/4" in joined
-        assert "Sub-Task 2/4" in joined
-        assert "Sub-Task 3/4" in joined
-        assert "Sub-Task 4/4" in joined
+        assert "Sub-Task 1/3" in joined
+        assert "Sub-Task 2/3" in joined
+        assert "Sub-Task 3/3" in joined
+        assert "Sub-Task 4/" not in joined
         assert "SRS.md" in joined
         assert "SPEC_TRACKING.md" in joined
-        assert "TRACEABILITY_MATRIX.md" in joined
+        assert "TEST_INVENTORY.yaml" in joined
 
     def test_has_ab_steps(self, project: Path):
         """GAP-K fix: P1 plan must include A/B authoring steps."""
@@ -1021,50 +1022,44 @@ class TestPhase1Generator:
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
         assert "run-gate --gate 1 --phase 1" not in joined
 
-    def test_traceability_depends_on_srs_and_spec(self, project: Path):
-        """Sub-Task 3 (TRACEABILITY) must declare dependency on SRS + SPEC_TRACKING."""
+    def test_no_sub_task_authors_the_traceability_matrix(self, project: Path):
+        """Round 114 站7: TRACEABILITY_MATRIX.md is rendered by the framework, not a P1 sub-task."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx_trace = joined.find("Sub-Task 3/4: TRACEABILITY_MATRIX.md")
-        assert idx_trace != -1, "TRACEABILITY sub-task heading not found"
-        section = joined[idx_trace:idx_trace + 600]
-        assert "SRS.md" in section, "SRS.md not referenced in TRACEABILITY section"
-        assert "SPEC_TRACKING.md" in section, "SPEC_TRACKING.md not referenced in TRACEABILITY section"
+        assert "TRACEABILITY_MATRIX.md" not in [
+            line.split(": ", 1)[-1] for line in joined.splitlines() if "Sub-Task " in line]
 
     def test_b2_review_chain_follows_depends_on(self, project: Path):
-        """Sub-Task 2 (SPEC_TRACKING) depends on SRS.md → dep_note references Sub-Task 1/4."""
+        """Sub-Task 2 (SPEC_TRACKING) depends on SRS.md → dep_note references Sub-Task 1/3."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 2/4: SPEC_TRACKING.md")
+        idx = joined.find("Sub-Task 2/3: SPEC_TRACKING.md")
         assert idx != -1, "SPEC_TRACKING sub-task heading not found"
         section = joined[idx:idx + 400]
-        assert "+ Sub-Task 1/4 review" in section, (
-            "SPEC_TRACKING dep_note must reference SRS.md review (Sub-Task 1/4), "
+        assert "+ Sub-Task 1/3 review" in section, (
+            "SPEC_TRACKING dep_note must reference SRS.md review (Sub-Task 1/3), "
             "got: " + section[section.find("Depends on"):section.find("Depends on") + 100]
         )
 
     def test_b2_review_chain_spec_tracking_follows_srs(self, project: Path):
-        """Sub-Task 2 (SPEC_TRACKING) depends on SRS.md → references Sub-Task 1/4."""
+        """Sub-Task 2 (SPEC_TRACKING) depends on SRS.md → references Sub-Task 1/3."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 2/4: SPEC_TRACKING.md")
+        idx = joined.find("Sub-Task 2/3: SPEC_TRACKING.md")
         assert idx != -1, "SPEC_TRACKING sub-task heading not found"
         section = joined[idx:idx + 2000]
-        assert "Sub-Task 1/4" in section, (
-            "SPEC_TRACKING dep_note/embed_docs must reference SRS.md (Sub-Task 1/4)"
+        assert "Sub-Task 1/3" in section, (
+            "SPEC_TRACKING dep_note/embed_docs must reference SRS.md (Sub-Task 1/3)"
         )
-        assert "SRS.md (Sub-Task 1/4" in section, (
+        assert "SRS.md (Sub-Task 1/3" in section, (
             "SPEC_TRACKING embed_docs must include SRS.md B-2 review"
         )
 
-    def test_b2_review_chain_traceability_multi_dep(self, project: Path):
-        """Sub-Task 3 (TRACEABILITY) depends on SRS.md + SPEC_TRACKING → references both."""
+    def test_b2_review_chain_test_inventory_follows_srs(self, project: Path):
+        """Sub-Task 3 (TEST_INVENTORY) depends on SRS.md → references Sub-Task 1/3."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 3/4: TRACEABILITY_MATRIX.md")
-        assert idx != -1, "TRACEABILITY sub-task heading not found"
+        idx = joined.find("Sub-Task 3/3: TEST_INVENTORY.yaml")
+        assert idx != -1, "TEST_INVENTORY sub-task heading not found"
         section = joined[idx:idx + 2500]
-        assert "Sub-Task 1/4" in section, (
-            "TRACEABILITY dep_note/embed_docs must reference SRS.md (Sub-Task 1/4)"
-        )
-        assert "Sub-Task 2/4" in section, (
-            "TRACEABILITY dep_note/embed_docs must reference SPEC_TRACKING.md (Sub-Task 2/4)"
+        assert "Sub-Task 1/3" in section, (
+            "TEST_INVENTORY dep_note/embed_docs must reference SRS.md (Sub-Task 1/3)"
         )
 
 
@@ -1432,18 +1427,18 @@ class TestSessionsSpawnLabel:
 
 class TestP1FourthDeliverable:
     def test_has_test_inventory_sub_task(self, project: Path):
-        """P1 plan must include Sub-Task 4/4 for TEST_INVENTORY.yaml."""
+        """P1 plan must include Sub-Task 3/3 for TEST_INVENTORY.yaml."""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        assert "Sub-Task 4/4" in joined
+        assert "Sub-Task 3/3" in joined
         assert "TEST_INVENTORY.yaml" in joined
 
-    def test_test_inventory_depends_on_traceability(self, project: Path):
-        """TEST_INVENTORY.yaml must declare dependency on TRACEABILITY_MATRIX.md."""
+    def test_test_inventory_depends_on_srs(self, project: Path):
+        """TEST_INVENTORY.yaml plans its tc_ids from SRS.md (Round 114 站7: TRACEABILITY_MATRIX.md is rendered by the framework, not a P1 sub-task.)"""
         joined = "\n".join(generate_phase1_tasks(project, project / "SRS.md"))
-        idx = joined.find("Sub-Task 4/4: TEST_INVENTORY.yaml")
+        idx = joined.find("Sub-Task 3/3: TEST_INVENTORY.yaml")
         assert idx != -1, "TEST_INVENTORY sub-task heading not found"
         section = joined[idx:idx + 800]
-        assert "TRACEABILITY_MATRIX.md" in section
+        assert "SRS.md" in section and "TRACEABILITY_MATRIX.md (APPROVED" not in section
 
     def test_decomposition_shows_4_deliverables(self, project: Path):
         """P1 decomposition section must list all 4 deliverables."""

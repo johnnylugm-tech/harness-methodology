@@ -71,14 +71,13 @@ Phase 1 is the project starting point. Define complete SRS.
 
 ### Task Decomposition (Dependency Analysis)
 
-**Phase 1 has 4 deliverables with sequential dependencies:**
+**Phase 1 has 3 deliverables with sequential dependencies:**
 
 | Order | Deliverable | Depends On | Agent A | Agent B |
 |-------|------------|------------|---------|---------|
 | 1 | `SRS.md` | (none — starting point) | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST |
 | 2 | `SPEC_TRACKING.md` | SRS.md | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST |
-| 3 | `TRACEABILITY_MATRIX.md` | SRS.md, SPEC_TRACKING.md | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST |
-| 4 | `TEST_INVENTORY.yaml` | TRACEABILITY_MATRIX.md | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST |
+| 3 | `TEST_INVENTORY.yaml` | SRS.md | REQUIREMENTS_ENGINEER | BUSINESS_ANALYST |
 
 **Execution rule**: Each deliverable must pass Agent B review BEFORE starting the next.
 If a deliverable is REJECTED, fix only that deliverable — earlier APPROVED deliverables
@@ -86,7 +85,7 @@ are not re-opened. This bounds backtracking to a single step.
 
 ### Requirements Authoring (Serial A/B per Deliverable)
 
-### Sub-Task 1/4: SRS.md — Software Requirements Specification — functional + non-functional requirements
+### Sub-Task 1/3: SRS.md — Software Requirements Specification — functional + non-functional requirements
 
 **Depends on**: none — starting point
 **Agent A**: REQUIREMENTS_ENGINEER
@@ -149,10 +148,10 @@ are not re-opened. This bounds backtracking to a single step.
 
 - **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:
   > gaps schema: `[{"severity": "low|medium|high", "message": "...", "fr_id": "FR-XX or null"}]`
-  - `APPROVE` + all gaps are `low` → continue to Sub-Task 2/4
+  - `APPROVE` + all gaps are `low` → continue to Sub-Task 2/3
   - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**
     (embed same docs as B-1 above, replacing `SRS.md` with its updated content)
-    → continue to Sub-Task 2/4 only after round-2 APPROVE
+    → continue to Sub-Task 2/3 only after round-2 APPROVE
   - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).
     > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.
     > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.
@@ -163,9 +162,9 @@ are not re-opened. This bounds backtracking to a single step.
 
   > fr_id uses P1 as phase-level placeholder; replace with FR-XX for FR-specific plans.
 
-### Sub-Task 2/4: SPEC_TRACKING.md — Spec Tracking Matrix — maps every FR to its current status, owner, and acceptance state
+### Sub-Task 2/3: SPEC_TRACKING.md — Spec Tracking Matrix — maps every FR to its current status, owner, and acceptance state
 
-**Depends on**: SRS.md (+ Sub-Task 1/4 review: previous review gaps carry forward)
+**Depends on**: SRS.md (+ Sub-Task 1/3 review: previous review gaps carry forward)
 **Agent A**: REQUIREMENTS_ENGINEER
 **Agent B**: BUSINESS_ANALYST
 
@@ -183,7 +182,7 @@ are not re-opened. This bounds backtracking to a single step.
   >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
   **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
-  - `Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)`
+  - `Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/3, gaps field may contain non-blocking caveats)`
   - `01-requirements/SRS.md (APPROVED — full content)`
   - `draft 01-requirements/SPEC_TRACKING.md (full content)`
 
@@ -193,7 +192,7 @@ are not re-opened. This bounds backtracking to a single step.
   DOC blocks below are a SUMMARY for orientation — for any citation file:line,
   you MUST re-read the full file via Bash cat first (playbook §8.2).
 
-  === [DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)] ===
+  === [DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/3, gaps field may contain non-blocking caveats)] ===
   <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 01-requirements/SRS.md (APPROVED — full content)] ===
@@ -220,10 +219,10 @@ are not re-opened. This bounds backtracking to a single step.
 
 - **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:
   > gaps schema: `[{"severity": "low|medium|high", "message": "...", "fr_id": "FR-XX or null"}]`
-  - `APPROVE` + all gaps are `low` → continue to Sub-Task 3/4
+  - `APPROVE` + all gaps are `low` → continue to Sub-Task 3/3
   - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**
     (embed same docs as B-1 above, replacing `SPEC_TRACKING.md` with its updated content)
-    → continue to Sub-Task 3/4 only after round-2 APPROVE
+    → continue to Sub-Task 3/3 only after round-2 APPROVE
   - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).
     > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.
     > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.
@@ -234,14 +233,14 @@ are not re-opened. This bounds backtracking to a single step.
 
   > fr_id uses P1 as phase-level placeholder; replace with FR-XX for FR-specific plans.
 
-### Sub-Task 3/4: TRACEABILITY_MATRIX.md — Requirements Traceability Matrix — bidirectional traceability from FRs through design to tests
+### Sub-Task 3/3: TEST_INVENTORY.yaml — Test Inventory — P1 naming authority, feeds TEST_SPEC.md (D4 unified source)
 
-**Depends on**: SRS.md, SPEC_TRACKING.md (+ Sub-Task 1/4, 2/4 review: previous review gaps carry forward)
+**Depends on**: SRS.md (+ Sub-Task 1/3 review: previous review gaps carry forward)
 **Agent A**: REQUIREMENTS_ENGINEER
 **Agent B**: BUSINESS_ANALYST
 
 **A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):
-- **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage. Forward-reference downstream artifacts by their CANONICAL framework filename (the P2 architecture doc is SAD.md, NOT ARCHITECTURE.md); run `check-artifact-consistency` to verify no invented filenames 404 downstream.
+- **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Generate TEST_INVENTORY.yaml from SRS.md acceptance criteria → every AC gets ≥1 tc_id with its own `ac:` field and a test function name → validate naming convention. Each tc_id is its own entry (no `TC-XX-NNa..g` range shorthand, no collapsed sub-cases). A suite-level criterion (zero skips, `make verify-system`, integration coverage) gets no test function — the harness verifies it. TRACEABILITY_MATRIX.md is rendered by the framework from SRS + this file at the P1 exit (Round 114).
   - FORBIDDEN: vague/non-testable acceptance criteria
 - **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
 - **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent:
@@ -254,88 +253,8 @@ are not re-opened. This bounds backtracking to a single step.
   >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
 
   **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
-  - `Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)`
-  - `Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (Sub-Task 2/4, gaps field may contain non-blocking caveats)`
+  - `Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/3, gaps field may contain non-blocking caveats)`
   - `01-requirements/SRS.md (APPROVED — full content)`
-  - `01-requirements/SPEC_TRACKING.md (APPROVED — full content)`
-  - `draft 01-requirements/TRACEABILITY_MATRIX.md (full content)`
-
-  **Agent B prompt structure** (use this template verbatim):
-  ```
-  You are BUSINESS_ANALYST. Your task: review the following deliverable (TRACEABILITY_MATRIX.md).
-  DOC blocks below are a SUMMARY for orientation — for any citation file:line,
-  you MUST re-read the full file via Bash cat first (playbook §8.2).
-
-  === [DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  === [DOC 2: Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (Sub-Task 2/4, gaps field may contain non-blocking caveats)] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  === [DOC 3: 01-requirements/SRS.md (APPROVED — full content)] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  === [DOC 4: 01-requirements/SPEC_TRACKING.md (APPROVED — full content)] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  === [DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content)] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  Review checklist:
-  - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
-  - Bidirectional traceability established? (FR→design→test and back)
-  - Every FR has ≥1 downstream link?
-  - No orphan requirements?
-  - Coverage complete (all FRs traceable)?
-  - Forward references use canonical filenames? (check-artifact-consistency passes)
-
-  Return JSON only:
-  {"review_status":"APPROVE"|"REJECT",
-   "reason":"<concise summary>",
-   "citations":["file:line"],
-   "docs_embedded":["Previous Sub-Task B-2 review JSON \u2014 SRS.md", "Previous Sub-Task B-2 review JSON \u2014 SPEC_TRACKING.md", "SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md"],
-   "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}
-  ```
-
-- **[B-2]** Agent B returns JSON — parse `review_status` **AND** `gaps` severity:
-  > gaps schema: `[{"severity": "low|medium|high", "message": "...", "fr_id": "FR-XX or null"}]`
-  - `APPROVE` + all gaps are `low` → continue to Sub-Task 4/4
-  - `APPROVE` + any gap is `medium` or `high` → fix gaps → **re-dispatch B as round 2**
-    (embed same docs as B-1 above, replacing `TRACEABILITY_MATRIX.md` with its updated content)
-    → continue to Sub-Task 4/4 only after round-2 APPROVE
-  - `REJECT` → Agent A fixes gaps → re-dispatch B. Max 5 rounds (HR-12).
-    > If round 5 REJECT: escalate to human — orchestrator cannot self-resolve.
-    > Human fix → re-dispatch Agent B (same prompt + updated content) → `APPROVE` required before continuing.
-
-  > ⚠️ **BLOCKING**: Do NOT start the next Sub-Task until this sub-task's current
-  > round is fully APPROVED (including any required round 2).
-  > AgentSpawner records dispatches to `.methodology/sessions_spawn.log` (non-blocking debug trail).
-
-  > fr_id uses P1 as phase-level placeholder; replace with FR-XX for FR-specific plans.
-
-### Sub-Task 4/4: TEST_INVENTORY.yaml — Test Inventory — P1 naming authority, feeds TEST_SPEC.md (D4 unified source)
-
-**Depends on**: TRACEABILITY_MATRIX.md (+ Sub-Task 3/4 review: previous review gaps carry forward)
-**Agent A**: REQUIREMENTS_ENGINEER
-**Agent B**: BUSINESS_ANALYST
-
-**A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):
-- **[A-1]** Agent A (REQUIREMENTS_ENGINEER): Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention. **1:1 rule**: matrix sub-ranges (e.g. `TC-FR01-05a..g` = 7 sub-cases) MUST enumerate as separate tc_ids in YAML — one entry per sub-case, NOT collapse into a single entry with internal loop. This prevents B-2 review from REJECT-ing on 1:1 violation.
-  - FORBIDDEN: vague/non-testable acceptance criteria
-- **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
-- **[B-1]** Agent B (BUSINESS_ANALYST) — dispatch as separate subagent:
-  > **3-layer B-review defense** (T1-B, 2026-07-14):
-  > Layer 1 — Agent B gets a `makeDocSummary()` orientation summary; B must Bash-cat
-  >   the full file for any citation file:line (playbook §8.2: Bash cat is reliable).
-  > Layer 2 — `structured_b_review.py --doc-content` (harness) deterministically
-  >   verifies each gap's claims against actual file content (Python open(), not LLM).
-  > Layer 3 — `enforce_escalation` computes the round-loop verdict AFTER Layer 2 has
-  >   corrected severities. No LLM-verifying-LLM; no hallucinated gaps escaping.
-
-  **Documents for B review** (embedded as `makeDocSummary()` — B must Bash-cat full file for any citation, per playbook §8.2):
-  - `Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (Sub-Task 3/4, gaps field may contain non-blocking caveats)`
-  - `01-requirements/SRS.md (APPROVED — full content)`
-  - `01-requirements/TRACEABILITY_MATRIX.md (APPROVED — full content)`
   - `draft TEST_INVENTORY.yaml (full content)`
 
   **Agent B prompt structure** (use this template verbatim):
@@ -344,31 +263,28 @@ are not re-opened. This bounds backtracking to a single step.
   DOC blocks below are a SUMMARY for orientation — for any citation file:line,
   you MUST re-read the full file via Bash cat first (playbook §8.2).
 
-  === [DOC 1: Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (Sub-Task 3/4, gaps field may contain non-blocking caveats)] ===
+  === [DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/3, gaps field may contain non-blocking caveats)] ===
   <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   === [DOC 2: 01-requirements/SRS.md (APPROVED — full content)] ===
   <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
-  === [DOC 3: 01-requirements/TRACEABILITY_MATRIX.md (APPROVED — full content)] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  === [DOC 4: draft TEST_INVENTORY.yaml (full content)] ===
+  === [DOC 3: draft TEST_INVENTORY.yaml (full content)] ===
   <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
   - Upstream deliverable review caveats addressed? (check previous B-2 gaps field)
   - Every FR has ≥1 test function?
   - Test function names follow naming convention?
-  - All FRs from TRACEABILITY_MATRIX covered?
-  - 1:1 expansion: matrix sub-ranges (a..g, etc.) must enumerate as separate tc_ids — no collapsing N sub-cases into 1 entry
+  - Every SRS acceptance criterion has ≥1 tc_id naming it?
+  - Each tc_id its own entry — no range shorthand, no collapsed sub-cases
   - All upstream deliverables consistent with each other? No contradictory decisions?
 
   Return JSON only:
   {"review_status":"APPROVE"|"REJECT",
    "reason":"<concise summary>",
    "citations":["file:line"],
-   "docs_embedded":["Previous Sub-Task B-2 review JSON \u2014 TRACEABILITY_MATRIX.md", "SRS.md", "TRACEABILITY_MATRIX.md", "draft TEST_INVENTORY.yaml"],
+   "docs_embedded":["Previous Sub-Task B-2 review JSON \u2014 SRS.md", "SRS.md", "draft TEST_INVENTORY.yaml"],
    "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}
   ```
 
@@ -425,7 +341,6 @@ are not re-opened. This bounds backtracking to a single step.
   **Embed ALL deliverables in full** (copy content, not paths):
   - `01-requirements/SRS.md (full content)`
   - `01-requirements/SPEC_TRACKING.md (full content)`
-  - `01-requirements/TRACEABILITY_MATRIX.md (full content)`
   - `TEST_INVENTORY.yaml (full content)`
 
   **Agent B prompt structure** (use this template verbatim):
@@ -440,10 +355,7 @@ are not re-opened. This bounds backtracking to a single step.
   === [DOC 2: 01-requirements/SPEC_TRACKING.md] ===
   <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
-  === [DOC 3: 01-requirements/TRACEABILITY_MATRIX.md] ===
-  <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
-
-  === [DOC 4: TEST_INVENTORY.yaml] ===
+  === [DOC 3: TEST_INVENTORY.yaml] ===
   <<embedded as makeDocSummary() — Bash-cat full file for any citation>>
 
   Review checklist:
@@ -457,7 +369,7 @@ are not re-opened. This bounds backtracking to a single step.
   {"review_status":"APPROVE"|"REJECT",
    "reason":"<concise summary>",
    "citations":["file:line"],
-   "docs_embedded":["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
+   "docs_embedded":["SRS.md", "SPEC_TRACKING.md", "TEST_INVENTORY.yaml"],
    "gaps":[{"severity":"low|medium|high","message":"<issue>","fr_id":"<FR-XX or null>"}]}
   ```
 
@@ -472,7 +384,7 @@ are not re-opened. This bounds backtracking to a single step.
 - **[B-APPROVAL]** ✅ Persist Agent B approval JSONs for each deliverable to `.methodology/agent_b_approvals/<id>.json`
   > Required by `harness_cli.py advance-phase` via `_verify_agent_b_approvals_core`.
   > Each file MUST contain: `{"fr": "<id>", "review_status": "APPROVE", "reason": "<≥40 chars>", "citations": ["file:line"], "docs_embedded": ["<basename of each source doc>"]}`
-  > Phase 1 deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[1]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml).
+  > Phase 1 deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[1]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TEST_INVENTORY.yaml).
   > `<id>` MUST match the full _PHASE_DELIVERABLES[N] entry EXACTLY, including file extension (e.g. `SRS.md` → file `SRS.md.json`). Harness matches `approvals_dir / f"{did}.json"` directly without stem-stripping.
   > Use Bash + Python (harness_cli.py write-approval subcommand if available, else direct Write tool) — do NOT use Edit (whole-file write only).
   > **Retry pattern (orchestrator-level, MAX_PERSIST_ATTEMPTS=3)**: `write-approval` already

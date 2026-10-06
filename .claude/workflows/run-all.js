@@ -25,10 +25,9 @@ export const meta = {
     { title: 'Phase Cursor' },
     { title: 'P1 · Preflight' },
     { title: 'P1 · Load Canonical Spec' },
-    { title: 'P1 · Sub-Task 1/4 — SRS.md' },
-    { title: 'P1 · Sub-Task 2/4 — SPEC_TRACKING.md' },
-    { title: 'P1 · Sub-Task 3/4 — TRACEABILITY_MATRIX.md' },
-    { title: 'P1 · Sub-Task 4/4 — TEST_INVENTORY.yaml' },
+    { title: 'P1 · Sub-Task 1/3 — SRS.md' },
+    { title: 'P1 · Sub-Task 2/3 — SPEC_TRACKING.md' },
+    { title: 'P1 · Sub-Task 3/3 — TEST_INVENTORY.yaml' },
     { title: 'P1 · Constitution Check' },
     { title: 'P1 · Peer Review' },
     { title: 'P1 · Load Legal Artifacts' },
@@ -845,7 +844,7 @@ async function runPeerReview(approvedDocs) {
       loadedDocs.push([d.label + ' (heading summary; USE Bash cat for full content)', makeDocSummary(docCache[d.diskPath], { includeFirstLines: true })])
     }
 
-    const bPrompt = buildBPrompt('BUSINESS_ANALYST', 'all 4 P1 deliverables (holistic)', loadedDocs, peerChecklist)
+    const bPrompt = buildBPrompt('BUSINESS_ANALYST', 'all 3 P1 deliverables (holistic)', loadedDocs, peerChecklist)
       + (b2 && b2.persist_error ? '\n\n=== PREVIOUS ROUND CITE REJECT ===\n' + b2.persist_error + '\nRe-read each cited file with `wc -l <path>` BEFORE writing range citations. The cited end line MUST be ≤ the file line count.\n' : '');
     if (typeof budget !== 'undefined' && budget.remaining && budget.remaining() < 100000) {
       log('  Peer Review budget low (' + Math.round((budget.remaining() || 0) / 1000) + 'k) -- exiting')
@@ -922,7 +921,7 @@ async function runPeerReview(approvedDocs) {
       + '5. Return compact JSON only:\n'
       + '{"status":"OK","modified_files":["<relative-path-1>","<relative-path-2>"],"confidence":"high|medium|low","summary":"<1-2 lines>"}\n'
       + '(modified_files: list only the files you actually edited, using their relative paths from the deliverable list above)\n\n'
-      + scopeRules('the 4 P1 deliverables (SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml)', null)
+      + scopeRules('the 3 P1 deliverables (SRS.md, SPEC_TRACKING.md, TEST_INVENTORY.yaml; TRACEABILITY_MATRIX.md is rendered by the framework)', null)
     let fixerRaw
     try { fixerRaw = await dispatch(fixerPrompt, {
       label: 'peer-fix-r' + round,
@@ -1019,12 +1018,12 @@ if (laMatch) {
 }
 
 
-phase('P1 · Sub-Task 1/4 — SRS.md')
+phase('P1 · Sub-Task 1/3 — SRS.md')
 log('A/B loop per phase1_plan.md B-2; max 5 rounds; escalate on max-rounds')
 
 function srsAPrompt(round, prevB2) {
   let p =
-    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 1/4 SRS.md). ROUND ' + round + '.\n'
+    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 1/3 SRS.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\n\n'
     + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/SRS.md\n\n'
     + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Software Requirements Specification` — e.g. `# Software Requirements Specification (SRS) — \`<project-name>\``. The orchestrator\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n\n'
@@ -1068,7 +1067,7 @@ function srsAPrompt(round, prevB2) {
 }
 
 async function srsBDocs(round, content, prevB2) {
-  const diffRaw = await loadFileViaPython('srs_vs_spec_diff.json', null, 'Sub-Task 1/4 — SRS.md', { maxAttempts: 1 })
+  const diffRaw = await loadFileViaPython('srs_vs_spec_diff.json', null, 'Sub-Task 1/3 — SRS.md', { maxAttempts: 1 })
   const diffDoc = (diffRaw.startsWith('ERROR') || diffRaw.startsWith('FILE_MISSING'))
     ? 'srs_vs_spec_diff.json unavailable — treat all ACs as potential over-spec per the Canonical Interpretation Rule.'
     : diffRaw
@@ -1096,7 +1095,7 @@ const srsCfg = {
   name: 'SRS.md',
   diskPath: '01-requirements/SRS.md',
   diskPrefix: '# Software Requirements Specification',
-  phaseName: 'Sub-Task 1/4 — SRS.md',
+  phaseName: 'Sub-Task 1/3 — SRS.md',
   buildAPrompt: srsAPrompt,
   buildBDocs: srsBDocs,
   bChecklist: srsBChecklist,
@@ -1108,12 +1107,12 @@ const srsContent = srsResult.content
 const srsB2 = srsResult.b2
 
 
-phase('P1 · Sub-Task 2/4 — SPEC_TRACKING.md')
+phase('P1 · Sub-Task 2/3 — SPEC_TRACKING.md')
 log('A/B loop per phase1_plan.md; embeds SRS (APPROVED) + previous SRS review + draft SPEC_TRACKING')
 
 function specTrackAPrompt(round, prevB2) {
   let p =
-    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 2/4 SPEC_TRACKING.md). ROUND ' + round + '.\n'
+    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 2/3 SPEC_TRACKING.md). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\n\n'
     + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/SPEC_TRACKING.md\n\n'
     + 'Steps:\n'
@@ -1142,7 +1141,7 @@ function specTrackAPrompt(round, prevB2) {
 
 function specTrackBDocs(round, content, prevB2) {
   return [
-    ['DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/4, gaps field may contain non-blocking caveats)', JSON.stringify(safePrevB2(srsB2), null, 2)],
+    ['DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (Sub-Task 1/3, gaps field may contain non-blocking caveats)', JSON.stringify(safePrevB2(srsB2), null, 2)],
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
     docBlock('DOC 3: draft 01-requirements/SPEC_TRACKING.md (full content — this IS the deliverable under review)', content),
   ]
@@ -1160,7 +1159,7 @@ const specTrackCfg = {
   name: 'SPEC_TRACKING.md',
   diskPath: '01-requirements/SPEC_TRACKING.md',
   diskPrefix: '# Specification Tracking Matrix',
-  phaseName: 'Sub-Task 2/4 — SPEC_TRACKING.md',
+  phaseName: 'Sub-Task 2/3 — SPEC_TRACKING.md',
   buildAPrompt: specTrackAPrompt,
   buildBDocs: specTrackBDocs,
   bChecklist: specTrackBChecklist,
@@ -1172,77 +1171,12 @@ const specTrackContent = specTrackResult.content
 const specTrackB2 = specTrackResult.b2
 
 
-phase('P1 · Sub-Task 3/4 — TRACEABILITY_MATRIX.md')
-log('A/B loop; embeds SRS + SPEC_TRACKING + previous 2 review JSONs + draft TRACEABILITY')
-
-function traceAPrompt(round, prevB2) {
-  let p =
-    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 3/4 TRACEABILITY_MATRIX.md). ROUND ' + round + '.\n'
-    + 'REPO: ' + REPO + '\n\n'
-    + 'Your SINGLE deliverable: ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md\n\n'
-    + '**REQUIRED H1**: the file\'s FIRST line MUST START WITH `# Traceability Matrix` — e.g. `# Traceability Matrix — \`<project-name>\``. The orchestrator\'s loader checks `first_line.startswith(...)`, NOT a substring search: an H1 that merely contains the phrase somewhere fails the load step.\n'
-    + LEGAL_ARTIFACTS_HINT + '\n'
-    + 'Steps:\n'
-    + '1. Self-check (Bash): `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && echo EXISTS || echo MISSING`.\n'
-    + '   - If EXISTS: Read it. Stub test: is it still the unfilled init-project template\n'
-    + '     (the literal `<!-- harness:template-stub -->` or placeholder/example scaffolding)?\n'
-    + '     If YES — treat as MISSING: continue to step 2 and author in full with Write, removing\n'
-    + '     the sentinel. If NO (real content) — resume: continue to step 4, do NOT re-author.\n'
-    + '   - If MISSING: Continue to step 2.\n'
-    + '2. Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage.\n'
-    + '3. (Re-)read file via Read for final state.\n'
-    + '4. If round > 1: review previous B-2 review JSON (DOC below). Apply HIGH-severity gap fixes via Edit (surgical).\n'
-    + '5. (Re-)read file for final state.\n'
-    + '6. Verify file exists on disk: `test -f ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md && wc -l ' + REPO + '/01-requirements/TRACEABILITY_MATRIX.md`\n'
-    + '7. Return ONLY this compact JSON:\n'
-    + '{"status":"OK","confidence":"high|medium|low","citations":["..."],"summary":"<1-2 lines>"}'
-    + scopeRules('01-requirements/TRACEABILITY_MATRIX.md', ['01-requirements/SRS.md', '01-requirements/SPEC_TRACKING.md'])
-  if (round > 1 && prevB2) {
-    p += '\n\n=== [DOC: Previous B-2 review JSON — TRACEABILITY_MATRIX.md] ===\n' + JSON.stringify(prevB2, null, 2)
-  }
-  return p
-}
-
-function traceBDocs(round, content, prevB2) {
-  return [
-    ['DOC 1: Previous Sub-Task B-2 review JSON — SRS.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(srsB2), null, 2)],
-    ['DOC 2: Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(specTrackB2), null, 2)],
-    ['DOC 3: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
-    ['DOC 4: 01-requirements/SPEC_TRACKING.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(specTrackContent)],
-    docBlock('DOC 5: draft 01-requirements/TRACEABILITY_MATRIX.md (full content — this IS the deliverable under review)', content),
-  ]
-}
-
-const traceBChecklist =
-  '- Upstream deliverable review caveats addressed? (check previous B-2 gaps field)\n'
-  + '- Bidirectional traceability established? (FR→design→test and back)\n'
-  + '- Every FR has ≥1 downstream link?\n'
-  + '- No orphan requirements?\n'
-  + '- Coverage complete (all FRs traceable)?'
-
-const traceCfg = {
-  idx: 'traceability',
-  name: 'TRACEABILITY_MATRIX.md',
-  diskPath: '01-requirements/TRACEABILITY_MATRIX.md',
-  diskPrefix: '# Traceability Matrix',
-  phaseName: 'Sub-Task 3/4 — TRACEABILITY_MATRIX.md',
-  buildAPrompt: traceAPrompt,
-  buildBDocs: traceBDocs,
-  bChecklist: traceBChecklist,
-}
-
-const traceResult = await runSubTask(traceCfg)
-if (traceResult.error) return traceResult
-const traceContent = traceResult.content
-const traceB2 = traceResult.b2
-
-
-phase('P1 · Sub-Task 4/4 — TEST_INVENTORY.yaml')
-log('A/B loop; embeds SRS + TRACEABILITY + previous review + draft TEST_INVENTORY')
+phase('P1 · Sub-Task 3/3 — TEST_INVENTORY.yaml')
+log('A/B loop; embeds SRS + SPEC_TRACKING review + previous review + draft TEST_INVENTORY')
 
 function testInvAPrompt(round, prevB2) {
   let p =
-    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 4/4 TEST_INVENTORY.yaml). ROUND ' + round + '.\n'
+    'YOU ARE REQUIREMENTS_ENGINEER (Agent A for Sub-Task 3/3 TEST_INVENTORY.yaml). ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\n\n'
     + 'Your SINGLE deliverable: ' + REPO + '/TEST_INVENTORY.yaml\n\n'
     + '**REQUIRED TOP-LEVEL KEY (must include "test_inventory:")**: YAML has no H1; the orchestrator\'s loader validates by matching the conventional header comment `# TEST_INVENTORY.yaml — <subtitle>` as the first line, plus `test_inventory:` as a top-level key elsewhere. Non-conforming schema fails the load step.\n\n'
@@ -1255,11 +1189,7 @@ function testInvAPrompt(round, prevB2) {
     + '   - If MISSING: Continue to step 2.\n'
     + '2. Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention.\n'
     + '   ⮡ A criterion about the whole suite or the verification target (zero skips across the suite, `make verify-system` passes, integration coverage >= N%) is verified by the harness itself (Round 114): do NOT give it a test function — TEST_SPEC records it as `Deferred: AC-… — <harness executor>`.\n'
-    + '   ⮡ MANDATORY 1:1 mapping with TRACEABILITY_MATRIX.md:\n'
-    + '     - Every tc_id in matrix §1 forward trace (e.g. TC-FR01-05a..g) MUST appear as an independent entry in YAML `tests:` block.\n'
-    + '     - Range syntax (TC-XX-NNa..g) is documentation shorthand — you MUST expand into separate - tc_id: TC-XX-NNa, TC-XX-NNb, …, TC-XX-NNg entries.\n'
-    + '     - PROHIBITED: collapsing sub-cases (e.g. reducing TC-FR01-05a..g to TC-FR01-05a only, even when cross-referenced by NFR). Each tc_id enumerated in matrix is a SEPARATE contract item with its own asserts.\n'
-    + '     - PROHIBITED: omitting matrix §1 entries even when "logically covered by another FR" — cross-cutting coverage is signalled via metadata (cross_ref_frs / cross_ref_nfrs), NOT by deletion.\n'
+    + '   ⮡ Every acceptance criterion in SRS.md (AC-<n>.<m> / AC-N<n>.<m>) gets ≥1 tc_id with its own `ac:` field — each tc_id is one entry in the `tests:` block (no range shorthand like TC-XX-NNa..g, no collapsing sub-cases). Cross-cutting coverage is signalled via cross_ref_frs / cross_ref_nfrs, never by omitting an entry. (TRACEABILITY_MATRIX.md is rendered by the framework from SRS + this file — do not write it.)\n'
     + '   ⮡ Coverage summary MUST equal the sum of enumerated entries:\n'
     + '     - by_fr.<FR>.tc_count MUST equal count(tc_ids in tests block belonging to <FR>).\n'
     + '     - by_layer.<L>.count MUST equal count(tc_ids in tests block with layer=<L>).\n'
@@ -1270,8 +1200,8 @@ function testInvAPrompt(round, prevB2) {
     + '6. Verify file exists on disk: `test -f ' + REPO + '/TEST_INVENTORY.yaml && wc -l ' + REPO + '/TEST_INVENTORY.yaml`\n'
     + '7. Verify internal arithmetic: enumerate tc_ids in tests block → must equal by_fr_total AND by_layer_total AND total_test_cases.\n'
     + '8. Return ONLY this compact JSON:\n'
-    + '{"status":"OK","files":["TEST_INVENTORY.yaml"],"confidence":"high|medium|low","citations":["..."],"summary":"<1-2 lines>","enumerated_count":<N>,"matrix_section2_count":<M>}'
-    + scopeRules('TEST_INVENTORY.yaml', ['01-requirements/SRS.md', '01-requirements/TRACEABILITY_MATRIX.md'])
+    + '{"status":"OK","files":["TEST_INVENTORY.yaml"],"confidence":"high|medium|low","citations":["..."],"summary":"<1-2 lines>","enumerated_count":<N>}'
+    + scopeRules('TEST_INVENTORY.yaml', ['01-requirements/SRS.md', '01-requirements/SPEC_TRACKING.md'])
   if (round > 1 && prevB2) {
     p += '\n\n=== [DOC: Previous B-2 review JSON — TEST_INVENTORY.yaml] ===\n' + JSON.stringify(prevB2, null, 2)
   }
@@ -1280,10 +1210,9 @@ function testInvAPrompt(round, prevB2) {
 
 function testInvBDocs(round, content, prevB2) {
   return [
-    ['DOC 1: Previous Sub-Task B-2 review JSON — TRACEABILITY_MATRIX.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(traceB2), null, 2)],
+    ['DOC 1: Previous Sub-Task B-2 review JSON — SPEC_TRACKING.md (gaps-only; reason stripped)', JSON.stringify(safePrevB2(specTrackB2), null, 2)],
     ['DOC 2: 01-requirements/SRS.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(srsContent, { includeFirstLines: true })],
-    ['DOC 3: 01-requirements/TRACEABILITY_MATRIX.md (APPROVED — heading summary; USE Bash to Read full content if needed)', makeDocSummary(traceContent, { includeFirstLines: true })],
-    docBlock('DOC 4: draft TEST_INVENTORY.yaml (full content — this IS the deliverable under review)', content),
+    docBlock('DOC 3: draft TEST_INVENTORY.yaml (full content — this IS the deliverable under review)', content),
   ]
 }
 
@@ -1291,13 +1220,9 @@ const testInvBChecklist =
   '- Upstream deliverable review caveats addressed? (check previous B-2 gaps field)\n'
   + '- Every FR has ≥1 test function?\n'
   + '- Test function names follow naming convention?\n'
-  + '- All FRs from TRACEABILITY_MATRIX covered?\n'
+  + '- Every SRS acceptance criterion (AC-<n>.<m> / AC-N<n>.<m>) has ≥1 tc_id whose `ac:` names it?\n'
   + '- All upstream deliverables consistent with each other? No contradictory decisions?\n'
-  + '⮡ MANDATORY 1:1 mapping check (NEW — prevents TC-collapsing drift):\n'
-  + '- Range syntax in matrix §1 (TC-XX-NNa..g) is shorthand — does YAML enumerate each sub-case as a separate tc_id entry?\n'
-  + '- For each tc_id in matrix §1 forward trace, does a matching tc_id exist in YAML tests block?\n'
-  + '- No silent collapse: TC-FR01-05a..g in matrix must appear as TC-FR01-05a, 05b, …, 05g in YAML (not reduced to 05a only).\n'
-  + '- No silent omission: every tc_id enumerated in matrix §1 must exist in YAML, even when cross-referenced by another FR (cross-cuts are signalled via cross_ref_* metadata, not deletion).\n'
+  + '- Each tc_id is its own entry (no range shorthand, no collapsed sub-cases, no entry omitted because another FR covers it)?\n'
   + '⮡ Arithmetic consistency:\n'
   + '- by_fr.<FR>.tc_count = count(tc_ids in tests block belonging to <FR>) — verify per FR.\n'
   + '- by_layer.<L>.count = count(tc_ids with layer=<L>) — verify per layer.\n'
@@ -1308,7 +1233,7 @@ const testInvCfg = {
   name: 'TEST_INVENTORY.yaml',
   diskPath: 'TEST_INVENTORY.yaml',
   diskPrefix: '# TEST_INVENTORY.yaml',
-  phaseName: 'Sub-Task 4/4 — TEST_INVENTORY.yaml',
+  phaseName: 'Sub-Task 3/3 — TEST_INVENTORY.yaml',
   buildAPrompt: testInvAPrompt,
   buildBDocs: testInvBDocs,
   bChecklist: testInvBChecklist,
@@ -1351,7 +1276,6 @@ log('Agent B holistic review of all 4 deliverables; max ' + MAX_PEER_ROUNDS + ' 
 const peerDocs = [
   { diskPath: '01-requirements/SRS.md', diskPrefix: '# Software Requirements Specification', label: '01-requirements/SRS.md (APPROVED)' },
   { diskPath: '01-requirements/SPEC_TRACKING.md', diskPrefix: '# Specification Tracking Matrix', label: '01-requirements/SPEC_TRACKING.md (APPROVED)' },
-  { diskPath: '01-requirements/TRACEABILITY_MATRIX.md', diskPrefix: '# Traceability Matrix', label: '01-requirements/TRACEABILITY_MATRIX.md (APPROVED)' },
   { diskPath: 'TEST_INVENTORY.yaml', diskPrefix: '# TEST_INVENTORY.yaml', label: 'TEST_INVENTORY.yaml (APPROVED)' },
 ]
 
@@ -1452,7 +1376,7 @@ phase('P1 · Advance')
 log('advance-phase --completed 1 + confirm HANDOVER.md reflects Phase 2 entry')
 
 const P1_CFGS = {}
-for (const c of [srsCfg, specTrackCfg, traceCfg, testInvCfg]) P1_CFGS[c.name] = c
+for (const c of [srsCfg, specTrackCfg, testInvCfg]) P1_CFGS[c.name] = c
 const rerunP1 = async (ids) => {
   for (const id of ids) {
     const c = P1_CFGS[id]
@@ -2081,7 +2005,7 @@ const testSpecCfg = {
     + '     3. **Subprocess / cross-process cases**: when a case spawns subprocesses (NFR Integration N-series), explicitly declare `subprocess_mode: in_process | out_of_process` and `shared_TASKQ_HOME: bool` in the Inputs row. Tests must propagate `PYTHONPATH` to child env if `out_of_process` (pytest `pythonpath` config does NOT inherit).\n'
     + '     4. **Sub-assertion predicate naming**: `predicate` column MUST NOT use Python stdlib top-level module names as the LHS identifier: `json`, `os`, `sys`, `time`, `subprocess`, `pathlib`, `asyncio`, `typing`, `logging`, `path`, `file`, `id`, `type`. If the prose AC literally uses such a word, rewrite the predicate using a domain-specific synonym (`json_flag`, `os_name`, `path_str`, etc.) and note the rename in the `rule_id` comment. Same check applies to class names (`dict`, `list`, `set`, `tuple`, `str`, `int`, `bool`, `bytes`).\n'
     + '     5. **Spec ambiguity protocol**: when SRS.md AC prose + Inputs column seem inconsistent (e.g. AC says "5 of which 3 done" but Inputs lists 5 identical commands), DO NOT invent impossible assertions. Declare `precondition: <how to construct the scenario>` in the Inputs row; if it rests on an open spec decision, name its `FR-XX-deferred` id and resolve it in SAB decision_issues (the P2 exit refuses an open one).\n'
-    + '     6. **NFR Layering & Parameterization**: Read 01-requirements/TRACEABILITY_MATRIX.md and TEST_INVENTORY.yaml via Bash. For NFRs where TEST_SPEC.md is the verifier (Integration-level, e.g., NP-06, NP-07), you MUST define concrete `Inputs` (e.g., fault types, loop counts) and `Sub-assertions`. For all other NFRs (Unit/Static), isolate them in a `Deferred to Downstream Phases` table with columns: #, NFR, Test Function, Layer, Inputs, Title.\n'
+    + '     6. **NFR Layering & Parameterization**: Read TEST_INVENTORY.yaml (the `layer` of every entry) via Bash. For NFRs where TEST_SPEC.md is the verifier (Integration-level, e.g., NP-06, NP-07), you MUST define concrete `Inputs` (e.g., fault types, loop counts) and `Sub-assertions`. For all other NFRs (Unit/Static), isolate them in a `Deferred to Downstream Phases` table with columns: #, NFR, Test Function, Layer, Inputs, Title.\n'
     + '        `Inputs` is MANDATORY, same `key="value"` form as the FR tables: every threshold the AC states becomes a key — `mi_floor="80"`, `p95_budget_ms="30"`, `rows="10000"`, `skipped="0"`. A prose title alone leaves the declaration with nothing machine-checkable but its name, and P3 must READ the number it asserts rather than retype it.\n'
     + '   - Step 1b Architecture-Risk Triggers: scan SAD modules — shared mutable state (store.py) → force NP-13; external process (executor.py subprocess) → force NP-15; cache (cache.py) → force NP-07. Forced cases tagged SAD: in tests/integration/.\n'
     + '   - **Direction B (Properties)**: If an FR has algebraic invariants (round-trip / idempotence / commutativity / invariant preservation), declare a `**Properties**` table for it: required columns `property_id | invariant | applies_to | test_function | review_ref` (+ optional `generator_strategy` / `shrinks_to`). `test_function` is exact. A `needs_review` property requires `review_ref`: the file holding a line `<property_id>: accepted|rejected|revised — <why>` before P3. The column name MUST be exactly `invariant`. Skip FRs without clean invariants.\n'
@@ -5425,4 +5349,4 @@ for (let n = startPhase; n <= 8; n++) {
 }
 
 log('run-all complete — Phase ' + startPhase + ' through Phase 8.')
-return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 81, notes: 'All phases from the state.json cursor through Phase 8 completed.' }
+return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 80, notes: 'All phases from the state.json cursor through Phase 8 completed.' }

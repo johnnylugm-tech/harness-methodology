@@ -208,28 +208,14 @@ _PHASE_DELIVERABLE_DEPS: Dict[int, List[Dict]] = {
                            "draft 01-requirements/SPEC_TRACKING.md (full content)"],
         },
         {
-            "label": "TRACEABILITY_MATRIX.md",
-            "desc": "Requirements Traceability Matrix — bidirectional traceability from FRs through design to tests",
-            "depends_on": ["SRS.md", "SPEC_TRACKING.md"],
-            "task_hint": "Build bidirectional traceability matrix → link FRs → design elements → test cases → validate coverage. Forward-reference downstream artifacts by their CANONICAL framework filename (the P2 architecture doc is SAD.md, NOT ARCHITECTURE.md); run `check-artifact-consistency` to verify no invented filenames 404 downstream.",
-            "checks": ["Bidirectional traceability established? (FR→design→test and back)",
-                       "Every FR has ≥1 downstream link?", "No orphan requirements?",
-                       "Coverage complete (all FRs traceable)?",
-                       "Forward references use canonical filenames? (check-artifact-consistency passes)"],
-            "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
-                           "01-requirements/SPEC_TRACKING.md (APPROVED — full content)",
-                           "draft 01-requirements/TRACEABILITY_MATRIX.md (full content)"],
-        },
-        {
             "label": "TEST_INVENTORY.yaml",
             "desc": "Test Inventory — P1 naming authority, feeds TEST_SPEC.md (D4 unified source)",
-            "depends_on": ["TRACEABILITY_MATRIX.md"],
-            "task_hint": "Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention. **1:1 rule**: matrix sub-ranges (e.g. `TC-FR01-05a..g` = 7 sub-cases) MUST enumerate as separate tc_ids in YAML — one entry per sub-case, NOT collapse into a single entry with internal loop. This prevents B-2 review from REJECT-ing on 1:1 violation.",
+            "depends_on": ["SRS.md"],
+            "task_hint": "Generate TEST_INVENTORY.yaml from SRS.md acceptance criteria → every AC gets ≥1 tc_id with its own `ac:` field and a test function name → validate naming convention. Each tc_id is its own entry (no `TC-XX-NNa..g` range shorthand, no collapsed sub-cases). A suite-level criterion (zero skips, `make verify-system`, integration coverage) gets no test function — the harness verifies it. TRACEABILITY_MATRIX.md is rendered by the framework from SRS + this file at the P1 exit (Round 114).",
             "checks": ["Every FR has ≥1 test function?", "Test function names follow naming convention?",
-                       "All FRs from TRACEABILITY_MATRIX covered?",
-                       "1:1 expansion: matrix sub-ranges (a..g, etc.) must enumerate as separate tc_ids — no collapsing N sub-cases into 1 entry"],
+                       "Every SRS acceptance criterion has ≥1 tc_id naming it?",
+                       "Each tc_id its own entry — no range shorthand, no collapsed sub-cases"],
             "embed_docs": ["01-requirements/SRS.md (APPROVED — full content)",
-                           "01-requirements/TRACEABILITY_MATRIX.md (APPROVED — full content)",
                            "draft TEST_INVENTORY.yaml (full content)"],
         },
     ],
@@ -748,8 +734,8 @@ def _review_checkpoint(phase: int) -> List[str]:
     [B-PUSH] = orchestrator runs push-checkpoint after APPROVE
     """
     _DELIVERABLES: dict = {
+        # Round 114 站7: TRACEABILITY_MATRIX.md is rendered, not reviewed.
         1: ["01-requirements/SRS.md", "01-requirements/SPEC_TRACKING.md",
-            "01-requirements/TRACEABILITY_MATRIX.md",
             "TEST_INVENTORY.yaml"],          # project root — D4 reads from here
         2: ["02-architecture/SAD.md", "02-architecture/adr/ADR.md",
             "02-architecture/TEST_SPEC.md"],
@@ -831,7 +817,7 @@ def _review_checkpoint(phase: int) -> List[str]:
         "- **[B-APPROVAL]** ✅ Persist Agent B approval JSONs for each deliverable to `.methodology/agent_b_approvals/<id>.json`",
         "  > Required by `harness_cli.py advance-phase` via `_verify_agent_b_approvals_core`.",
         "  > Each file MUST contain: `{\"fr\": \"<id>\", \"review_status\": \"APPROVE\", \"reason\": \"<≥40 chars>\", \"citations\": [\"file:line\"], \"docs_embedded\": [\"<basename of each source doc>\"]}`",
-        f"  > Phase {phase} deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[{phase}]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TRACEABILITY_MATRIX.md, TEST_INVENTORY.yaml).",
+        f"  > Phase {phase} deliverable IDs = phase deliverables (see `harness_cli.py _PHASE_DELIVERABLES[{phase}]`, e.g., for Phase 1: SRS.md, SPEC_TRACKING.md, TEST_INVENTORY.yaml).",
         "  > `<id>` MUST match the full _PHASE_DELIVERABLES[N] entry EXACTLY, including file extension (e.g. `SRS.md` → file `SRS.md.json`). Harness matches `approvals_dir / f\"{did}.json\"` directly without stem-stripping.",
         "  > Use Bash + Python (harness_cli.py write-approval subcommand if available, else direct Write tool) — do NOT use Edit (whole-file write only).",
         "  > **Retry pattern (orchestrator-level, MAX_PERSIST_ATTEMPTS=3)**: `write-approval` already",

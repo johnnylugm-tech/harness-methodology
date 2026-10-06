@@ -89,7 +89,9 @@ def test_advance_phase_wires_traceability_view_regen() -> None:
 
     src = pipeline_source("cli/phase_cmds.py", "_advance_prechecks",
                           helper_prefix="_precheck_")
-    assert "_regen_traceability_views(project)" in src, (
+    # Round 114 站7: called with `spec_tracking=` since the matrix is rendered
+    # from P1 and SPEC_TRACKING's status column from P3.
+    assert "_regen_traceability_views(project" in src, (
         "traceability view auto-regen unwired from advance-phase"
     )
 

@@ -203,7 +203,10 @@ def test_every_anchor_is_stated_to_the_agent_verbatim():
     from core.quality_gate import legal_artifacts
 
     prompt = _rendered_phase_js()
-    for name in ("SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md",
+    # Round 114 站7: TRACEABILITY_MATRIX.md left this list — no agent writes it
+    # (the framework renders it, and test_the_regenerated_traceability_view_
+    # still_satisfies_its_anchor below holds the render to the same anchor).
+    for name in ("SRS.md", "SPEC_TRACKING.md",
                  "SAD.md", "ADR.md", "TEST_SPEC.md"):
         anchor = legal_artifacts.anchor_for(name)
         assert "MUST START WITH `" + anchor + "`" in prompt, (

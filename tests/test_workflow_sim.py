@@ -162,4 +162,6 @@ def test_sim_testbed_passes():
     # 170 -> 173 (2026-10-06): Round 114 站5 — P4's Declared Tests step: no
     # writer when nothing is undelivered, one writing round then pass, and a
     # project-owned halt after two rounds that leave tests undelivered.
-    assert int(m.group(1)) >= 173, f"sim suite shrank: only {m.group(1)} passing tests (floor 173)"
+    # 173 -> 174 (2026-10-06): Round 114 站7 — P1 dispatches no traceability
+    # author/reviewer and approves exactly SRS / SPEC_TRACKING / TEST_INVENTORY.
+    assert int(m.group(1)) >= 174, f"sim suite shrank: only {m.group(1)} passing tests (floor 174)"

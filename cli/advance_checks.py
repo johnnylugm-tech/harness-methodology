@@ -303,7 +303,7 @@ def _check_gate_score_variance(project: Path, phase: int) -> int:
         print(f"[advance-phase] ⚠ Gate score variance check error ({_exc}) — skipping")
         return 0
 
-def _regen_traceability_views(project: Path) -> None:
+def _regen_traceability_views(project: Path, *, spec_tracking: bool = True) -> None:
     """Always-regenerate the human-readable traceability views from the live
     build_traceability scan, so a phase advance can never leave a stale or
     hand-mocked matrix behind. The authoritative FR status is that scan (code /
@@ -330,6 +330,8 @@ def _regen_traceability_views(project: Path) -> None:
         project, layout.traceability_matrix_path,
         lambda p: generate_markdown_matrix(rt, p),
     )
+    if not spec_tracking:
+        return
     try:
         from core.traceability.spec_tracking_render import write_spec_tracking
         _regen_and_stage_view(

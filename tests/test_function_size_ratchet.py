@@ -158,7 +158,7 @@ _CEILINGS: dict[str, int] = {
     # stages .methodology/degradations.jsonl when present, one keyword
     # argument at the existing _advance_commit_targets call, beside the
     # gate_timestamps one it mirrors.
-    "cli/advance_steps.py::_advance_step_commit_and_push": 399,  # 2026-10-06: 393 -> 399 — Round 114 站4: before the commit, close the completed phase's halts (resolve_completed_phase_blocks, +5 with its comment) and stage workflow_blocks.jsonl when it exists (+1) — the closing rows ride in the handover commit and a failed commit rolls them back with the snapshot.
+    "cli/advance_steps.py::_advance_step_commit_and_push": 400,  # 2026-10-06: 399 -> 400 — Round 114 站7: the views this advance renders (`_rendered_view_paths`) are staged by its commit, so a retry after a failed commit does not mistake its own render for uncommitted work.  # 2026-10-06: 393 -> 399 — Round 114 站4: before the commit, close the completed phase's halts (resolve_completed_phase_blocks, +5 with its comment) and stage workflow_blocks.jsonl when it exists (+1) — the closing rows ride in the handover commit and a failed commit rolls them back with the snapshot.
     # 238 at Round 81 站6, from 818: nine runs extracted. The harvest is
     # forced rather than remembered — test_no_ceiling_sits_above_the_
     # function_it_covers fails until this number is lowered in the same

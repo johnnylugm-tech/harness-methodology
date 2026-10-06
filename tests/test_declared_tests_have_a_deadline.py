@@ -129,7 +129,7 @@ def test_p1_does_not_declare_suite_level_criteria_as_tests():
     from scripts.workflowgen.spec_phase1 import generate_phase1
 
     js = generate_phase1()
-    p1 = js[js.index("Sub-Task 4/4 — TEST_INVENTORY.yaml"):]
+    p1 = js[js.index("Sub-Task 3/3 — TEST_INVENTORY.yaml"):]
     assert "make verify-system" in p1 and "do NOT give it a test function" in p1
 
 

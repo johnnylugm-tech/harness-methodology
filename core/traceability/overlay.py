@@ -298,6 +298,7 @@ def render_markdown(merged: Dict[str, Any]) -> str:
         lines.extend(["", "## Gaps", ""])
         for label, ids in [
             ("FR without SRS mapping", missing.get("fr_without_srs", [])),
+            ("FR without design (SAD)", missing.get("fr_without_design", [])),
             ("FR without Code", missing.get("fr_without_code", [])),
             ("FR without Test", missing.get("fr_without_test", [])),
         ]:

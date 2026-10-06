@@ -1805,3 +1805,15 @@ test('round114: tests still undelivered after two writing rounds halt the phase'
   assert.equal(events.agents.filter((a) => a.label.startsWith('declared-write-')).length, 2)
   assert.ok(!events.agents.some((a) => a.label === 'coverage'))
 })
+
+// ---- Round 114 站7: the P1 matrix is rendered by the framework, not authored ----
+test('round114: P1 dispatches no traceability author or reviewer and approves three deliverables', async () => {
+  const { result, events } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(happyOverrides()))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  assert.ok(!events.agents.some((a) => /traceability/i.test(a.label)),
+            'no agent may author or review TRACEABILITY_MATRIX.md — it is rendered')
+  const approvals = [...new Set(events.agents
+    .map((a) => (a.prompt.match(/write-approval --project \S+ --fr-id "([^"]+)"/) || [])[1])
+    .filter(Boolean))].sort()
+  assert.deepEqual(approvals, ['SPEC_TRACKING.md', 'SRS.md', 'TEST_INVENTORY.yaml'])
+})

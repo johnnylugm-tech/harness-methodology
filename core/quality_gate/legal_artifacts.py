@@ -134,7 +134,10 @@ LEGAL_ARTIFACTS: dict[str, set[str]] = {
 # JSON in ``.methodology/`` (not a forward-ref target, so it appears only
 # here, not in ``LEGAL_ARTIFACTS``).
 PHASE_DELIVERABLES: dict[int, list[str]] = {
-    1: ["SRS.md", "SPEC_TRACKING.md", "TRACEABILITY_MATRIX.md", "TEST_INVENTORY.yaml"],
+    # Round 114 站7: TRACEABILITY_MATRIX.md left this list — the framework
+    # renders it from P1 on, and a review of a rendered view reviews the
+    # renderer. It stays in PHASE_DELIVERABLE_PATHS: it is still delivered.
+    1: ["SRS.md", "SPEC_TRACKING.md", "TEST_INVENTORY.yaml"],
     2: ["SAD.md", "ADR.md", "TEST_SPEC.md"],
     6: ["QUALITY_REPORT.md", "RELEASE_NOTES.md", "FINAL_SIGN_OFF.md", "quality_manifest"],
 }

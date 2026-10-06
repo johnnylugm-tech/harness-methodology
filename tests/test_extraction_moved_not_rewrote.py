@@ -101,10 +101,15 @@ _EXTRACTED: "dict[str, dict]" = {
         # which is exactly why a byte-identity claim could not see it. The
         # corrected text is a deliberate edit, so the claim expires for these
         # two; the other five still run.
+        #
+        # Round 114 站7 removed `_precheck_early_stage_pass`: its view regen
+        # was gated to completed_phase >= 3 because the P1/P2 matrix was an
+        # agent-written deliverable and the render read requirements from
+        # SAD.md only. The render now reads the SRS and runs from P1, so the
+        # gate became an argument — a deliberate edit. The other four still run.
         "helpers": (
             "_precheck_cleared_dir_evidence",
             "_precheck_backup_artifacts",
-            "_precheck_early_stage_pass",
             "_precheck_scope_violations",
             "_precheck_stage_pass_staging",
         ),

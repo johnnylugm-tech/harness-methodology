@@ -716,10 +716,11 @@ class TestPhase1StubAuthoringInstruction:
     _MARKER = "Stub test: is it still the unfilled"
 
     def test_each_a_prompt_authors_over_a_stub(self):
-        """All four Phase-1 Agent A prompts carry the stub rule."""
+        """All three Phase-1 Agent A prompts carry the stub rule (Round 114
+        站7 retired the fourth: TRACEABILITY_MATRIX.md is rendered)."""
         text = generate(1)
-        assert text.count(self._MARKER) == 4, (
-            f"expected the stub-authoring rule in all 4 P1 A prompts, "
+        assert text.count(self._MARKER) == 3, (
+            f"expected the stub-authoring rule in all 3 P1 A prompts, "
             f"found {text.count(self._MARKER)}"
         )
 

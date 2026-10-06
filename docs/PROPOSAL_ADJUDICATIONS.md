@@ -11170,3 +11170,47 @@ taskq-super 123 宣告 87 交付(整張延期 NFR 表缺)、taskq-new 116/91、t
 
 反證:拿掉 phase_cmds 的呼叫、拿掉非 FR 過濾、改回 presence-only、拿掉 P4 步驟 → 各自轉紅;`cp` 還原一致。
 run-all 443885 → 446249(新步驟 + P1 規則,先壓縮一次 -114),上限 446349。sim floor 170 → 173。
+
+### 站7 — TRACEABILITY_MATRIX.md 從 P1 起由框架 render,需求來源改為 SRS(老闆裁定:方案 A)
+
+實測(taskq-open):P1 由 agent 撰寫約 470 行、經 B 審核,P3 exit 被 render 成 60 行 —— 一個檔、兩個擁有者;
+核准必然過期;agent 兩次 revert 框架的 render(`d185fc4`、`5fa5d92`);專案測試被放寬去配合 render
+(`a904f15`)。語料:過 P3 的專案全是 render 版,P1–P3 的全是撰寫版(178–361 行)。撰寫版規劃的
+AC→TC 對應,TEST_INVENTORY 已經逐列陳述(tc_id / ac / layer / test_function),matrix 只是 view(R33)。
+
+第二個發現:render 的需求集合是 SAD ∪ code ∪ tests,**從不讀 SRS**,`srs_section` 欄字面寫 "SAD.md"。
+反證:taskq-open 副本刪掉 SAD 的 FR-10,三個一致性檢查全綠;P1 時(無 SAD)render 只找到模板的 2 個 FR。
+
+修:
+- `scanner.extract_fr_ids_from_srs`(經 `spec_alignment.structural_fr_ids`,唯一的「文件宣告了哪些 FR」
+  定義;17 份語料 SRS 實測與 SAD、manifest 一致)。兩個 builder(render 用的 `build_traceability`、gate
+  4a 用的 `check_traceability`)同步:需求集合 = SRS ∪ SAD ∪ code ∪ tests;`srs_section` = "SRS.md"
+  僅當 SRS 宣告;新缺口 `fr_without_design`(SRS 有、SAD 沒有)。gate 4a 只計 IN_PROGRESS/VERIFIED,
+  SRS-only 的 PENDING FR 不入分母 —— 計分不變(語料 SRS 與 SAD 集合相同)。
+- `_regen_traceability_views` 每次 advance 都 render matrix(含 P1);SPEC_TRACKING 的 Status 欄仍從 P3
+  刷新(P1/P2 無程式碼,刷新沒有資訊)。render 在 phase audit 之前,audit 的存在/欄位/FR 涵蓋檢查讀到 render。
+- P1 workflow 退役 matrix 子任務(A 撰寫 + B 審核),子任務 4 → 3;TEST_INVENTORY 直接從 SRS 規劃 tc_id
+  (原「與 matrix 1:1 對應」規則是兩份陳述的同步規則,隨 matrix 退役)。peer review 與 P1 核准只剩 3 份;
+  `PHASE_DELIVERABLES[1]` 移除 matrix(`PHASE_DELIVERABLE_PATHS` 保留:仍是交付物)。plangen 同步。
+- P2 NFR layering 改讀 TEST_INVENTORY 的 `layer`。
+- **退役(R64 先讀理由)**:`artifact_consistency.check_module_fr_coverage` 與其 helper / 6 支測試。
+  它的事實基準是撰寫版 matrix 的 §3/§4/§5.3(R? 的 taskq P1 實例);過 P3 的語料全是 render 版,
+  它在那裡讀不到東西;SPEC_TRACKING §5 Module Ownership 表語料只有 taskq-advance 一例。模組歸屬的
+  單一來源是 SAB 的 `fr_module_map`。測試未登記為守衛。
+- 第一版計畫的「Planned tests 欄」**不做**:那是 TEST_INVENTORY 的第二份陳述(R33),也會改變專案測試讀的
+  表格欄位。
+
+語料:taskq-open P1 快照 render 出 10 個 FR(舊 2 個;FR-03..10 列為 without design,因 P1 的 SAD 是模板);
+HEAD 副本刪 FR-10 → Gaps 列出 FR-10。P1–P3 的進行中專案(sol / sn / done / wow)撰寫版 matrix 會在下次
+advance 被 render 取代 —— 與現行在 P3 exit 的行為相同,只是提早。
+
+反證:拿掉 SRS 集合、`srs_section` 改回 SAD、render 改回 ≥3 才做、matrix 放回核准清單、拿掉 design 缺口
+→ 5 / 1 / 1 / 1 / 2 紅;`cp` 還原一致。run-all 446249 → 441116,上限收割 446349 → 441216。sim floor 173 → 174。
+
+**站7 實作中暴露的副作用(已修)**:`tests/e2e/test_cli_journeys.py::test_rejected_commit_rolls_back_exit_6`
+在 P1 也 render 之後轉紅 —— commit 被 hook 拒絕、回滾後重跑,matrix 被當成「未提交的交付物」(exit 38)。
+這在 P3 之後本來就潛在:render 出的 view 不在 advance 的 commit 目標 / owned 集合裡。正解:新
+`_rendered_view_paths`(matrix 每次、SPEC_TRACKING 從 P3)同時進 `_advance_commit_targets` 與
+`_uncommitted_deliverables` 的 owned 集合 —— view 是 advance 的產物,與 STAGE_PASS 同類。反證:拿掉 owned → e2e 紅。
+函式 ratchet `_advance_step_commit_and_push` 399 → 400。既有 plan / workflowgen / anchor 測試依新的 P1 三子任務結構改寫
+(性質不變:順序、依賴、每個 A prompt 帶 stub 規則、每個 agent 撰寫的文件都被告知其錨點)。

@@ -265,6 +265,22 @@ def _find_sad(project: Path) -> Optional[Path]:
 # Scanners (pure functions; no model dependency)
 # ---------------------------------------------------------------------------
 
+def extract_fr_ids_from_srs(srs_path: Optional[Path]) -> List[str]:
+    """The FR IDs SRS.md declares (Round 114 站7).
+
+    The requirement universe used to be SAD.md ∪ code ∪ tests — never the
+    requirements document — so an SRS FR the SAD dropped was invisible, and at
+    P1 (no SAD yet) the matrix rendered the template's two FRs. Read through
+    `spec_alignment.structural_fr_ids`, the one definition of "which FRs a
+    document declares" (headings, table rows, JSON), not a third regex.
+    """
+    if not srs_path or not Path(srs_path).exists():
+        return []
+    from core.quality_gate.spec_alignment import structural_fr_ids
+
+    return sorted(structural_fr_ids(Path(srs_path).read_text(encoding="utf-8", errors="replace")))
+
+
 def extract_fr_ids_from_sad(sad_path: Path) -> List[str]:
     """Extract all unique FR-XX IDs from SAD.md, zero-padded to 2 digits."""
     if not sad_path.exists():
@@ -527,8 +543,9 @@ def scan_all(
       - fr_to_code: Dict[str, List[str]] — FR → source files containing [FR-XX]
       - fr_to_tests: Dict[str, List[str]] — FR → test files referencing FR
       - fr_to_modules: Dict[str, List[str]] — FR → modules per SAD table rows
+      - srs_frs: List[str] — FRs SRS.md declares (Round 114 站7)
       - all_frs: List[str] — union, sorted
-      - ghost_frs: List[str] — in code/tests but not in SAD.md
+      - ghost_frs: List[str] — in code/tests but declared by neither SRS.md nor SAD.md
 
     `test_outcomes` (see `scan_test_fr_coverage`) makes the test-coverage
     scan outcome-aware; `None` preserves the previous presence-only
@@ -543,6 +560,7 @@ def scan_all(
 
     language = project_language(project)
     sad_frs = extract_fr_ids_from_sad(sad_path) if sad_path else []
+    srs_frs = extract_fr_ids_from_srs(ProjectLayout(project).srs_path)
     fr_to_code = scan_fr_annotations(project, language)
     test_dir = ProjectLayout(project).active_test_dir
     fr_to_tests = scan_test_fr_coverage(
@@ -552,11 +570,13 @@ def scan_all(
 
     coded = set(fr_to_code.keys())
     tested = set(fr_to_tests.keys())
-    all_frs = sorted(set(sad_frs) | coded | tested)
-    ghost_frs = sorted((coded | tested) - set(sad_frs))
+    declared = set(sad_frs) | set(srs_frs)
+    all_frs = sorted(declared | coded | tested)
+    ghost_frs = sorted((coded | tested) - declared)
 
     return {
         "sad_frs": sad_frs,
+        "srs_frs": srs_frs,
         "fr_to_code": fr_to_code,
         "fr_to_tests": fr_to_tests,
         "fr_to_modules": fr_to_modules,
@@ -611,6 +631,7 @@ def check_traceability(
     fr_to_tests: Dict[str, List[str]] = scan["fr_to_tests"]  # type: ignore[assignment]
     fr_to_modules: Dict[str, List[str]] = scan["fr_to_modules"]  # type: ignore[assignment]
     all_frs: List[str] = scan["all_frs"]  # type: ignore[assignment]
+    srs_frs: List[str] = scan["srs_frs"]  # type: ignore[assignment]
     ghost_frs: List[str] = scan["ghost_frs"]  # type: ignore[assignment]
 
     coded: Set[str] = set(fr_to_code.keys())
@@ -642,12 +663,14 @@ def check_traceability(
             status = TraceStatus.VERIFIED
         elif has_code or has_module:
             status = TraceStatus.IN_PROGRESS
-        elif fr_id in sad_frs:
+        elif fr_id in sad_frs or fr_id in srs_frs:
             status = TraceStatus.PENDING
         else:
             status = TraceStatus.NOT_IMPLEMENTED
 
-        srs_section = "SAD.md" if fr_id in sad_frs else None
+        # Round 114 站7: the SRS column names the SRS — it used to say
+        # "SAD.md" for every FR the SAD listed. Same rule as build_traceability.
+        srs_section = "SRS.md" if fr_id in srs_frs else None
         rt.add_requirement(
             req_id=fr_id,
             title=f"Requirement {fr_id}",
@@ -655,6 +678,7 @@ def check_traceability(
             description="",
             priority="HIGH",
             metadata={
+                "sad_mapped": fr_id in sad_frs,
                 "code_files": fr_to_code.get(fr_id, []),
                 "test_files": fr_to_tests.get(fr_id, []),
             },

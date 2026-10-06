@@ -1223,7 +1223,6 @@ class PhaseHooks:
             check_ac_verifier_is_nameable,
             check_ac_test_spec_coverage,
             check_forward_refs,
-            check_module_fr_coverage,
             check_nfr_adr_coverage,
             record_ac_deferrals,
         )
@@ -1232,7 +1231,9 @@ class PhaseHooks:
         from core.quality_gate.test_seam_in_production import check_test_seams
         print("\n[PRE-FLIGHT] Artifact Consistency")
         try:
-            violations = check_forward_refs(self._layout.root) + check_module_fr_coverage(self._layout.root)
+            # Round 114 站7: check_module_fr_coverage retired with the
+            # agent-written matrix it read (see artifact_consistency).
+            violations = check_forward_refs(self._layout.root)
             # Round 55 — the executor. Both AC checks have existed since Round
             # 51; their only consumer was `delivery_fingerprint.build_fingerprint`,
             # which counts them into a JSON field nothing blocks on. taskq-advance

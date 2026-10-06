@@ -693,10 +693,9 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     check_forward_refs: a `NN-stage/FILE.md` reference must name a real framework
     deliverable (catches 02-architecture/ARCHITECTURE.md when the P2 deliverable
     is SAD.md). check_nfr_adr_coverage: every SRS NFR must appear in ADR.md's
-    traceability TABLE (catches an NFR dropped from the table). check_module_fr_coverage:
-    TRACEABILITY_MATRIX.md's own §5.3 reverse-coverage table must match its own
-    AC-row citations, and SPEC_TRACKING.md must not claim an FR/NFR ownership the
-    AC citations attribute to a different module. check_security_design: SAD.md
+    traceability TABLE (catches an NFR dropped from the table). (check_module_fr_coverage
+    was retired in Round 114 站7 with the agent-written matrix it read.)
+    check_security_design: SAD.md
     §6's STRIDE-lite threat model (Round 10) — structural rules from P3, test-
     existence rule from P5; a bare invocation with no readable current_phase
     runs the structural rules only (same "no phase context" convention as
@@ -708,7 +707,6 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
         check_ac_identifiers,
         check_ac_test_spec_coverage,
         check_forward_refs,
-        check_module_fr_coverage,
         check_nfr_adr_coverage,
     )
     from core.quality_gate.security_design import check_security_design
@@ -720,8 +718,8 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
     violations = (check_forward_refs(project)
                   # `--forward-refs-only` is a cheap pre-push fast-fail for
                   # invented filenames (Round 10's audit fix). Semantically
-                  # only `check_forward_refs` belongs there; the other four
-                  # checks (module_fr_coverage / nfr_adr_coverage /
+                  # only `check_forward_refs` belongs there; the other
+                  # checks (nfr_adr_coverage /
                   # security_design / srs_structure) are cross-artifact
                   # consistency / structural checks that have their own
                   # callers and gates, and bundling them into a fast-fail
@@ -729,11 +727,10 @@ def cmd_check_artifact_consistency(args: argparse.Namespace) -> int:
                   # P1 Forward Ref Check step (which then mis-reports e.g.
                   # an SRS-FR-BLOCK missing as "FWDREF: FAIL — invented
                   # filename ARCHITECTURE.md"). Keep the default (full)
-                  # mode unchanged so all five still run; only the
+                  # mode unchanged so all of them still run; only the
                   # `--forward-refs-only` route narrows to check_forward_refs.
                   + ([] if getattr(args, 'forward_refs_only', False)
-                     else (check_module_fr_coverage(project)
-                           + check_nfr_adr_coverage(project)
+                     else (check_nfr_adr_coverage(project)
                            # Round 62: AC checks (Round 51) wired into CLI.
                            # Gated on phase>=3 to mirror phase_hooks.py:1164-1167 —
                            # TEST_SPEC.md is produced in Phase 2 but the population

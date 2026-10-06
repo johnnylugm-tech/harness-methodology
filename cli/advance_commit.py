@@ -36,6 +36,7 @@ def _advance_commit_targets(
     setup_cfg_written: bool = False,
     degradation_ledger_exists: bool = False,
     workflow_blocks_exists: bool = False,
+    rendered_views: "tuple[str, ...]" = (),
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -90,6 +91,8 @@ def _advance_commit_targets(
         targets.append(".methodology/degradations.jsonl")
     if workflow_blocks_exists:
         targets.append(".methodology/workflow_blocks.jsonl")
+    # Round 114 站7: the views this advance renders (`_rendered_view_paths`).
+    targets.extend(rendered_views)
     if manifest_regenerated:
         targets.append(".methodology/quality_manifest.json")
     if stage_pass_exists:
@@ -113,6 +116,25 @@ def _git_head_short(project: Path) -> str:
         capture_output=True, text=True,
     )
     return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else "HEAD"
+
+
+def _rendered_view_paths(project: Path, completed_phase: int) -> "tuple[str, ...]":
+    """The views advance-phase renders into the tree, as committed paths.
+
+    Round 114 站7. The matrix is rendered at every advance (P1 included) and
+    SPEC_TRACKING.md's Status column from P3; both are this command's output,
+    exactly like STAGE_PASS. Owned here, they are staged by the advance
+    commit, and a retry after a failed commit does not mistake the render it
+    already wrote for someone's uncommitted work (tests/e2e/test_cli_journeys
+    caught that at P1, where the render now runs). Only paths that exist.
+    """
+    from core.utils.project_layout import ProjectLayout
+
+    layout = ProjectLayout(project)
+    paths = [layout.traceability_matrix_path]
+    if completed_phase >= 3:
+        paths.append(layout.spec_tracking_path)
+    return tuple(layout.get_relative_str(p) for p in paths if p.is_file())
 
 
 def _uncommitted_deliverables(
@@ -162,6 +184,7 @@ def _uncommitted_deliverables(
         plan_exists=True, attestation_exists=True, setup_cfg_written=True,
         degradation_ledger_exists=True,
         workflow_blocks_exists=True,
+        rendered_views=_rendered_view_paths(project, completed_phase),
     ))
 
     dirty: set[str] = set()

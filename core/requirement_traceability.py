@@ -278,6 +278,11 @@ class RequirementTraceability:
                 "fr_without_srs": sorted(all_ids - frs_srs),
                 "fr_without_code": sorted(all_ids - frs_code),
                 "fr_without_test": sorted(all_ids - frs_test),
+                # Round 114 站7: a requirement the SRS declares and the SAD
+                # does not design. Only builders that say so are counted.
+                "fr_without_design": sorted(
+                    rid for rid, req in self.requirements.items()
+                    if (req.metadata or {}).get("sad_mapped") is False),
             }
         }
 
