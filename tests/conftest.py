@@ -95,6 +95,36 @@ def _mock_physical_tools_for_test_suite(monkeypatch):
 
 
 
+@pytest.fixture(scope="session")
+def _stub_isolated_tools_root(tmp_path_factory):
+    """Every isolated environment, 'built', with a stand-in that answers
+    `--version` and a scan with an empty, valid semgrep JSON document."""
+    import json
+    import stat
+
+    from core.utils import isolated_tools
+    from harness.toolchains import bootstrap
+
+    root = tmp_path_factory.mktemp("harness-tools")
+    for package in bootstrap.isolated_packages():
+        exe = root / package / "bin" / package
+        exe.parent.mkdir(parents=True)
+        exe.write_text("#!/bin/sh\necho '{\"results\": [], \"errors\": []}'\n", encoding="utf-8")
+        exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+        (root / package / isolated_tools._MARKER).write_text(
+            json.dumps({"spec": bootstrap.pinned_spec(package)}), encoding="utf-8")
+    return root
+
+
+@pytest.fixture(autouse=True)
+def _isolated_tools_are_hermetic(monkeypatch, _stub_isolated_tools_root):
+    """Same stance as _mock_physical_tools_for_test_suite, one layer down: a
+    test never builds a real tool venv (network, minutes) or reads whatever
+    the host has cached. The two modules that need the real semgrep say so
+    and point HARNESS_TOOLS_DIR at isolated_tools.default_tools_root()."""
+    monkeypatch.setenv("HARNESS_TOOLS_DIR", str(_stub_isolated_tools_root))
+
+
 # ---------------------------------------------------------------------------
 # Improvement I: make_sab_from_sad fixture factory
 # ---------------------------------------------------------------------------

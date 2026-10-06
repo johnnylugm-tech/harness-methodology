@@ -315,6 +315,17 @@ def bootstrap(
             os.environ.clear()
             os.environ.update(_saved_env)
 
+    # Tools whose dependency tree contradicts the project's get a venv of
+    # their own (harness/toolchains/bootstrap.py::_ISOLATED_PACKAGE).
+    from core.utils import isolated_tools
+
+    for package in _ssot.isolated_packages():
+        try:
+            isolated_tools.ensure(package, _ssot.pinned_spec(package), run=run)
+            report.steps_run.append(f"isolated:{package}")
+        except isolated_tools.IsolatedInstallError as exc:
+            report.failures.append(f"isolated step {package!r} failed:\n{str(exc)[-600:]}")
+
     report.still_missing_imports = missing_imports(python, run=run)
     report.still_missing_tools = measure(project)
     return report
@@ -370,15 +381,15 @@ def unsatisfied_tools(project: "Path | str") -> list[str]:
     never helped.
     """
     from core.utils.venv_env import venv_scoped_env
-    from harness.tool_checks import run_tool_check
+    from harness.tool_checks import run_spec_check
     from harness.toolchains.registry import TOOL_SPECS
 
     root = Path(project)
     env = venv_scoped_env(root)
     python = venv_python(root)
     unsatisfied: list[str] = []
-    for step in _ssot.PIP_STEPS:
-        for tool_id in _ssot.tools_for_step(step.name):
+    for step_name in [s.name for s in _ssot.PIP_STEPS] + ["isolated"]:
+        for tool_id in _ssot.tools_for_step(step_name):
             spec = TOOL_SPECS[tool_id]
             try:
                 if spec.skip_inline:
@@ -404,7 +415,7 @@ def unsatisfied_tools(project: "Path | str") -> list[str]:
                     )
                     if getattr(proc, "returncode", 1) != 0:
                         unsatisfied.append(tool_id)
-                elif not run_tool_check(spec.check_cmd, cwd=str(root), env=env):
+                elif not run_spec_check(spec, cwd=str(root), env=env):
                     unsatisfied.append(tool_id)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 # Fail CLOSED and say so: a probe that raised did not measure,

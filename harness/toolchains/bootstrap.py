@@ -30,11 +30,15 @@ forced into an existing one. Writing the field out across all 34 ToolSpecs
 turned up two:
 
   requirements  pinned in requirements.txt; one `pip install -r` gets them all
-  gate-extras   a SECOND pip round is structurally required — requirements.txt's
-                own comment explains that code-review-graph pulls fastmcp, whose
-                exceptiongroup>=1.2.2 conflicts with semgrep==1.165.0's
-                exceptiongroup~=1.2.0, making a combined resolve
-                ResolutionImpossible for the whole file
+  gate-extras   a SECOND pip round — code-review-graph pulls fastmcp, whose
+                exceptiongroup>=1.2.2 conflicted with semgrep==1.165.0's
+                exceptiongroup~=1.2.0 while semgrep was in requirements.txt
+                (a combined resolve was ResolutionImpossible). semgrep is
+                isolated now; a joint resolve is not re-measured, so the round
+                stays
+  isolated      pip-installed, but into a venv of its own: the tool's dependency
+                tree contradicts the project's (semgrep vs fastapi — see
+                _ISOLATED_PACKAGE), so it cannot share the project interpreter
   external      not a Python package at all (gitleaks is Go, make is a system
                 binary). 老闆's boundary for Round 47: the framework runs pip
                 into the project venv and nothing else, so these are reported,
@@ -71,6 +75,10 @@ __all__ = [
     "requirements_packages",
     "step_for_tool",
     "package_for_tool",
+    "isolated_package_for_tool",
+    "isolated_packages",
+    "isolated_install_command",
+    "env_for_spec",
     "pinned_spec",
     "tools_for_step",
     "pip_args",
@@ -94,6 +102,8 @@ PINS: dict[str, str] = {
     "import-linter": "2.5.2",
     "scancode-toolkit": "32.4.1",
     "code-review-graph": "2.3.6",
+    # Isolated (see _ISOLATED_PACKAGE): it is NOT in requirements.txt any more.
+    "semgrep": "1.165.0",
 }
 
 # tool_id -> the PINS key that provides it.
@@ -101,6 +111,20 @@ _GATE_EXTRA_PACKAGE: dict[str, str] = {
     "import-linter": "import-linter",
     "scancode": "scancode-toolkit",
     "code-review-graph": "code-review-graph",
+}
+
+# tool_id -> the isolated environment (and PINS key) that provides it. An
+# isolated tool is pip-installed into a venv of its own under
+# core/utils/isolated_tools.tools_root(), never into the project's. Added for
+# semgrep after measuring that it cannot share an interpreter with the project:
+# fastapi 0.142.2 needs opentelemetry-api>=1.44.0, semgrep 1.165.0 AND 1.166.0
+# need ~=1.37.0, so no version of either satisfies both in any install order.
+# This narrows Round 47's "pip into the project venv and nothing else": the
+# framework may also build venvs under its own tools directory, only for a tool
+# listed here, and never touches the project's tree or venv for it.
+_ISOLATED_PACKAGE: dict[str, str] = {
+    "semgrep": "semgrep",
+    "semgrep-js": "semgrep",
 }
 
 # tool_id -> what a human runs. The framework never executes these: 老闆's
@@ -158,8 +182,8 @@ PIP_STEPS: tuple[PipStep, ...] = (
         from_requirements=False,
         why=(
             "a separate resolve: code-review-graph pulls fastmcp "
-            "(exceptiongroup>=1.2.2), semgrep pins exceptiongroup~=1.2.0, and "
-            "the combined file is ResolutionImpossible"
+            "(exceptiongroup>=1.2.2), which was ResolutionImpossible beside "
+            "semgrep's exceptiongroup~=1.2.0 while semgrep was in requirements.txt"
         ),
     ),
 )
@@ -214,6 +238,40 @@ def package_for_tool(tool_id: str) -> "str | None":
     """
     package = _GATE_EXTRA_PACKAGE.get(tool_id)
     return pinned_spec(package) if package else None
+
+
+def isolated_package_for_tool(tool_id: str) -> "str | None":
+    """The isolated environment name that provides *tool_id*, or None."""
+    return _ISOLATED_PACKAGE.get(tool_id)
+
+
+def isolated_packages() -> tuple[str, ...]:
+    """Every isolated environment the framework builds, in a stable order."""
+    return tuple(sorted(set(_ISOLATED_PACKAGE.values())))
+
+
+ISOLATED_INSTALL_COMMAND = "python harness/harness_cli.py install-isolated-tools --project ."
+
+
+def isolated_install_command() -> str:
+    """What a human or CI runs to build every isolated environment."""
+    return ISOLATED_INSTALL_COMMAND
+
+
+def env_for_spec(spec, base_env=None):
+    """*base_env* shaped for running *spec*'s tool.
+
+    A tool that is not isolated gets *base_env* back unchanged (None stays
+    None: fully inherited). An isolated tool gets the isolated bin/ first on
+    PATH and no PYTHONPATH — the one place that rule is decided, so a probe, a
+    run and the preflight cannot disagree about which semgrep they mean.
+    """
+    package = _ISOLATED_PACKAGE.get(getattr(spec, "tool_id", ""))
+    if package is None:
+        return base_env
+    from core.utils.isolated_tools import scoped_env
+
+    return scoped_env(package, base_env)
 
 
 def pinned_spec(package: str) -> str:
@@ -301,6 +359,8 @@ def install_advice(name: str) -> "str | None":
         if spec.install_step == "gate-extras":
             package = _GATE_EXTRA_PACKAGE[name]
             return f"pip install {package}=={PINS[package]}"
+        if spec.install_step == "isolated":
+            return isolated_install_command()
         if spec.install_step == "external":
             return EXTERNAL_BINARIES.get(name)
         return None  # npm — a different owner

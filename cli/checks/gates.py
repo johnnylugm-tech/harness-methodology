@@ -106,6 +106,42 @@ def cmd_install_project_deps(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_install_isolated_tools(args: argparse.Namespace) -> int:
+    """Build the venvs of tools that cannot share the project's interpreter.
+
+    Run by CI before anything that needs semgrep, and by bootstrap/env-repair
+    locally. Idempotent: an environment already built from the pinned spec is
+    left alone. Each one is then probed through the same scoped environment the
+    gate will use, so "installed" means "runs", not "pip exited 0".
+    """
+    from core.utils import isolated_tools
+    from harness.toolchains import bootstrap
+    from harness.toolchains.registry import TOOL_SPECS
+    from harness.tool_checks import run_spec_check
+
+    project = Path(args.project).resolve()
+    failed = False
+    for package in bootstrap.isolated_packages():
+        spec_str = bootstrap.pinned_spec(package)
+        try:
+            bin_path = isolated_tools.ensure(package, spec_str)
+        except isolated_tools.IsolatedInstallError as exc:
+            print(f"[install-isolated-tools] FAILED {spec_str}: {exc}")
+            failed = True
+            continue
+        probes = [TOOL_SPECS[t] for t in bootstrap.tools_for_step("isolated")
+                  if bootstrap.isolated_package_for_tool(t) == package]
+        broken = [s.tool_id for s in probes
+                  if not run_spec_check(s, cwd=str(project))]
+        if broken:
+            print(f"[install-isolated-tools] FAILED {spec_str}: installed at {bin_path} "
+                  f"but {', '.join(broken)} does not run")
+            failed = True
+            continue
+        print(f"[install-isolated-tools] {spec_str} ready at {bin_path}")
+    return 1 if failed else 0
+
+
 def cmd_verify_ci(args: argparse.Namespace) -> int:
     """Read back what the push produced, and refuse to call red green.
 
@@ -304,6 +340,15 @@ def register(sub) -> None:
     )
     ipd.add_argument("--project", default=".", help="Project root (default: .)")
     ipd.set_defaults(func=cmd_install_project_deps)
+
+    # install-isolated-tools (tools whose dependencies contradict the project's)
+    iit = sub.add_parser(
+        "install-isolated-tools",
+        help="Build the isolated venvs (semgrep) the gate runs those tools from; "
+             "never touches the project's interpreter",
+    )
+    iit.add_argument("--project", default=".", help="Project root (default: .)")
+    iit.set_defaults(func=cmd_install_isolated_tools)
 
     # verify-ci (Round 37: read back what the push produced)
     vci = sub.add_parser(

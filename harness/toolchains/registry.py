@@ -63,9 +63,9 @@ class ToolSpec:
     check_cmd: str          # shell probe; exit 0 = installed
     human_name: str         # diagnostic label for missing-tool messages
     # Round 47 站1: how the tool GETS here, stated beside how it is checked.
-    # One of "requirements" | "gate-extras" | "external" | "npm" | "builtin";
-    # harness/toolchains/bootstrap.py says what each means and why there are
-    # five. No default: a new ToolSpec must say where it comes from, or the
+    # One of "requirements" | "gate-extras" | "isolated" | "external" | "npm" |
+    # "builtin"; harness/toolchains/bootstrap.py says what each means and why
+    # there are six. No default: a new ToolSpec must say where it comes from, or the
     # repair path would silently guess (and the seven contradicting prose
     # statements this field replaced all began as a guess).
     install_step: str
@@ -415,6 +415,16 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         scorer="coverage-summary",
         output_artifact="coverage/coverage-summary.json",
     ),
+    # The reliability lint's semgrep (core/phase_hooks.py, python rules). Not a
+    # dimension tool: it is listed so env-check and run-phase repair can see
+    # and build it, the way they do every tool a gate needs.
+    "semgrep": ToolSpec(
+        tool_id="semgrep",
+        timeout=180,
+        check_cmd="semgrep --version 2>&1",
+        human_name="semgrep (preflight reliability lint, vendored rules)",
+        install_step="isolated",
+    ),
     "semgrep-js": ToolSpec(
         tool_id="semgrep-js",
         cmd=("semgrep", "scan", "--config", _SEMGREP_JS_RULES,
@@ -422,7 +432,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         timeout=120,
         check_cmd="semgrep --version 2>&1",
         human_name="semgrep (vendored JS ruleset)",
-        install_step="requirements",
+        install_step="isolated",
         scorer="semgrep",
     ),
     # Runner-agnostic benchmark convention: `node benchmarks/run.mjs` emits

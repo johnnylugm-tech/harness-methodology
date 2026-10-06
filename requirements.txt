@@ -22,9 +22,12 @@ bandit==1.8.6
 # readability (gate 3-4: readability dimension via radon-mi)
 radon==6.0.1
 
-# security for JS/TS targets (gate 2-4: security dimension via semgrep-js).
+# security for JS/TS targets (gate 2-4: security dimension via semgrep-js) and
+# the reliability lint: semgrep is NOT installed here. Its dependency tree
+# contradicts a project's (fastapi needs opentelemetry-api>=1.44, semgrep pins
+# ~=1.37), so it lives in its own venv — see harness/toolchains/bootstrap.py
+# `_ISOLATED_PACKAGE` and `harness_cli.py install-isolated-tools`.
 # Rules are vendored in harness/toolchains/semgrep_rules/ — never remote packs.
-semgrep==1.165.0
 
 # JS/TS in-process scanners (assertions / error-handling / JSDoc / MI) —
 # harness/lang_scanners/treesitter_js.py. Grammars pinned: a grammar bump can
@@ -47,17 +50,19 @@ mutmut==2.5.1
 # OTel OTLP exporter — needed when OTEL_EXPORTER_OTLP_ENDPOINT is set.
 # Without this, harness falls back to local JSONL (zero-dependency default).
 # Install to connect spans to Datadog / Grafana / Elastic via an OTel Collector.
-# Pin is ~=1.37 not ==1.41: semgrep==1.165.0 (JS/TS security dimension)
-# hard-constrains opentelemetry-exporter-otlp-proto-http to ~=1.37. A wider
-# pin here would break `pip install -r requirements.txt` for the JS/TS path.
+# Pin is ~=1.37 not ==1.41 because semgrep==1.165.0 hard-constrained this
+# exporter to ~=1.37 while semgrep was installed from this file. semgrep now
+# runs from its own venv (see the security note above), so that reason is gone;
+# whether the pin can be widened has not been measured, so it is unchanged.
 opentelemetry-exporter-otlp-proto-http~=1.37.0
 
 # architecture (gate 3-4: architecture dimension via code-review-graph)
 # code-review-graph==2.3.6 is deliberately NOT pinned in this joint requirements
-# file: it pulls in fastmcp, whose exceptiongroup>=1.2.2 requirement conflicts
-# with semgrep==1.165.0's exceptiongroup~=1.2.0 pin above, making `pip install
-# -r requirements.txt` fail with ResolutionImpossible for the whole file
-# (verified 2026-08-05). Install it as its own separate `pip install
+# file: it pulls in fastmcp, whose exceptiongroup>=1.2.2 requirement conflicted
+# with semgrep==1.165.0's exceptiongroup~=1.2.0 pin when semgrep was installed
+# from this file, making `pip install -r requirements.txt` fail with
+# ResolutionImpossible (verified 2026-08-05). semgrep is isolated now; a joint
+# resolve has not been re-measured, so it stays a separate `pip install
 # code-review-graph==2.3.6 igraph==1.0.0` call instead — CI's "Install gate
 # hard dependencies" / "Install code-review-graph" steps and
 # render_gate_loop()'s crg_verify_cmd (js_blocks.py) both already do this;

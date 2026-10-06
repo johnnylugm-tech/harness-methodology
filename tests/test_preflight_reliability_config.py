@@ -42,7 +42,33 @@ def convert(src):
 """
 
 
-@pytest.mark.skipif(shutil.which("semgrep") is None, reason="semgrep not installed")
+@pytest.fixture(scope="module", autouse=True)
+def _isolated_semgrep():
+    """semgrep runs from its own venv (core/utils/isolated_tools.py), not from
+    PATH, so these tests need that venv. Built once and cached; when it cannot
+    be built (offline) the module is skipped, as it was when semgrep was
+    simply not installed."""
+    from core.utils import isolated_tools
+    from harness.toolchains import bootstrap
+
+    root = isolated_tools.default_tools_root()
+    mp = pytest.MonkeyPatch()
+    mp.setenv("HARNESS_TOOLS_DIR", str(root))
+    try:
+        isolated_tools.ensure("semgrep", bootstrap.pinned_spec("semgrep"))
+    except isolated_tools.IsolatedInstallError as exc:
+        mp.undo()
+        pytest.skip(f"isolated semgrep could not be built: {exc}")
+    mp.undo()
+    return root
+
+
+@pytest.fixture(autouse=True)
+def _real_semgrep_for_this_module(monkeypatch, _isolated_semgrep):
+    """These tests assert real findings from the vendored ruleset."""
+    monkeypatch.setenv("HARNESS_TOOLS_DIR", str(_isolated_semgrep))
+
+
 class TestReliabilityLint:
     def test_findings_block_at_p4(self, tmp_path):
         project = _project(tmp_path)

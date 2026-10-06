@@ -225,6 +225,7 @@ Before advancing to Phase N+1, confirm ALL:
 | Finalize a gate | `python harness_cli.py finalize-gate --gate N --phase P` |
 | **Push P3+ milestone (required before git push)** | `python harness_cli.py push-milestone --type p3-mid\|p3-pre-gate2\|p4-mid\|p4-pre-gate3\|p5-baseline\|p7\|p8` |
 | Install the project's declared deps (CI; never scaffolds a manifest) | `python harness_cli.py install-project-deps --project .` — advance-phase exits 51 when the phase's push-milestone has not landed on a green build (`state.json.last_milestone_head`) |
+| Build tools whose deps contradict the project's in their own venv (semgrep; CI + local) | `python harness_cli.py install-isolated-tools --project .` |
 | Phase End Audit (P3+) | `python3 harness_cli.py audit-phase --phase N --project .` |
 | Dispatch Agent A/B (P1/P2) | `python harness_cli.py dispatch --role developer\|reviewer --fr-id <ID> --phase 1\|2 --project . --prompt "..."` |
 | Dispatch with long prompt (P1/P2) | `python harness_cli.py dispatch --role reviewer --fr-id SRS.md --phase 1 --prompt-file /tmp/prompt.txt` |

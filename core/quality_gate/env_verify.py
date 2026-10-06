@@ -65,6 +65,19 @@ def _is_framework_subcommand(name: str) -> bool:
     return name.lower().endswith(".py")
 
 
+def _registry_spec(name: str):
+    """The registry ToolSpec for *name* (either separator spelling), or None."""
+    try:
+        from harness.toolchains.registry import TOOL_SPECS
+    except ImportError:
+        return None
+    for candidate in (name, name.replace("_", "-")):
+        spec = TOOL_SPECS.get(candidate)
+        if spec and spec.check_cmd and not getattr(spec, "skip_inline", False):
+            return spec
+    return None
+
+
 def _registry_check_cmd(name: str) -> "str | None":
     """The shell probe the toolchain registry declares for `name`, if any.
 
@@ -102,15 +115,8 @@ def _registry_check_cmd(name: str) -> "str | None":
     canonicalises on the dash. Wrapped in try/except so an environment
     without the toolchains package falls through to the import probe.
     """
-    try:
-        from harness.toolchains.registry import TOOL_SPECS
-    except ImportError:
-        return None
-    for candidate in (name, name.replace("_", "-")):
-        spec = TOOL_SPECS.get(candidate)
-        if spec and spec.check_cmd and not getattr(spec, "skip_inline", False):
-            return spec.check_cmd
-    return None
+    spec = _registry_spec(name)
+    return spec.check_cmd if spec else None
 
 
 def _bin_dir() -> str:
@@ -166,6 +172,13 @@ def _found_on_path_or_venv(name: str, project: Path) -> bool:
         for vd in venv_dirs:
             if vd and os.path.exists(os.path.join(vd, bindir, cn)):
                 return True
+    # Last, because it touches the filesystem: an isolated tool (semgrep) is
+    # deliberately on neither PATH nor in the project venv, and an env contract
+    # that names it is still telling the truth.
+    from core.utils import isolated_tools
+
+    if any(isolated_tools.find_executable(cn) for cn in cands):
+        return True
     return False
 
 
@@ -359,8 +372,12 @@ def probe_cli_tools(raw_names: "list[str]", project: Path) -> "dict[str, bool]":
         def _probe_check_cmd(item: "tuple[str, str]") -> "tuple[str, bool]":
             _raw_name, _cmd = item
             from core.utils.venv_env import venv_scoped_env
-            from harness.tool_checks import run_tool_check
+            from harness.tool_checks import run_spec_check, run_tool_check
+            _spec = _registry_spec(_raw_name)
             try:
+                if _spec is not None:
+                    return _raw_name, run_spec_check(
+                        _spec, cwd=str(project), env=venv_scoped_env(project))
                 return _raw_name, run_tool_check(
                     _cmd, cwd=str(project), env=venv_scoped_env(project))
             except Exception as exc:  # pylint: disable=broad-exception-caught

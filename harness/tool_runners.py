@@ -74,6 +74,29 @@ def _resolve_src_targets(root: str, cov_target: str) -> list:
     return [root]
 
 
+def _isolated_launch(tool: str, spec, argv0: str, env: dict):
+    """(env, None) to launch *tool* with, or (env, (message, -3)) when it cannot.
+
+    An isolated tool (semgrep) runs from a venv of its own — its bin/ first on
+    PATH, no PYTHONPATH — so neither the project's interpreter nor its import
+    path can reach it. Not installed is "tool not found", never a PATH
+    fallback: that fallback is the shared-environment copy the isolation
+    exists to avoid.
+    """
+    from harness.toolchains import bootstrap
+
+    package = bootstrap.isolated_package_for_tool(tool)
+    if package is None:
+        return env, None
+    from core.utils import isolated_tools
+
+    if isolated_tools.executable(package, argv0) is None:
+        return env, (
+            f"Tool not found: {tool} (its isolated environment {package!r} is not "
+            f"installed — run: {bootstrap.isolated_install_command()})", -3)
+    return bootstrap.env_for_spec(spec, env), None
+
+
 def run_tool(
     tool: str,
     project_root: str,
@@ -210,6 +233,10 @@ def run_tool(
             str(src_dir) if not existing
             else str(src_dir) + os.pathsep + existing
         )
+
+    env, not_installed = _isolated_launch(tool, spec, cmd[0], env)
+    if not_installed is not None:
+        return not_installed
 
     # Clear a stale report file before the run: if the tool crashes before
     # rewriting it, the scorer must not read a previous run's artifact as if it

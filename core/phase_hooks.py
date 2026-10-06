@@ -1335,7 +1335,6 @@ class PhaseHooks:
         on any finding. Python ruleset only for now — js/ts projects skip with
         a note (js_reliability.yaml is tracked in ADDING_LANGUAGE_SUPPORT_SOP).
         """
-        import shutil
         import subprocess as _sp
 
         print("\n[PRE-FLIGHT] Reliability Lint (semgrep, vendored rules)")
@@ -1353,24 +1352,37 @@ class PhaseHooks:
             return {"passed": True, "skipped": True, "reason": "no src dirs"}
 
         blocking = self.phase is None or self.phase >= 4
-        if not shutil.which("semgrep"):
-            # Pinned in requirements.txt — absence is an environment defect,
-            # not a reason to silently skip a blocking check.
-            print("   semgrep not found (pinned in requirements.txt)")
+        from core.utils import isolated_tools
+
+        semgrep = isolated_tools.executable("semgrep")
+        if semgrep is None:
+            # An absence is an environment defect, not a reason to skip a
+            # blocking check — and a semgrep found on PATH is not an answer:
+            # it is whichever copy the project's own dependencies left behind.
+            print("   semgrep's isolated environment is not installed")
             return {"passed": not blocking, "skipped": False, "blocking": blocking,
-                    "error": "semgrep not installed — pip install -r requirements.txt"}
+                    "error": "semgrep not installed in its isolated environment — "
+                             "run: python harness/harness_cli.py install-isolated-tools"}
 
         rules = (Path(__file__).parent.parent / "harness" / "toolchains"
                  / "semgrep_rules" / "py_reliability.yaml")
         try:
             proc = _sp.run(
-                ["semgrep", "scan", "--config", str(rules), "--json",
+                [str(semgrep), "scan", "--config", str(rules), "--json",
                  "--metrics=off", "--quiet", *targets],
                 capture_output=True, text=True, timeout=180,
+                env=isolated_tools.scoped_env("semgrep"),
             )
-            data = json.loads(proc.stdout)
+            try:
+                data = json.loads(proc.stdout)
+            except json.JSONDecodeError as exc:
+                # semgrep's own stderr is the diagnosis; "Expecting value" is not.
+                tail = (proc.stderr or "").strip().splitlines()[-1:] or ["no output"]
+                raise _sp.SubprocessError(
+                    f"semgrep exited {proc.returncode} without JSON: {tail[0][:200]}"
+                ) from exc
             findings = data.get("results", [])
-        except (_sp.TimeoutExpired, _sp.SubprocessError, json.JSONDecodeError, OSError) as e:
+        except (_sp.TimeoutExpired, _sp.SubprocessError, OSError) as e:
             print(f"   semgrep run failed: {e}")
             return {"passed": not blocking, "skipped": False, "blocking": blocking,
                     "error": f"semgrep run failed: {e}"}

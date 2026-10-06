@@ -19,11 +19,13 @@ import sys
 __all__ = [
     "DIM_FALLBACK_CHECKS",
     "run_tool_check",
+    "run_spec_check",
     "check_tool_for_dim",
     "verify_gate_tools",
     "verify_all_gate_tools",
     "missing_gate_tool_ids",
     "all_missing_gate_tool_ids",
+    "missing_preflight_tool_ids",
 ]
 
 DIM_FALLBACK_CHECKS: dict[str, tuple[str, str]] = {
@@ -62,6 +64,26 @@ def run_tool_check(
     return result.returncode == 0
 
 
+def run_spec_check(spec, cwd: str | None = None, env: dict[str, str] | None = None) -> bool:
+    """*spec*'s check_cmd, run in the environment that tool really runs in.
+
+    An isolated tool whose environment is not built is absent, whatever PATH
+    holds: `semgrep --version` answered by another semgrep on PATH (the
+    project venv's, a pipx copy) is exactly the copy the gate will not use.
+    Every probe of a registry tool goes through here so env-check, repair and
+    the run cannot disagree.
+    """
+    from harness.toolchains.bootstrap import env_for_spec, isolated_package_for_tool
+
+    package = isolated_package_for_tool(spec.tool_id)
+    if package is not None:
+        from core.utils.isolated_tools import executable
+
+        if executable(package) is None:
+            return False
+    return run_tool_check(spec.check_cmd, cwd=cwd, env=env_for_spec(spec, env))
+
+
 def check_tool_for_dim(
     dim_name: str, tool_name: str | None, language: str = "python",
     project_root: str | None = None,
@@ -97,7 +119,7 @@ def check_tool_for_dim(
     spec = get_tool_spec(resolved) if resolved else None
     if spec is not None:
         try:
-            ok = run_tool_check(spec.check_cmd, cwd=project_root, env=check_env)
+            ok = run_spec_check(spec, cwd=project_root, env=check_env)
             return ok, (
                 "" if ok else f"{dim_name}: {spec.human_name} ({resolved}) not found"
             )
@@ -228,13 +250,44 @@ def missing_gate_tool_ids(
     )
 
 
+def missing_preflight_tool_ids(project: str) -> list[str]:
+    """Tools a blocking preflight check needs that no gate dimension names.
+
+    The reliability lint runs semgrep on python projects from P4 on and blocks;
+    semgrep is no python dimension's tool, so the gate walk never asked for it
+    and run-phase / env-check repair never built it. Listed here, it is
+    verified and repaired exactly like a gate tool.
+    """
+    from pathlib import Path as _Path
+
+    from core.utils.lang_patterns import project_language
+    from core.utils.venv_env import venv_scoped_env
+    from harness.toolchains import get_tool_spec
+    if project_language(_Path(project)) != "python":
+        return []
+    spec = get_tool_spec("semgrep")
+    if spec is None:
+        return []
+    try:
+        ok = run_spec_check(spec, cwd=project, env=venv_scoped_env(_Path(project)))
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        # Fail CLOSED and say so: a probe that raised did not measure.
+        print(f"[WARN] tool-check: probe for the reliability lint's semgrep raised "
+              f"({exc}) — counting it as missing", file=sys.stderr)
+        ok = False
+    return [] if ok else ["semgrep"]
+
+
 def all_missing_gate_tool_ids(project: str) -> list[str]:
-    """Every tool_id any gate needs and cannot resolve, in first-seen order."""
+    """Every tool_id any gate or blocking preflight needs and cannot resolve."""
     seen: list[str] = []
     for gate_num in (1, 2, 3, 4):
         for tool_id in missing_gate_tool_ids(gate_num, project):
             if tool_id not in seen:
                 seen.append(tool_id)
+    for tool_id in missing_preflight_tool_ids(project):
+        if tool_id not in seen:
+            seen.append(tool_id)
     return seen
 
 
@@ -254,6 +307,12 @@ def verify_all_gate_tools(project: str) -> tuple[bool, list[str]]:
             if m not in seen:
                 seen.add(m)
                 all_missing.append(m)
+
+    for tool_id in missing_preflight_tool_ids(project):
+        diag = f"reliability lint: {tool_id} not installed in its isolated environment"
+        if diag not in seen:
+            seen.add(diag)
+            all_missing.append(diag)
 
     # Soft check: mutmut 2.5.x hardcodes `python` (not `python3`). If mutmut is
     # required but only python3 exists, warn (don't block — the user can symlink).

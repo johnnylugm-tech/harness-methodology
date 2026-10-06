@@ -6249,3 +6249,31 @@
 - test: tests/test_bug_hunt_runs_as_the_workflow.py::test_the_hunt_is_dispatched_by_the_workflow
   bug: "P4's Bug Hunt was one agent told to spawn hunters/verifiers with an Agent tool a workflow agent does not have; on taskq-open it ran 0 sub-agents and judged its own findings. Control flow is guarded in scripts/workflowgen/js_src/sim_runner.test.mjs (P4 bug hunt section) via tests/test_workflow_sim.py"
   fixed_in: "the bug hunt runs as the workflow"
+
+- test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
+  bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"
+
+- test: tests/test_isolated_tools.py::test_a_semgrep_that_prints_no_json_is_reported_with_its_own_words
+  bug: "reliability_lint dropped semgrep's stderr and reported a JSON decode error, hiding the ImportError"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"
+
+- test: tests/test_isolated_tools.py::test_a_semgrep_on_path_does_not_make_the_isolated_tool_present
+  bug: "env-check probed 'semgrep --version' via PATH and reported present while the lint said not installed"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"
+
+- test: tests/test_isolated_tools.py::test_a_python_project_without_the_lint_semgrep_is_told_and_repaired
+  bug: "the blocking reliability lint needs semgrep but no python dimension names it, so env-check/repair never built it"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"
+
+- test: tests/test_isolated_tools.py::test_two_builders_at_once_do_not_delete_each_other
+  bug: "concurrent ensure() calls (run-phase + env-check) deleted each other's venv, leaving nothing installed"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"
+
+- test: tests/test_isolated_tools.py::test_a_venv_step_that_builds_no_interpreter_is_a_failure
+  bug: "a venv step exiting 0 without an interpreter crashed env-check with FileNotFoundError instead of failing closed"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"
+
+- test: tests/test_isolated_tools.py::test_a_failed_build_leaves_nothing_that_looks_installed
+  bug: "a half-built isolated venv must never be treated as installed"
+  fixed_in: "semgrep runs from its own venv (isolated install provenance)"

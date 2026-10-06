@@ -126,7 +126,7 @@ def _installer_python(project: Path) -> str:
 def _default_reprobe(tool_ids: "list[str]", project: Path) -> list[str]:
     """Re-ask each tool's own check_cmd, venv-scoped like the gate will."""
     from core.utils.venv_env import venv_scoped_env
-    from harness.tool_checks import run_tool_check
+    from harness.tool_checks import run_spec_check
     from harness.toolchains.registry import TOOL_SPECS
 
     env = venv_scoped_env(project)
@@ -137,7 +137,7 @@ def _default_reprobe(tool_ids: "list[str]", project: Path) -> list[str]:
             still.append(tool_id)
             continue
         try:
-            if not run_tool_check(spec.check_cmd, cwd=str(project), env=env):
+            if not run_spec_check(spec, cwd=str(project), env=env):
                 still.append(tool_id)
         except Exception as exc:  # pylint: disable=broad-exception-caught
             # Fail CLOSED and say so — a probe that raised did not measure.
@@ -192,8 +192,22 @@ def repair_missing_tools(
     if not tool_ids:
         return outcome
 
-    targets, outcome.unfixable = _pip_targets(tool_ids)
+    isolated = [t for t in tool_ids if _ssot.isolated_package_for_tool(t)]
+    targets, outcome.unfixable = _pip_targets([t for t in tool_ids if t not in isolated])
     fixable = [t for t in tool_ids if t not in outcome.unfixable]
+
+    # An isolated tool is built in its own venv, never in the project's.
+    from core.utils import isolated_tools
+
+    isolated_names = dict.fromkeys(
+        pkg for pkg in map(_ssot.isolated_package_for_tool, isolated) if pkg
+    )
+    for package in isolated_names:
+        try:
+            isolated_tools.ensure(package, _ssot.pinned_spec(package), run=run)
+            outcome.attempted_steps.append(f"isolated:{package}")
+        except isolated_tools.IsolatedInstallError as exc:
+            outcome.pip_failures.append(f"isolated:{package}: {str(exc)[-400:]}")
 
     if targets:
         python = _installer_python(root)

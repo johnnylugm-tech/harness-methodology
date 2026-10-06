@@ -487,6 +487,9 @@ class TestCmdRunEnvCheck:
         import shutil
         import time as _time
         monkeypatch.setattr(shutil, "which", lambda _: "/fake/claude")
+        # Every subprocess below times out; the preflight-tool probe is one, and
+        # what it would say about this host is not what these tests measure.
+        monkeypatch.setattr("harness.tool_checks.missing_preflight_tool_ids", lambda _p: [])
         work = tmp_path / ".sessi-work"
         def _fake_run(*_a, **_k):
             if write_result is not None:

@@ -157,6 +157,8 @@ scans the source and fails on unregistered additions.
 |---|---|---|
 | `HARNESS_NO_GIT` | harness | Skip git commit/push side effects for this invocation (advance-phase, FR steps, git strategy). |
 | `HARNESS_CROSS_ARTIFACT_COV` | harness | `"1"` forces live `pytest --cov` in the cross-artifact check for this invocation; any other set value forces it off; unset defers to `features.cross_artifact_live_cov`. |
+| `HARNESS_TOOLS_DIR` | harness | Where isolated tool environments (semgrep) are built, one venv per tool; default `$XDG_CACHE_HOME/harness-tools`. Set it to keep CI's tool venvs in a cached directory or to point a test at a scratch one. |
+| `XDG_CACHE_HOME` | system | Read only to place the default `HARNESS_TOOLS_DIR` (`~/.cache` when unset). |
 | `CRG_METRICS_PATH` | harness | Override the CRG metrics JSON path read by the SSI scorer. |
 | `CRG_RISK_DEEP` | harness | CRG recon: risk score at or above which deep analysis is mandatory. |
 | `CRG_RISK_FAST` | harness | CRG recon: risk score below which a fast scan is allowed. |
