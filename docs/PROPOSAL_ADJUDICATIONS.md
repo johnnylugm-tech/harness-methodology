@@ -11092,3 +11092,28 @@ JS/TS 專案的 advance 改用其 gate 工具(原為 `ruff .` 與無 .py 時的 
 
 反證:把 type_safety 的工具改回 mypy → 2 紅;判別式寫回 `(mypy)`、shim 寫回多重 import → 2 紅;
 `cp` 還原 sha256 一致。
+
+### 站3 — resolution_ref 以紀錄內容定址(修 R113 站9 自己的設計)
+
+R113 站9 要求 `resolution_ref` 是 `path:line`,並檢查該行點名 id 且寫 resolved。**內容檢查是對的,
+行號只增加了脆弱性**:taskq-open 在 `amend-sab --declare` 於上方插入一行後被 validate-handoff 擋下,
+`55415df` 手動重 pin 4 個 ref;`78f79c15` 為 `amend_sad` 加 line-diff rebase —— 只修一個寫入者,
+其他任何在上方的編輯仍會打斷。實測:taskq-open 副本刪掉紀錄上方 8 行,舊規則擋 4 條,紀錄原封不動。
+
+正解:紀錄的身分就是模板與 P2 prompt 早已規定的形狀 `<id>: resolved — <decision>`。新
+`core/quality_gate/content_ref.py`:ref 寫 `path`(或 `path:N`,N 不參與判定);在該檔找一行
+`<id>`(獨立 token,`NFR-99.10` 不能回答 `NFR-99.1`)後接 `:` 與完成詞。只要求詞出現在冒號後,
+使「X will be resolved later」這類句子不算紀錄 —— 改為整檔搜尋後,這是避免判準被一句閒談滿足的條件。
+專案外(絕對路徑、`..`)不解析。同形兄弟 `property_check._review_disposition_resolves`(91fd4ba9)收斂到
+同一 helper,形狀 `<property_id>: accepted|rejected|revised — <why>`(語料 0 例;模板與 P2 prompt 同步)。
+
+第一版計畫的「同檔另有 unresolved 行判矛盾」**不做**:那會把歷史敘述行(「round 1 時仍 unresolved」)
+判成矛盾;taskq-sol 的原案例(ADR 寫「remain unresolved」)在新規則下因為沒有 `<id>: resolved` 行
+而照樣不過。
+
+移除 `sad_sab_edit.rebase_sad_refs`、`_LINE_REF`、`difflib` 與其在 `amend_sad` 的呼叫(語料盤點:SAB
+block 內唯一的 `SAD.md:N` 引用就是 resolution_ref)。78f79c15 的 4 支行號算術測試(未登記守衛)改寫為
+行為測試:amend 後 ref 原樣不動且 `decision_issue_findings` 為空。
+
+反證:taskq-open 副本刪 8 行 → 新規則 OK;改一行為 `unresolved` → BLOCKED。三個 .py 各自換回舊版 →
+3 / 1 / 1 紅;`cp` 還原 sha256 一致。run-all 443903 → 443885,上限收割 444003 → 443985。

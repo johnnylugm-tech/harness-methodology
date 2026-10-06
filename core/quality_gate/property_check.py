@@ -280,23 +280,16 @@ def property_mapping_findings(project: str | Path) -> list[str]:
 
 
 def _review_disposition_resolves(project: Path, ref: str, property_id: str) -> bool:
-    """Resolve ``path:line`` and prove the line closes this exact property."""
-    match = re.fullmatch(r"(.+):(\d+)", ref.strip())
-    if not match:
-        return False
-    rel, number = match.group(1), int(match.group(2))
-    if Path(rel).is_absolute() or number < 1:
-        return False
-    path = project / rel
-    if not path.is_file():
-        return False
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if number > len(lines):
-        return False
-    evidence = lines[number - 1].lower()
-    return property_id.lower() in evidence and any(
-        disposition in evidence for disposition in ("accepted", "rejected", "revised")
-    )
+    """*ref*'s file records this property's disposition.
+
+    Round 114 站3: by content — a line reading
+    `<property_id>: accepted|rejected|revised` — in the file *ref* names
+    (`path`, or `path:N` with N ignored); the same rule, and the same helper,
+    as a decision issue's resolution_ref.
+    """
+    from core.quality_gate.content_ref import record_line
+
+    return record_line(project, ref, property_id, ("accepted", "rejected", "revised")) is not None
 
 
 def _is_structural_tautology(predicate: str) -> bool:

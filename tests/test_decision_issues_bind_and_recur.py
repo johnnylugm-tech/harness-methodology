@@ -63,10 +63,12 @@ def _resolved(ref: str) -> list:
 # ── 1. a resolution names the issue and says it is resolved ─────────────
 
 def test_a_file_that_exists_is_not_a_resolution(tmp_path):
+    # Round 114 站3: the record is found by content, so the file has to hold a
+    # line reading `<id>: resolved — …`; existing is not enough.
     _srs(tmp_path, "FR-01-deferred\n")
-    rel = _adr(tmp_path, "# ADR-1\nFR-01-deferred: resolved — name is unique per key\n")
-    found = decision_issue_findings(tmp_path, _resolved(rel + "#ADR-1"), entering_phase=3)
-    assert found and "path:line" in found[0]
+    rel = _adr(tmp_path, "# ADR-1\nFR-01-deferred is discussed below.\n")
+    found = decision_issue_findings(tmp_path, _resolved(rel), entering_phase=3)
+    assert found and "has no line reading" in found[0]
 
 
 def test_a_line_that_says_unresolved_is_not_a_resolution(tmp_path):

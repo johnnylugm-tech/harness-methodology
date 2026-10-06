@@ -120,8 +120,8 @@ Rules (enforced by `harness_cli.py check-property-spec`):
   * once declared, the FR MUST have a property-based test executing it
     (`hypothesis @given` / fast-check), named exactly by `test_function`;
   * a property the deterministic engine marks `needs_review` MUST carry a
-    `review_ref` as `path:line`; that line must name the property ID and an
-    `accepted`, `rejected`, or `revised` disposition before P3;
+    `review_ref` naming the file that records its disposition before P3 —
+    a line reading `<property_id>: accepted|rejected|revised — <why>`;
   * property STRENGTH (does it kill mutants?) is measured by the existing
     `mutation_testing` dimension — deliberately NOT re-scored here.
 

@@ -281,16 +281,15 @@ def _decision_findings(root: Path) -> list:
     return decision_issue_findings(root, spec.decision_issues, entering_phase=3)
 
 
-def _line_of(ref: str) -> int:
-    return int(ref.rsplit(":", 1)[1])
+@pytest.mark.parametrize("layer", ["api", "entry", "service"])
+def test_declare_keeps_decision_refs_resolving(tmp_path, layer) -> None:
+    """An amendment above the decision records must not break their refs.
 
-
-@pytest.mark.parametrize("layer, shift", [("api", 1), ("entry", 1), ("service", 0)])
-def test_declare_keeps_decision_refs_resolving(tmp_path, layer, shift) -> None:
-    """RED before this round: `resolution_ref: SAD.md:N` names a line BELOW the
-    SAB block; a one-line insert above it left every ref one line short and
-    `validate-handoff --from-phase 2` blocked taskq-open at the P3 preflight.
-    A single-line flow list adds no line, so its refs must not move."""
+    78f79c15 met this by rebasing `SAD.md:N` through a line diff of each
+    amendment — one writer's repair, while any other edit above the records
+    still moved them out from under their refs. Round 114 站3 resolves a ref
+    by the record's content (`<id>: resolved — …`), so the amendment leaves
+    the refs exactly as written and they still resolve."""
     from core.quality_gate.sad_sab_edit import declare_module
 
     root = _decision_project(tmp_path, sab=_SAB_D, tail=_TAIL)
@@ -299,30 +298,14 @@ def test_declare_keeps_decision_refs_resolving(tmp_path, layer, shift) -> None:
 
     declare_module(root, "pkg.__main__", layer, _REASON)
 
-    after = _decision_refs(root)
+    assert _decision_refs(root) == before, "an amendment does not rewrite references"
     assert _decision_findings(root) == []
-    assert {k: _line_of(after[k]) - _line_of(before[k]) for k in ("D-1", "D-2")} == {
-        "D-1": shift, "D-2": shift}
-    assert after["D-3"] == before["D-3"], "a citation of another file is not this edit's"
     _regenerate(root)
     sab = json.loads((root / ".methodology" / "SAB.json").read_text(encoding="utf-8"))
-    assert {r["id"]: r["resolution_ref"] for r in sab["decision_issues"]} == after
+    assert {r["id"]: r["resolution_ref"] for r in sab["decision_issues"]} == before
 
 
-def test_decision_ref_line_numbers_that_change_width_stay_correct(tmp_path) -> None:
-    from core.quality_gate.sad_sab_edit import declare_module
-
-    base = _sad_text(_SAB_D, _TAIL).split("\n").index("D-1: resolved — first") + 1
-    root = _decision_project(tmp_path, sab=_SAB_D, tail=_TAIL, pad=99 - base)
-    assert _decision_refs(root)["D-1"].endswith(":99")
-
-    declare_module(root, "pkg.__main__", "api", _REASON)
-
-    assert _decision_refs(root)["D-1"].endswith(":100")
-    assert _decision_findings(root) == []
-
-
-def test_a_dropped_block_module_pulls_decision_refs_up(tmp_path) -> None:
+def test_a_dropped_block_module_keeps_decision_refs_resolving(tmp_path) -> None:
     from core.quality_gate.sab_amender import resolve_phantom
 
     root = _decision_project(tmp_path, sab=_SAB_D_GHOST, tail=_TAIL)
@@ -332,23 +315,8 @@ def test_a_dropped_block_module_pulls_decision_refs_up(tmp_path) -> None:
     resolve_phantom(root, "pkg.api.ghost", to=None, drop=True,
                     reason="ghost was never implemented and no FR needs it")
 
-    after = _decision_refs(root)
+    assert _decision_refs(root) == before
     assert _decision_findings(root) == []
-    assert _line_of(after["D-1"]) == _line_of(before["D-1"]) - 1
-
-
-def test_an_amendment_refuses_to_edit_a_line_a_citation_points_at(tmp_path) -> None:
-    """A ref that cites the very line being removed has no new home; guessing
-    one would point the decision record at an unrelated line."""
-    from core.quality_gate.sab_amender import ArchitectureAmendmentError, resolve_phantom
-
-    sab = _SAB_D_GHOST.replace("@L(D-1: resolved — first)@", '@L(- "pkg.api.ghost")@')
-    root = _decision_project(tmp_path, sab=sab, tail=_TAIL)
-    before = _snapshot(root)
-    with pytest.raises(ArchitectureAmendmentError, match="cites"):
-        resolve_phantom(root, "pkg.api.ghost", to=None, drop=True,
-                        reason="ghost was never implemented and no FR needs it")
-    assert _snapshot(root) == before
 
 
 # ── the remedy names the tool, everywhere it is printed ─────────────────────

@@ -108,34 +108,29 @@ def due_open_decision_findings(issues: list | None, *, entering_phase: int) -> l
     return findings
 
 
-_RESOLVED_WORD = re.compile(r"(?<![a-z])resolved\b", re.IGNORECASE)
-
-
 def _resolution_defect(project: Path, issue_id: str, row: dict) -> "str | None":
     """Why a `resolved` row's evidence does not close it, or None.
 
     Round 113 站9. 91fd4ba9 accepted any reference to a file that exists, and
     taskq-sol's ADR.md exists while saying "remain unresolved" of the very
-    decisions it would be cited for. The rule `review_ref` already follows
-    (property_check._review_disposition_resolves): `path:line`, and that line
-    names this issue and says `resolved` — not `unresolved`.
+    decisions it would be cited for. The evidence is the RECORD: a line
+    reading `<id>: resolved — <decision>`.
+
+    Round 114 站3: found by content in the file the ref names (`path`, or
+    `path:N` with N ignored). Pinning the line number added nothing to that
+    check but a way for an edit above the record to break it — taskq-open
+    re-pinned four refs by hand (55415df) after one inserted line.
     """
+    from core.quality_gate.content_ref import record_line, ref_file
+
     ref = str(row.get("resolution_ref") or "").strip()
     if not ref:
         return f"{issue_id} is resolved but has no resolution_ref"
-    match = re.fullmatch(r"(.+):(\d+)", ref)
-    if not match:
-        return (f"{issue_id} resolution_ref must be path:line — the line that "
-                f"records the decision — got {ref!r}")
-    rel, number = match.group(1).strip(), int(match.group(2))
-    path = project / rel
-    if not rel or Path(rel).is_absolute() or number < 1 or not path.is_file():
-        return f"{issue_id} resolution_ref does not resolve: {ref}"
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    line = lines[number - 1] if number <= len(lines) else ""
-    if issue_id.lower() not in line.lower() or not _RESOLVED_WORD.search(line):
-        return (f"{issue_id} resolution_ref does not resolve: {ref} does not name "
-                f"{issue_id} as resolved (it reads {line.strip()[:120]!r})")
+    if ref_file(project, ref) is None:
+        return f"{issue_id} resolution_ref does not resolve: {ref} is not a file in this project"
+    if record_line(project, ref, issue_id, ("resolved",)) is None:
+        return (f"{issue_id} resolution_ref does not resolve: {ref} has no line reading "
+                f"`{issue_id}: resolved — <decision>`")
     return None
 
 

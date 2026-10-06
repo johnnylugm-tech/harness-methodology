@@ -259,9 +259,11 @@ def test_needs_review_reference_must_close_the_exact_property(tmp_path: Path) ->
 | P-symbolic | `decode(encode(x)) == x` | 1 | test_fr01_symbolic | review.md:1 |
 """
     proj = _project(tmp_path, body)
-    (proj / "review.md").write_text("P-other accepted\n", encoding="utf-8")
+    (proj / "review.md").write_text("P-other: accepted\n", encoding="utf-8")
     assert any("no matching" in f for f in property_mapping_findings(proj))
-    (proj / "review.md").write_text("P-symbolic accepted by architecture review\n",
+    # Round 114 站3: the record's shape is `<property_id>: <disposition>`, the
+    # same rule (and helper) a decision issue's resolution_ref uses.
+    (proj / "review.md").write_text("P-symbolic: accepted — by architecture review\n",
                                     encoding="utf-8")
     assert property_mapping_findings(proj) == []
 

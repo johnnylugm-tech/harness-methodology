@@ -405,8 +405,8 @@ are not re-opened. This bounds backtracking to a single step.
     decision_issues: []
     # Register every SRS FR-XX-deferred/NFR-XX-deferred id here.
     # Each row: {id, status: open|resolved, blocks_phase,
-    # resolution_ref}. A resolved ref is path:line, and that line
-    # names the id as resolved: `FR-01-deferred: resolved — <decision>`.
+    # resolution_ref}. A resolved ref names the file holding a line
+    # that reads `FR-01-deferred: resolved — <decision>`.
   
     high_risk_modules:
       - "app.api.webhooks"

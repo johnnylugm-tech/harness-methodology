@@ -6313,3 +6313,27 @@
 - test: tests/test_advance_judges_with_the_gate_tools.py::test_the_shim_init_project_writes_passes_lint
   bug: "init-project wrote `import subprocess, sys, pathlib` (E401) into the delivered tree; taskq-open's agent hand-edited the 'do not edit' shim to pass advance-phase (f19cd01), and four corpus projects still carry it"
   fixed_in: "Round 114 站2"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_a_record_that_moved_down_still_resolves
+  bug: "Round 113 站9 made resolution_ref `path:line`; an edit above the record left the ref pointing at a neighbour, validate-handoff blocked a correct amendment on taskq-open, 55415df re-pinned four refs by hand and 78f79c15 taught one writer (amend_sad) to rebase them while every other edit still broke them"
+  fixed_in: "Round 114 站3 (core/quality_gate/content_ref.record_line: the record is found by its `<id>: resolved` content; `path:N` accepted with N ignored; rebase_sad_refs removed)"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_a_sentence_that_mentions_resolving_is_not_a_record
+  bug: "content addressing over a whole file must not let a sentence about a decision ('X will be resolved later') stand in for its record: the word has to follow `<id>:`"
+  fixed_in: "Round 114 站3"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_a_longer_id_does_not_answer_for_a_shorter_one
+  bug: "`NFR-99.10-deferred: resolved` must not resolve `NFR-99.1-deferred`"
+  fixed_in: "Round 114 站3"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_a_ref_outside_the_project_does_not_resolve
+  bug: "evidence has to be part of the delivered tree: an absolute or `..` reference does not resolve"
+  fixed_in: "Round 114 站3"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_a_property_review_ref_follows_the_same_rule
+  bug: "property_check._review_disposition_resolves had the same `path:line` design (91fd4ba9); one definition now answers both"
+  fixed_in: "Round 114 站3"
+
+- test: tests/test_post_p2_architecture_amendment.py::test_declare_keeps_decision_refs_resolving
+  bug: "an architecture amendment above the decision records must leave their references resolving without rewriting them"
+  fixed_in: "Round 114 站3 (replaces 78f79c15's four line-arithmetic tests)"

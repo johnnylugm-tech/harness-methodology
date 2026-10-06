@@ -237,7 +237,7 @@ Before advancing to Phase N+1, confirm ALL:
 | Audit structure | `python harness_cli.py audit-structure --project .` |
 | Git hook pre-commit check | `python harness_cli.py pre-commit-check --phase N` |
 | Recover from crash | `python harness_cli.py generate-next-plan --project .` |
-| Amend architecture after P2 (edits SAD.md §5 + SAB.json, reason → ADR.md; `SAD.md:N` citations inside §5 follow their lines) | `python harness_cli.py amend-sab --project . --declare <module> --layer <layer> --reason "..."` (module whose name states no layer) / `--resolve-phantom <module> --to <module>\|--drop --reason "..."` |
+| Amend architecture after P2 (edits SAD.md §5 + SAB.json, reason → ADR.md) | `python harness_cli.py amend-sab --project . --declare <module> --layer <layer> --reason "..."` (module whose name states no layer) / `--resolve-phantom <module> --to <module>\|--drop --reason "..."` |
 | Audit a completed phase | `python harness_cli.py audit-phase --phase N --repo .` |
 | P9: open a Change Request | `python harness_cli.py cr-open --type bug\|feat --title "..." --project .` |
 | P9: update/advance a CR | `python harness_cli.py cr-update --cr CR-NN --set field=value --status S` |

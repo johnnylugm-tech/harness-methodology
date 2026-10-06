@@ -570,8 +570,8 @@ def render_canonical_sab_template(
             lines.append("  decision_issues: []")
             lines.append("  # Register every SRS FR-XX-deferred/NFR-XX-deferred id here.")
             lines.append("  # Each row: {id, status: open|resolved, blocks_phase,")
-            lines.append("  # resolution_ref}. A resolved ref is path:line, and that line")
-            lines.append("  # names the id as resolved: `FR-01-deferred: resolved — <decision>`.")
+            lines.append("  # resolution_ref}. A resolved ref names the file holding a line")
+            lines.append("  # that reads `FR-01-deferred: resolved — <decision>`.")
         elif f.name == "high_risk_modules":
             lines.append("  high_risk_modules:")
             lines.append(f'    - "{module_example}"')
