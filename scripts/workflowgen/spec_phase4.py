@@ -31,7 +31,7 @@ _HEADER_4 = f"""\
 
 _META_PHASES_4 = [
     "Entry & Preflight", "Test Plan", "Env Check",
-    "Load FRs", "Per-FR Delta", "Coverage", "Bug Hunt", "Artifacts Commit",
+    "Load FRs", "Per-FR Delta", "Declared Tests", "Coverage", "Bug Hunt", "Artifacts Commit",
     "Gate 3", "Preview Next-Phase", "Advance", "Sync",
 ]
 
@@ -53,6 +53,45 @@ def _render_test_plan() -> str:
         + ")\n"
         + "if (!(testPlanReport && testPlanReport.pass === true)) {\n"
         + "  return halt('test-plan', { error: 'Phase 4 TEST_PLAN did not PASS', reason: testPlanReport ? String(testPlanReport.reason ?? '').slice(-500) : 'agent returned null' })\n"
+        + "}\n"
+    )
+
+
+def _render_declared_tests() -> str:
+    """Round 114 站5 — the tests TEST_SPEC declares outside every FR's rows.
+
+    FR rows are written by the P3 per-FR loop and judged by Gate 1. NFR
+    sections, the deferred table and smoke rows had no step and no deadline:
+    all 89 undelivered declared tests in the corpus are such rows. This step
+    writes them before Coverage and Gate 3 measure the suite; the deadline is
+    `advance-phase --completed 4` (exit 52), which re-asks the same command.
+    """
+    return (
+        B.render_phase_header("Declared Tests")
+        + "log('Declared tests no FR owns (NFR sections, the deferred table): write them before Gate 3')\n"
+        + "const declaredCmd = PY + ' ' + REPO + '/harness_cli.py undelivered-tests --project ' + REPO + ' --non-fr'\n"
+        + "let declaredDone = false\n"
+        + "for (let round = 1; round <= 3; round++) {\n"
+        + "  const chk = await agent(\n"
+        + "    'Run EXACTLY this via the Bash tool:\\n`' + declaredCmd + '; echo RC=$?`\\n'\n"
+        + "    + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',\n"
+        + "    { label: 'declared-check-r' + round, phase: 'Declared Tests', agentType: 'general-purpose', schema: RC_SCHEMA },\n"
+        + "  )\n"
+        + "  if (chk && chk.rc === 0) { declaredDone = true; break }\n"
+        + "  if (round === 3) break\n"
+        + "  await agent(\n"
+        + "    'YOU ARE THE P4 TEST AUTHOR for the tests TEST_SPEC.md declares outside every FR\\'s rows.\\n'\n"
+        + "    + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
+        + "    + '1. `' + declaredCmd + '` lists each one and its section.\\n'\n"
+        + "    + '2. Write each, EXACTLY that name, from its row in 02-architecture/TEST_SPEC.md (Inputs, precondition, sub-assertions), in an NFR test file. Assert what the row says about the product; no `assert True`, no skip.\\n'\n"
+        + "    + '3. A suite-level criterion READS the harness evidence (.methodology/gate_evidence/, the coverage report); it never runs pytest over its own directory or `make verify-system`.\\n'\n"
+        + "    + '4. Run them, then commit only the test files: `git -C ' + REPO + ' add <files> && git -C ' + REPO + ' commit -m \"test(P4): declared tests no FR owns\"`.\\n\\n'\n"
+        + "    + 'SCOPE RULES:\\n- ONLY test files; DO NOT edit source or any phase deliverable, DO NOT rename a declared test, DO NOT run run-gate / advance-phase.',\n"
+        + "    { label: 'declared-write-r' + round, phase: 'Declared Tests', agentType: 'general-purpose' },\n"
+        + "  )\n"
+        + "}\n"
+        + "if (!declaredDone) {\n"
+        + "  return halt('declared-tests', { error: 'declared tests outside every FR\\'s rows are still undelivered after 2 writing rounds — `harness_cli.py undelivered-tests --non-fr` lists them', owner: 'project' })\n"
         + "}\n"
     )
 
@@ -318,6 +357,7 @@ def generate_phase4() -> str:
                 "  }\n"
             ),
         ),
+        _render_declared_tests(),
         _render_coverage(),
         _render_bug_hunt(),
         B.render_artifacts_commit(

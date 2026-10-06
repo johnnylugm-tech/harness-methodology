@@ -169,6 +169,12 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^hunt-targets$", "carrier", "schema",
      "bug-hunt-targets rc transcribed into RC_SCHEMA; the manifest itself "
      "then arrives through the loadFileViaPython relay, not through prose"),
+    (r"^declared-check-r$", "carrier", "schema",
+     "Round 114 站5: `undelivered-tests --non-fr` rc transcribed into RC_SCHEMA; "
+     "advance-phase --completed 4 re-asks the same command (exit 52)"),
+    (r"^declared-write-r$", "judgment", "none",
+     "Round 114 站5: writes the declared tests no FR owns; the next "
+     "declared-check-r and the P4 exit judge whether they exist and pass"),
     (r"^hunt-scout$", "judgment", "none",
      "hunt_bugs.md Phase 1 CRG scan context shared by every hunter; read-only"),
     (r"^hunt-$", "judgment", "schema",

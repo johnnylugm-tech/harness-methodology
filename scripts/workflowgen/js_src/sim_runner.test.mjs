@@ -1771,3 +1771,37 @@ test('round114: standalone-mutmut fails a score under the gate threshold', async
   assert.match(String(result.error ?? ''), /below the gate threshold/)
   assert.equal(result.threshold, 70)
 })
+
+// ---- Round 114 站5: P4 writes the declared tests no FR owns ----
+// `undelivered-tests --non-fr` decides (rc 0 = none left); the writer runs only
+// while some remain, at most twice, and a run that still has some halts.
+const p4WithDeclared = (rcs) => {
+  let i = 0
+  return makeHappyResponder([
+    { match: /^declared-check-r\d$/, respond: () => ({ rc: rcs[Math.min(i++, rcs.length - 1)] }) },
+    ...happyOverrides(),
+  ])
+}
+
+test('round114: nothing undelivered -> no writer is dispatched', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  assert.ok(!events.agents.some((a) => a.label.startsWith('declared-write-')))
+})
+
+test('round114: undelivered tests are written once, then the check passes', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 0]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  const labels = events.agents.map((a) => a.label)
+  assert.equal(labels.filter((l) => l.startsWith('declared-write-')).length, 1)
+  assert.ok(labels.indexOf('declared-write-r1') < labels.indexOf('coverage'),
+            'the tests must exist before Coverage and Gate 3 measure the suite')
+})
+
+test('round114: tests still undelivered after two writing rounds halt the phase', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 1, 1]))
+  assert.equal(result.halt_step, 'declared-tests')
+  assert.equal(result.owner, 'project')
+  assert.equal(events.agents.filter((a) => a.label.startsWith('declared-write-')).length, 2)
+  assert.ok(!events.agents.some((a) => a.label === 'coverage'))
+})

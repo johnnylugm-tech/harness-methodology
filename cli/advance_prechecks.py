@@ -730,13 +730,50 @@ def _precheck_open_decisions_are_not_due(
               f"boundary they declared they block:")
         for row in found:
             print(f"  - {row}")
-        print("  → record the decision on a line that names the issue as resolved, "
-              "set status: resolved with resolution_ref: <path>:<line>, regenerate "
+        print("  → record the decision on a line reading `<id>: resolved — <decision>`, "
+              "set status: resolved with resolution_ref naming that file, regenerate "
               "SAB.json, then re-run advance-phase.")
         return EX_ADVANCE_PRECONDITION_BLOCK
     except Exception as exc:  # pylint: disable=broad-exception-caught
         print(f"[WARN] open-decision check skipped: {exc}", file=sys.stderr)
         return None
+
+
+def _precheck_declared_tests_delivered(
+    completed_phase, project, *, test_outcomes=None,
+) -> "int | None":
+    """A test TEST_SPEC declares outside every FR's rows is due when Phase 4 ends.
+
+    Round 114 站5. FR rows have an owner (the P3 per-FR loop) and a judge
+    (Gate 1's FR-scoped coverage). NFR sections, the "Deferred to Downstream
+    Phases" table and smoke rows had neither, and spec coverage is a
+    percentage: all 89 undelivered declared tests in the corpus are such rows,
+    taskq-super's whole deferred NFR table (36) among them, and each project
+    reached Phase 8. Phase 4 — the testing phase — writes them in its own
+    step; this is the deadline. `test_outcomes` defaults to the suite this
+    advance already measured.
+    """
+    if completed_phase != 4:
+        return None
+    from cli.exit_codes import EX_ADVANCE_DECLARED_TESTS_UNDELIVERED
+    from core.quality_gate import spec_coverage
+
+    found = spec_coverage.undelivered_declared_tests(
+        project, non_fr=True,
+        test_outcomes=spec_coverage.LIVE_OUTCOMES if test_outcomes is None else test_outcomes)
+    if not found:
+        return None
+    print(f"\n[BLOCKED] {len(found)} declared test(s) outside every FR's rows have "
+          f"no passing result at the end of Phase 4:")
+    for row in found[:30]:
+        print(f"  - {row['test_fn']}  [{row.get('why', 'absent')}]  (section: {row.get('fr_id')})")
+    if len(found) > 30:
+        print(f"  ... and {len(found) - 30} more")
+    print("  → write each one from its TEST_SPEC.md row (Inputs, precondition, "
+          "sub-assertions) and make it pass; `harness_cli.py undelivered-tests "
+          "--non-fr` lists what remains. A suite-level criterion is written to "
+          "read the harness's own evidence, never to re-run the suite.")
+    return EX_ADVANCE_DECLARED_TESTS_UNDELIVERED
 
 
 def _precheck_declared_constraints_are_configured(

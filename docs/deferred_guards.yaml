@@ -1274,10 +1274,12 @@ entries:
       2026-09-09: 條件是「量到 SAD 的 architecture-risk trait 解析成 forced 集合」。賬本 R43–R109 沒有任何一輪量過那個輸入;`derive_test_cases.md` 的「Step-1b-forced patterns may NOT be skipped」仍是唯一無條件的那句,而它的 forced 集合仍未被解析出來。
   - round: 42
     item: "不改 spec-coverage 的五個門檻"
-    verdict: NOT_MET
-    guard: "manual"
+    verdict: MET
+    condition_met_in: "Round 114 站5 實測(taskq-super、taskq-new)"
+    guard: "tests/test_declared_tests_have_a_deadline.py::test_the_p4_exit_refuses_while_any_remains"
+    resolved_in: "Round 114 站5"
     evidence: >-
-      2026-09-09: 條件是「缺口清單上線後仍有專案在門檻內漏掉整類 NFR 測試」。賬本 R43–R109 沒有記到這樣的實例;R73 站6 修的是 NFR Layering 兩個互相掩蓋的 bug,不是門檻放過整類測試。
+      2026-10-06: 條件「缺口清單上線後仍有專案在門檻內漏掉整類 NFR 測試」成立:以現行解析器重量,taskq-super 缺整張延期 NFR 表(36/123)、taskq-new 缺 25/116,皆走完 P8;語料 8 個專案共 89 支未交付宣告測試,100% 是非 FR 列。處置不是改門檻數字(門檻仍是 gate 的百分比判準),而是給非 FR 宣告測試負責步驟(P4 Declared Tests)與截止點(advance-phase --completed 4,exit 52),逐列以 delivery_outcome 判定。
   - round: 42
     item: "不改 STRIDE 計分"
     verdict: NO_CONDITION

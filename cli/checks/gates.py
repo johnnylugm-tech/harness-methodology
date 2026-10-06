@@ -19,6 +19,28 @@ from pathlib import Path
 from core.quality_gate.spec_coverage import _run_spec_coverage_check
 from core.state_io import load_state
 
+def cmd_undelivered_tests(args: argparse.Namespace) -> int:
+    """List the declared tests with no passing result; exit 1 when any remain.
+
+    Round 114 站5. `--non-fr` narrows to the rows no FR declares — the ones
+    Phase 4 writes and `advance-phase --completed 4` asks for. `--json`
+    prints the rows for a caller that parses them.
+    """
+    import json as _json
+
+    from core.quality_gate.spec_coverage import undelivered_declared_tests
+
+    rows = undelivered_declared_tests(Path(args.project), non_fr=args.non_fr)
+    if args.json:
+        print(_json.dumps(rows, ensure_ascii=False))
+    else:
+        scope = "outside every FR's rows " if args.non_fr else ""
+        print(f"[undelivered-tests] {len(rows)} declared test(s) {scope}with no passing result")
+        for row in rows:
+            print(f"  - {row['test_fn']}  [{row.get('why', 'absent')}]  (section: {row.get('fr_id')})")
+    return 1 if rows else 0
+
+
 def cmd_spec_coverage_check(args: argparse.Namespace) -> int:
     """Spec Coverage Check — compare TEST_SPEC.md items against actual test files.
 
@@ -306,6 +328,17 @@ def register(sub) -> None:
     scc.add_argument("--fr-id", default=None, dest="fr_id",
                      help="Check only a specific FR (e.g. FR-03)")
     scc.set_defaults(func=cmd_spec_coverage_check)
+
+    # undelivered-tests (Round 114 站5 — the Phase 4 step and its deadline)
+    udt = sub.add_parser(
+        "undelivered-tests",
+        help="List the TEST_SPEC.md declared tests with no passing result (exit 1 if any)",
+    )
+    udt.add_argument("--project", default=".", help="Project root (default: .)")
+    udt.add_argument("--non-fr", action="store_true", dest="non_fr",
+                     help="Only rows no FR declares (NFR sections, the deferred table)")
+    udt.add_argument("--json", action="store_true", help="Print the rows as JSON")
+    udt.set_defaults(func=cmd_undelivered_tests)
 
     # crg-arch-check (CI: non-interactive deterministic CRG architecture gate)
     cac = sub.add_parser(

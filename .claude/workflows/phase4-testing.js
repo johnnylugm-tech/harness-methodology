@@ -27,6 +27,7 @@ export const meta = {
     { title: 'Env Check' },
     { title: 'Load FRs' },
     { title: 'Per-FR Delta' },
+    { title: 'Declared Tests' },
     { title: 'Coverage' },
     { title: 'Bug Hunt' },
     { title: 'Artifacts Commit' },
@@ -766,6 +767,38 @@ if (gate1Pass.length) {
     + 'SCOPE RULES:\n- ONLY the two commands above.\n- DO NOT modify harness/.',
     { label: 'orch-post', phase: 'Per-FR Delta', agentType: 'general-purpose' },
   )
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════
+// Phase: Declared Tests
+// ══════════════════════════════════════════════════════════════════════════
+
+phase('Declared Tests')
+log('Declared tests no FR owns (NFR sections, the deferred table): write them before Gate 3')
+const declaredCmd = PY + ' ' + REPO + '/harness_cli.py undelivered-tests --project ' + REPO + ' --non-fr'
+let declaredDone = false
+for (let round = 1; round <= 3; round++) {
+  const chk = await dispatch(
+    'Run EXACTLY this via the Bash tool:\n`' + declaredCmd + '; echo RC=$?`\n'
+    + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',
+    { label: 'declared-check-r' + round, phase: 'Declared Tests', agentType: 'general-purpose', schema: RC_SCHEMA },
+  )
+  if (chk && chk.rc === 0) { declaredDone = true; break }
+  if (round === 3) break
+  await dispatch(
+    'YOU ARE THE P4 TEST AUTHOR for the tests TEST_SPEC.md declares outside every FR\'s rows.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + '1. `' + declaredCmd + '` lists each one and its section.\n'
+    + '2. Write each, EXACTLY that name, from its row in 02-architecture/TEST_SPEC.md (Inputs, precondition, sub-assertions), in an NFR test file. Assert what the row says about the product; no `assert True`, no skip.\n'
+    + '3. A suite-level criterion READS the harness evidence (.methodology/gate_evidence/, the coverage report); it never runs pytest over its own directory or `make verify-system`.\n'
+    + '4. Run them, then commit only the test files: `git -C ' + REPO + ' add <files> && git -C ' + REPO + ' commit -m "test(P4): declared tests no FR owns"`.\n\n'
+    + 'SCOPE RULES:\n- ONLY test files; DO NOT edit source or any phase deliverable, DO NOT rename a declared test, DO NOT run run-gate / advance-phase.',
+    { label: 'declared-write-r' + round, phase: 'Declared Tests', agentType: 'general-purpose' },
+  )
+}
+if (!declaredDone) {
+  return halt('declared-tests', { error: 'declared tests outside every FR\'s rows are still undelivered after 2 writing rounds — `harness_cli.py undelivered-tests --non-fr` lists them', owner: 'project' })
 }
 
 

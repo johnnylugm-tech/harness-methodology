@@ -62,6 +62,7 @@ export const meta = {
     { title: 'P4 · Env Check' },
     { title: 'P4 · Load FRs' },
     { title: 'P4 · Per-FR Delta' },
+    { title: 'P4 · Declared Tests' },
     { title: 'P4 · Coverage' },
     { title: 'P4 · Bug Hunt' },
     { title: 'P4 · Artifacts Commit' },
@@ -1253,6 +1254,7 @@ function testInvAPrompt(round, prevB2) {
     + '     the sentinel. If NO (real content) — resume: continue to step 4, do NOT re-author.\n'
     + '   - If MISSING: Continue to step 2.\n'
     + '2. Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention.\n'
+    + '   ⮡ A criterion about the whole suite or the verification target (zero skips across the suite, `make verify-system` passes, integration coverage >= N%) is verified by the harness itself (Round 114): do NOT give it a test function — TEST_SPEC records it as `Deferred: AC-… — <harness executor>`.\n'
     + '   ⮡ MANDATORY 1:1 mapping with TRACEABILITY_MATRIX.md:\n'
     + '     - Every tc_id in matrix §1 forward trace (e.g. TC-FR01-05a..g) MUST appear as an independent entry in YAML `tests:` block.\n'
     + '     - Range syntax (TC-XX-NNa..g) is documentation shorthand — you MUST expand into separate - tc_id: TC-XX-NNa, TC-XX-NNb, …, TC-XX-NNg entries.\n'
@@ -3358,6 +3360,35 @@ if (gate1Pass.length) {
 
 
 
+phase('P4 · Declared Tests')
+log('Declared tests no FR owns (NFR sections, the deferred table): write them before Gate 3')
+const declaredCmd = PY + ' ' + REPO + '/harness_cli.py undelivered-tests --project ' + REPO + ' --non-fr'
+let declaredDone = false
+for (let round = 1; round <= 3; round++) {
+  const chk = await dispatch(
+    'Run EXACTLY this via the Bash tool:\n`' + declaredCmd + '; echo RC=$?`\n'
+    + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',
+    { label: 'declared-check-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose', schema: RC_SCHEMA },
+  )
+  if (chk && chk.rc === 0) { declaredDone = true; break }
+  if (round === 3) break
+  await dispatch(
+    'YOU ARE THE P4 TEST AUTHOR for the tests TEST_SPEC.md declares outside every FR\'s rows.\n'
+    + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+    + '1. `' + declaredCmd + '` lists each one and its section.\n'
+    + '2. Write each, EXACTLY that name, from its row in 02-architecture/TEST_SPEC.md (Inputs, precondition, sub-assertions), in an NFR test file. Assert what the row says about the product; no `assert True`, no skip.\n'
+    + '3. A suite-level criterion READS the harness evidence (.methodology/gate_evidence/, the coverage report); it never runs pytest over its own directory or `make verify-system`.\n'
+    + '4. Run them, then commit only the test files: `git -C ' + REPO + ' add <files> && git -C ' + REPO + ' commit -m "test(P4): declared tests no FR owns"`.\n\n'
+    + 'SCOPE RULES:\n- ONLY test files; DO NOT edit source or any phase deliverable, DO NOT rename a declared test, DO NOT run run-gate / advance-phase.',
+    { label: 'declared-write-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose' },
+  )
+}
+if (!declaredDone) {
+  return halt('declared-tests', { error: 'declared tests outside every FR\'s rows are still undelivered after 2 writing rounds — `harness_cli.py undelivered-tests --non-fr` lists them', owner: 'project' })
+}
+
+
+
 phase('P4 · Coverage')
 log('Generate TEST_RESULTS.md + COVERAGE_REPORT.md (cross-artifact validated at Gate 3)')
 const coverageReport = await dispatch(
@@ -5394,4 +5425,4 @@ for (let n = startPhase; n <= 8; n++) {
 }
 
 log('run-all complete — Phase ' + startPhase + ' through Phase 8.')
-return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 80, notes: 'All phases from the state.json cursor through Phase 8 completed.' }
+return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 81, notes: 'All phases from the state.json cursor through Phase 8 completed.' }

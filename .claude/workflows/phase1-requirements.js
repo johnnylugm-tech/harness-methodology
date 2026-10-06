@@ -1205,6 +1205,7 @@ function testInvAPrompt(round, prevB2) {
     + '     the sentinel. If NO (real content) — resume: continue to step 4, do NOT re-author.\n'
     + '   - If MISSING: Continue to step 2.\n'
     + '2. Generate TEST_INVENTORY.yaml from SRS.md FR acceptance criteria → assign test function names per FR → validate naming convention.\n'
+    + '   ⮡ A criterion about the whole suite or the verification target (zero skips across the suite, `make verify-system` passes, integration coverage >= N%) is verified by the harness itself (Round 114): do NOT give it a test function — TEST_SPEC records it as `Deferred: AC-… — <harness executor>`.\n'
     + '   ⮡ MANDATORY 1:1 mapping with TRACEABILITY_MATRIX.md:\n'
     + '     - Every tc_id in matrix §1 forward trace (e.g. TC-FR01-05a..g) MUST appear as an independent entry in YAML `tests:` block.\n'
     + '     - Range syntax (TC-XX-NNa..g) is documentation shorthand — you MUST expand into separate - tc_id: TC-XX-NNa, TC-XX-NNb, …, TC-XX-NNg entries.\n'

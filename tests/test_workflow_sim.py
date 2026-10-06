@@ -159,4 +159,7 @@ def test_sim_testbed_passes():
     # 167 -> 170 (2026-10-06): Round 114 站1 — standalone-mutmut is generated:
     # it reports the score the framework recorded, reads no score after a
     # failed run, and fails a score under the gate threshold.
-    assert int(m.group(1)) >= 170, f"sim suite shrank: only {m.group(1)} passing tests (floor 170)"
+    # 170 -> 173 (2026-10-06): Round 114 站5 — P4's Declared Tests step: no
+    # writer when nothing is undelivered, one writing round then pass, and a
+    # project-owned halt after two rounds that leave tests undelivered.
+    assert int(m.group(1)) >= 173, f"sim suite shrank: only {m.group(1)} passing tests (floor 173)"

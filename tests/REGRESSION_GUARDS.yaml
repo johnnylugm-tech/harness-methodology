@@ -6357,3 +6357,27 @@
 - test: tests/test_a_completed_phase_closes_its_halts.py::test_exit_25_is_the_projects_like_its_mirror_45
   bug: "fault_owner mapped exit 25 to INFRA, but its only producer's only reachable class is UNREGISTERED (code->SAB drift; both signatures of the INFRA fallback are claimed first by UNREGISTERED). Its mirror PHANTOM (45) was PROJECT; taskq-open's sixteen 'infra' GATE1 rows were the undeclared taskq_api.__main__"
   fixed_in: "Round 114 站4"
+
+- test: tests/test_declared_tests_have_a_deadline.py::test_the_p4_exit_refuses_while_any_remains
+  bug: "declared tests no FR owns (NFR sections, the Deferred to Downstream Phases table, smoke rows) had no step that wrote them and no moment that asked for them; spec coverage is a percentage, so taskq-super reached P8 without its whole deferred NFR table (36/123) and taskq-new without 25/116 — 89 undelivered declared tests across eight projects, every one a non-FR row"
+  fixed_in: "Round 114 站5 (advance-phase --completed 4 refuses with exit 52; delivery judged by delivery_outcome)"
+
+- test: tests/test_declared_tests_have_a_deadline.py::test_only_non_fr_rows_are_listed
+  bug: "FR rows already have an owner and a judge (P3 per-FR loop, Gate 1's FR-scoped coverage); judging them again at the P4 exit would be a second enforcer"
+  fixed_in: "Round 114 站5"
+
+- test: tests/test_declared_tests_have_a_deadline.py::test_a_test_that_did_not_pass_is_not_delivered
+  bug: "a declared test that exists but skipped is not delivered (Round 87 站1's delivery_outcome rule)"
+  fixed_in: "Round 114 站5"
+
+- test: tests/test_declared_tests_have_a_deadline.py::test_the_p4_workflow_writes_them_before_gate_3
+  bug: "a deadline with no executor is a block that forbids its own remedy (R103): P4 now writes the tests before Coverage and Gate 3 measure the suite"
+  fixed_in: "Round 114 站5"
+
+- test: tests/test_declared_tests_have_a_deadline.py::test_p1_does_not_declare_suite_level_criteria_as_tests
+  bug: "R113 站F's suite-level rule reached P2's derive_test_cases.md but not P1's TEST_INVENTORY prompt; taskq-open declared test_nfr12_verify_system_prints_pass and test_nfr10_integration_line_coverage_80 at P1, naming authority kept them in TEST_SPEC, and neither was ever written"
+  fixed_in: "Round 114 站5"
+
+- test: tests/test_declared_tests_have_a_deadline.py::test_advance_phase_asks_the_deadline
+  bug: "the deadline is only real if the advance pipeline calls it"
+  fixed_in: "Round 114 站5"

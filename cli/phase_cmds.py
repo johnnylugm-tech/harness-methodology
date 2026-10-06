@@ -108,6 +108,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_backup_artifacts,
     _precheck_cleared_dir_evidence,
     _precheck_declared_constraints_are_configured,
+    _precheck_declared_tests_delivered,
     _precheck_deliverable_anchors,
     _precheck_early_stage_pass,
     _precheck_framework_examples_were_replaced,
@@ -2068,8 +2069,8 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # ── TDD checks: pytest + coverage, spec-coverage (P3+) ──────
     # Return code map for this block (pre-existing codes occupy 1-17):
     #   17 → finalize-gate sentinel missing (see check above)
-    #   18 → ruff: lint errors in src
-    #   19 → mypy: type errors in src
+    #   18 → linting: Gate 1's tool on Gate 1's target
+    #   19 → type_safety: Gate 1's tool on Gate 1's target
     #   20 → gitleaks: hardcoded secrets detected
     _pre_rc = _precheck_p3_security_and_quality(completed_phase, project)
     if _pre_rc is not None:
@@ -2080,6 +2081,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # report first; this one reads every FR's approval and re-measures the
     # assertions it pinned.
     _pre_rc = _precheck_p3_criteria_review(completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # Round 114 站5: the P4 exit is the deadline for declared non-FR tests.
+    _pre_rc = _precheck_declared_tests_delivered(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

@@ -165,6 +165,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         on a green build (push failed, CI red, or no verdict). Run the
         push-milestone the block names; its [BLOCKED] output names the
         failing CI job.
+    52  advance-phase --completed 4: a test TEST_SPEC.md declares outside
+        every FR's rows has no passing result. Write it;
+        `harness_cli.py undelivered-tests --non-fr` lists them.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

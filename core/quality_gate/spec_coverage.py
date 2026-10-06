@@ -796,6 +796,31 @@ def _run_spec_coverage_check(
     return (0, pct)
 
 
+#: `undelivered_declared_tests`'s default: measure the suite (memoised).
+LIVE_OUTCOMES = object()
+_FR_ROW = re.compile(r"FR-\d+", re.IGNORECASE)
+
+
+def undelivered_declared_tests(
+    project: "str | Path", *, non_fr: bool = False, test_outcomes=LIVE_OUTCOMES,
+) -> "list[dict]":
+    """The declared tests with no passing result — with *non_fr*, only those
+    no FR's rows declare (NFR sections, the deferred table, smoke rows).
+
+    Round 114 站5. On the eight corpus projects that carry any, all 89
+    undelivered declared tests are non-FR rows: FR rows have an owner (the
+    P3 per-FR loop) and a judge (Gate 1's FR-scoped coverage); the rest had
+    neither, and the gate percentage let taskq-super reach Phase 8 without
+    its whole deferred NFR table. Same `delivery_outcome` rule as the score.
+    """
+    project = Path(project)
+    outcomes = _live_test_outcomes(project) if test_outcomes is LIVE_OUTCOMES else test_outcomes
+    missing = spec_coverage_report(project, test_outcomes=outcomes)["missing"]
+    if non_fr:
+        missing = [m for m in missing if not _FR_ROW.fullmatch(str(m.get("fr_id") or ""))]
+    return missing
+
+
 def _live_test_outcomes(project: Path) -> "dict[str, str] | None":
     """This run's per-test outcomes, or None when the suite was not measured.
 

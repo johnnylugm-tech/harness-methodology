@@ -483,6 +483,13 @@
       "--submodule",
       "-h"
     ],
+    "undelivered-tests": [
+      "--help",
+      "--json",
+      "--non-fr",
+      "--project",
+      "-h"
+    ],
     "validate-handoff": [
       "--from-phase",
       "--help",
@@ -585,7 +592,7 @@
     "cli.fr_cmds::_resolve_precondition_block": "b111c228eda74005",
     "cli.phase_cmds::_advance_commit_targets": "637ea09688a08ca8",
     "cli.phase_cmds::_advance_fsm": "aba6cad676648853",
-    "cli.phase_cmds::_advance_prechecks": "25a5e999bfaa0163",
+    "cli.phase_cmds::_advance_prechecks": "d331ed03d1d85f1d",
     "cli.phase_cmds::_advance_step_commit_and_push": "eb573213488685cb",
     "cli.phase_cmds::_advance_step_refuse_open_obligations": "3bbd179befbb11fd",
     "cli.phase_cmds::_advance_step_refuse_phase_9": "376297f093a139f1",

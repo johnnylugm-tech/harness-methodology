@@ -133,6 +133,9 @@ EX_ADVANCE_SPEC_CITATION_OFF_CONTENT = 50
 # called green (or there is no CI to ask); without the record the tree being
 # advanced has a red or unknown build.
 EX_ADVANCE_MILESTONE_NOT_GREEN = 51
+# Round 114 站5. A declared test no FR owns (NFR sections, the deferred table)
+# is due when Phase 4 ends; spec coverage's percentage let all of them slide.
+EX_ADVANCE_DECLARED_TESTS_UNDELIVERED = 52
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -185,6 +188,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_CONSTRAINT_UNCONFIGURED: "advance-phase --completed 2: the SAB declares an architecture constraint that a tool this framework runs decides, and this project has not configured that tool to decide it — most often a constraint about layering or a forbidden import with no matching [importlinter:contract:…] section. Write the config the block names (or drop the declaration from SAD.md §5's SAB block), then re-run. Phase 3 onward raises the same fact inside finalize-gate",
     EX_ADVANCE_TEMPLATE_EXAMPLE_DELIVERED: "advance-phase: a value this framework wrote into the deliverable as an EXAMPLE is still there — one of templates/TEST_INVENTORY.yaml's `*_example_*` test names, or a module path from the SAB template whose root package this project does not deliver. Replace each one named in the block with this project's own name; every later check reads them as if they were yours",
     EX_ADVANCE_MILESTONE_NOT_GREEN: "advance-phase: this phase's push-milestone has no record of landing on a green build — the push failed, or CI reported red or no verdict. Run the push-milestone the block names; its [BLOCKED] output names the failing CI job",
+    EX_ADVANCE_DECLARED_TESTS_UNDELIVERED: "advance-phase --completed 4: a test TEST_SPEC.md declares outside every FR's rows (an NFR section, the Deferred to Downstream Phases table) has no passing result — write it; `harness_cli.py undelivered-tests --non-fr` lists them",
     EX_ADVANCE_SPEC_CITATION_OFF_CONTENT: "advance-phase: a Phase 1 deliverable cites SPEC.md by a line number that lands on a blank line, a table separator, or past the end of the file — the citation means a neighbouring line. Open SPEC.md at each named number and correct the citation to the line that carries the content",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",
     EX_KEYBOARD_INTERRUPT: "Interrupted — Ctrl-C, or SIGTERM from `kill <PID>` "

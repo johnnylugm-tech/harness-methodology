@@ -11146,3 +11146,27 @@ taskq-open 的 11 次中止(8 個簽章)在 P1–P8 全部走完後,`workflow_bl
 
 反證:拿掉結案呼叫、從 snapshot 拿掉 ledger、25 改回 INFRA、拿掉 stage 參數 → 各 1 紅;`cp` 還原一致。
 函式 ratchet:`_advance_step_commit_and_push` 393 → 399、`cmd_advance_phase` 413 → 414;split golden 重生。
+
+### 站5 — 非 FR 的宣告測試有負責步驟與截止點(R83 的同形兄弟;R42 再開條件成立)
+
+以現行解析器重量語料:8 個專案共 **89 支未交付的宣告測試,100% 是非 FR 列**(NFR 段落、
+「Deferred to Downstream Phases」表、smoke 列),FR 列 0 支。FR 列有負責者(P3 per-FR TDD)與判定者
+(Gate 1 的 FR 範圍 spec coverage);非 FR 列兩者皆無,而 spec coverage 是百分比(60/80/90):
+taskq-super 123 宣告 87 交付(整張延期 NFR 表缺)、taskq-new 116/91、taskq-renew 89/81、taskq-open 143/139,
+皆走完 P8。R83 只把 `Deferred: AC — test_x` 行式寫法接上存在性,語料 15/17 個專案用的表格式沒接。
+
+修(老闆裁定:截止點 P4 exit):
+- `spec_coverage.undelivered_declared_tests(project, non_fr=...)`,判定沿用 `delivery_outcome`
+  (存在且通過才算交付;skip 不算)。新 CLI `undelivered-tests --project [--non-fr] [--json]`(有缺 exit 1)。
+- P4 新增 **Declared Tests** 步驟(per-FR delta 之後、Coverage 之前):以 CLI 的 rc 判定;有缺則派 writer
+  依 TEST_SPEC 該列(Inputs / precondition / sub-assertions)寫測試,最多兩輪,仍有缺則 project-owned halt。
+- `advance-phase --completed 4` 新 precheck,仍有缺即 exit 52(PROJECT),補救列出缺的測試。
+- **5b** P1 TEST_INVENTORY prompt 補上 R113 站F 的 suite-level 規則(驗證者是 harness 自身,不配測試函式)。
+  驗證時確認:naming authority 只認 TEST_SPEC 表格列,P2 沒有撤回管道;但 taskq-open 的 TEST_SPEC 已寫出
+  不遞迴的實作(讀 harness evidence),故不新增撤回管道,P4 writer 依同一原則寫。
+
+不改 gate 門檻數字。R42「不改 spec-coverage 的五個門檻」verdict 改 MET:條件成立,處置是逐列截止點。
+語料不追溯;P3 中的 taskq-sol / sn / done / wow 到 P4 exit 時須補齊。
+
+反證:拿掉 phase_cmds 的呼叫、拿掉非 FR 過濾、改回 presence-only、拿掉 P4 步驟 → 各自轉紅;`cp` 還原一致。
+run-all 443885 → 446249(新步驟 + P1 規則,先壓縮一次 -114),上限 446349。sim floor 170 → 173。
