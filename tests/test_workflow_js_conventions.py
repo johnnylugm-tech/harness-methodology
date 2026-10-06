@@ -7,8 +7,10 @@ scripts/workflow_audit/js_lint.py's module docstring for why this is a
 comment/string-aware scan rather than a substring search.
 
 `bug-hunt-crg.js` and `standalone-mutmut.js` are out of scope for the
-GENERATED-file conventions: they are not among the 8 phase files and are not
-workflowgen-generated (Round 11 plan's 明確不做 list). Round 111 站F6 split
+GENERATED-file conventions: they are not among the 8 phase files (Round 11
+plan's 明確不做 list). `standalone-mutmut.js` has been workflowgen-generated
+since Round 114 站1 — a standalone composite like `harness-repair.js`, whose
+byte-for-byte match is guarded in test_workflowgen_shipped_parity. Round 111 站F6 split
 that exemption in two — the four RUNTIME-LEGALITY checks now run over every
 `.js` in `.claude/workflows/` (see SHIPPED_FILES), because who wrote a file
 and whether the runtime will load it are different questions and only the
@@ -60,8 +62,8 @@ GENERATED_FILES = [*PHASE_FILES, RUNALL_FILE]
 
 # Every .js the runtime can be asked to load, generated or not — Round 111
 # 站F6. "Who wrote it" and "will the runtime take it" are different
-# questions, and only the first one distinguishes `bug-hunt-crg.js` and
-# `standalone-mutmut.js`. They are still out of scope for the pipeline
+# questions, and only the first one distinguishes `bug-hunt-crg.js`
+# (and, until Round 114 站1, `standalone-mutmut.js`). Both are out of scope for the pipeline
 # CONTRACTS below (every dispatch through the wrapper, every halt through
 # the helper, the coverage layout) — those describe a generator's output and
 # an independent tool has no such pipeline. What applies to them is the four

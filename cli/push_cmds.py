@@ -161,7 +161,7 @@ def cmd_push_checkpoint(args: argparse.Namespace) -> int:
         _next = phase + 1
         print(
             f"\n  Next: advance to Phase {_next} when ready:\n"
-            f"    python3 harness_cli.py advance-phase --phase {_next} --project {project}"
+            f"    python3 harness_cli.py advance-phase --completed {phase} --project {project}"
         )
     return 0 if ok else 1
 

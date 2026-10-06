@@ -146,7 +146,7 @@ fi
 
 echo
 echo "  Done."
-echo "  Advance phase : python harness_cli.py advance-phase --phase N --project ."
+echo "  Advance phase : python harness_cli.py advance-phase --completed N --project ."
 echo "  Check phase   : python harness_cli.py run-phase --phase N --project ."
 echo "  Phase source  : .methodology/state.json (current_phase)"
 echo "══════════════════════════════════════════════"

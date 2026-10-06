@@ -156,4 +156,7 @@ def test_sim_testbed_passes():
     # of the strict confirmation rule, threat mitigation effective vs failing,
     # hunter retry then infra halt, part echo mismatch, a large hunt split into
     # parts and reassembled, assemble total mismatch, and a broken manifest relay.
-    assert int(m.group(1)) >= 167, f"sim suite shrank: only {m.group(1)} passing tests (floor 167)"
+    # 167 -> 170 (2026-10-06): Round 114 站1 — standalone-mutmut is generated:
+    # it reports the score the framework recorded, reads no score after a
+    # failed run, and fails a score under the gate threshold.
+    assert int(m.group(1)) >= 170, f"sim suite shrank: only {m.group(1)} passing tests (floor 170)"

@@ -92,12 +92,19 @@ _EXTRACTED: "dict[str, dict]" = {
         # rejected: the P1 baseline is what this helper is named for, and
         # shaping the code around the guard is the thing these guards exist
         # to catch. The other seven claims are untouched and still run.
+        #
+        # Round 114 站1 removed `_precheck_per_fr_gate1_and_phase_truth` and
+        # `_precheck_deliverable_anchors`. Each prints a re-run command, and
+        # both commands were ones argparse refuses: `advance-phase
+        # --completed-phase N` (the flag is `--completed`, exit 2). The moved
+        # bodies carried that wrong flag verbatim from phase_cmds.py.before,
+        # which is exactly why a byte-identity claim could not see it. The
+        # corrected text is a deliberate edit, so the claim expires for these
+        # two; the other five still run.
         "helpers": (
             "_precheck_cleared_dir_evidence",
             "_precheck_backup_artifacts",
-            "_precheck_per_fr_gate1_and_phase_truth",
             "_precheck_early_stage_pass",
-            "_precheck_deliverable_anchors",
             "_precheck_scope_violations",
             "_precheck_stage_pass_staging",
         ),

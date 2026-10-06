@@ -1352,8 +1352,8 @@ class GateContext:
             f"Scripts : {self.ssi_scripts_dir}/\n"
             f"Write result to: {result_path}\n"
             f"\nAfter writing result.json, run:\n"
-            f"  python3 harness_cli.py finalize-gate {self.gate_num} "
-            f"--project-root {self.project_root} --phase {self.phase}"
+            f"  python3 harness_cli.py finalize-gate --gate {self.gate_num} "
+            f"--project {self.project_root} --phase {self.phase}"
             + (f" --fr-id {self.fr_id}" if self.fr_id else "")
             + "\n"
         )

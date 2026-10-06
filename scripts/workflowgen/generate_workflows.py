@@ -41,7 +41,9 @@ GENERATORS = {
 #   run-all         composed from the eight per-phase generators above, so it
 #                   cannot drift from what those files ship;
 #   harness-repair  a standalone spec — its subject is harness-methodology
-#                   itself, not a project phase (Round 48 站4).
+#                   itself, not a project phase (Round 48 站4);
+#   standalone-mutmut  one dimension run on its own (Round 114 站1 — it was
+#                   hand-maintained, and drifted from the CLI it calls).
 #
 # Each entry's generator returns FINISHED text: run-all guards its inlined
 # bodies with its own driver, harness-repair applies the top-level boundary
@@ -52,10 +54,12 @@ COMPOSITES: dict[str, tuple[object, str]] = {}
 def _composites() -> dict[str, tuple[object, str]]:
     # Imported lazily: both specs import from this module.
     if not COMPOSITES:
+        from scripts.workflowgen.spec_mutmut import generate_mutmut
         from scripts.workflowgen.spec_repair import generate_repair
         from scripts.workflowgen.spec_runall import generate_runall
         COMPOSITES["run-all"] = (generate_runall, "run-all.js")
         COMPOSITES["harness-repair"] = (generate_repair, "harness-repair.js")
+        COMPOSITES["standalone-mutmut"] = (generate_mutmut, "standalone-mutmut.js")
     return COMPOSITES
 
 

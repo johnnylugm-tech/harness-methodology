@@ -233,6 +233,11 @@
       "--test-runner",
       "-h"
     ],
+    "install-isolated-tools": [
+      "--help",
+      "--project",
+      "-h"
+    ],
     "install-project-deps": [
       "--help",
       "--project",
@@ -602,11 +607,11 @@
     "cli.phase_cmds::_porcelain_paths": "f8fe39bd1e9f4daa",
     "cli.phase_cmds::_precheck_backup_artifacts": "c8a7d74fcfcbe112",
     "cli.phase_cmds::_precheck_cleared_dir_evidence": "cb8850f62c30ddeb",
-    "cli.phase_cmds::_precheck_deliverable_anchors": "a8154dce33fd1808",
+    "cli.phase_cmds::_precheck_deliverable_anchors": "571ea4b2e04ee02f",
     "cli.phase_cmds::_precheck_early_stage_pass": "8ad43800c6949432",
     "cli.phase_cmds::_precheck_manifest_and_p1_baselines": "dc21888933c44acc",
-    "cli.phase_cmds::_precheck_p3_security_and_quality": "7f669773008a4ee0",
-    "cli.phase_cmds::_precheck_per_fr_gate1_and_phase_truth": "55f30c1c8cfe8fb6",
+    "cli.phase_cmds::_precheck_p3_security_and_quality": "04c596e163302ef9",
+    "cli.phase_cmds::_precheck_per_fr_gate1_and_phase_truth": "e9a2329e1a6166c6",
     "cli.phase_cmds::_precheck_scope_violations": "c9499da14650364f",
     "cli.phase_cmds::_precheck_stage_pass_staging": "9a2f18f5b925f395",
     "cli.phase_cmds::_regen_and_stage_view": "2d9f62eff25ce27e",

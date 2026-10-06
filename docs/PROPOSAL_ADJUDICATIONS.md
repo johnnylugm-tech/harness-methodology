@@ -11026,3 +11026,43 @@ helper 的名字,為了守衛而改變程式碼的形狀就是這些守衛存在
 | P3 mirror 內的恆真 assert 偵測(站5 邊界) | 實測語料兩種用法並存(taskq-final 11 條恆真、taskq-super 4 條合法重綁);mirror 目前只由 agent prompt 執行,且其測試語料本身以恆真式構造,改動波及面大;站5 已在規格層要求每個 case 對產品有斷言 | harness 以確定性方式執行 check_test_mirrors_spec(例如接進 Gate 1 finalize) |
 | `.claude/workflows/standalone-mutmut.js` 傳入 `mutation-test-score` 不接受的旗標 | 實測 `mutation-test-score --help` 只接受 `--project`,該 workflow 每次以 exit 2 失敗;它是手工維護檔(無 workflowgen 來源),而老闆規定 workflow JS 不得手改 | 老闆裁定此檔的處置(手改、納入 workflowgen、或退役) |
 | 測試目錄的「≤15 檔/目錄」數值規則(站D 邊界) | 那是 P2 的 LLM 審查清單項;測試目錄檔數由專案自己的 NFR(taskq 的 NFR-11)負責,框架不另設數值規則 | 框架為測試目錄定義自己的可讀性維度 |
+
+## Round 114 — taskq-open P1–P8 全程稽核:根源修復 (2026-10-06)
+
+老闆令:檢視 taskq-open 的 P1–P8 執行紀錄與兩個 repo 的 git 歷史,驗證前幾輪修復是否到位,
+找出結構性問題並以正解修復;第二令「全部修復,方案再驗證是正解且無副作用」。
+
+**前輪驗收(實測)**:R113 12 站在 taskq-open 全部成立;另一 session 在其執行期間推的 9 個
+harness commit 均有效(`workflowgen --check` 無手改、全套 8763 passed)。缺口:R113 站F 未到 P1、
+站9 行號引用、站1 只看當前 phase,以及 `78f79c15` 屬症狀層 —— 由本輪各站處理。
+
+### 站1 — 呼叫的旗標也要是該子命令接受的
+
+R111 站F2 的守衛只問子命令名稱;argparse 對未知旗標同樣 exit 2。以 `build_parser()` 逐一比對:
+
+| 位置 | 錯誤 |
+|---|---|
+| `cli/advance_prechecks.py:328,417`、`harness_cli.py:25` | `advance-phase --completed-phase`(旗標是 `--completed`) |
+| `cli/push_cmds.py:164`、`scripts/harness-init.sh:149`、`scripts/hooks/prepare-commit-msg` | `advance-phase --phase <next>`(旗標錯,且應給剛完成的 phase) |
+| `cli/advance_prechecks.py:1063` | `amend-sab --resolve-phantom --fr-id`(無此旗標) |
+| `harness/harness_bridge.py:1355` | `finalize-gate N --project-root`(每次 run-gate prompt 都印出;要 `--gate`/`--project`) |
+| `.claude/workflows/standalone-mutmut.js` | `mutation-test-score --paths-to-mutate --timeout`(只收 `--project`,每次 exit 2) |
+
+其中 `:417`(兩段隱式串接的 f-string)與 hook(無副檔名)是行掃描看不見的;守衛對 .py 改讀 AST
+(相鄰字面量已合併為一個節點),並把 `scripts/hooks/*` 納入。prose 誤判(`run-report --project X),
+then either record-block with --owner`)以「右括號結束句子」為段落邊界排除。
+
+`cli/advance_commit.py:279` 的 `last_milestone_command: "advance-phase --completed-phase N"` **不改**:
+它是記錄不是指令,讀者 `ci_state_helper` 只比對 `p8`;改寫它是改既有專案的歷史(R44)。
+
+**standalone-mutmut(老闆裁定:納入 workflowgen)**。驗證發現它不只旗標錯:preflight 以 `test -f`
+驗 scope,而 R113 站6 寫的是 package 目錄;並由 agent 從 `mutmut results` 自算 raw / adjusted
+kill rate —— 框架已計算、記錄並據以判定的數字的第二份陳述(R33/R77)。故不照抄,改生成薄包裝
+(`scripts/workflowgen/spec_mutmut.py`):背景執行 `mutation-test-score --project`,agent 只轉述
+exit code;分數以 relay 讀回框架寫的 `.methodology/mutation_score.json`;門檻於生成時讀
+`harness/gate_configs`(三個 gate 皆 70,不一致即停止生成)。`mutmut_target` / `exclude_*` 參數刻意
+移除:scope 的唯一來源是 setup.cfg。本條改判 L1361 的「刻意手維護」對此檔不再成立
+(`bug-hunt-crg.js` 仍是)。
+
+反證:逐一還原 push_cmds / advance_prechecks:417 / hook / harness_bridge 的錯誤旗標,以及以舊
+standalone-mutmut.js 覆蓋,守衛皆轉紅;`cp` 還原 sha256 一致。sim floor 167 → 170。

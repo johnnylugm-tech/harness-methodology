@@ -75,7 +75,7 @@ def test_shipped_composite_matches_generator(name):
 # them and `--check` has never covered them. Editing these by hand is
 # correct. The set is pinned so a NEW file cannot join it silently — an
 # un-generated phase workflow is where the drift class would move next.
-_HAND_MAINTAINED = {"bug-hunt-crg.js", "standalone-mutmut.js"}
+_HAND_MAINTAINED = {"bug-hunt-crg.js"}
 
 
 def test_shipped_directory_holds_nothing_unaccounted_for():

@@ -22,7 +22,7 @@ Usage:
     python harness_cli.py init-project      --project /path/to/target [--phase 3] [--overwrite]
     python harness_cli.py push-checkpoint   --phase 1|2 --project . [--fr-ids FR-01,FR-02]
     python harness_cli.py push-milestone    --type p3-mid|p3-pre-gate2|p3-post-gate2|p4-mid|p4-pre-gate3|p5-baseline|p7|p8 --project .
-    python harness_cli.py advance-phase     --completed-phase 3 [--project .]
+    python harness_cli.py advance-phase     --completed 3 [--project .]
     python harness_cli.py dispatch          --role developer|reviewer --fr-id FR-01 --prompt "..." --phase 3
 
 Gate Evaluation (two-phase flow):
@@ -149,7 +149,7 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         project needs that no delivered manifest installs — the environment
         the gate measured in cannot be rebuilt from what the project ships.
         Add each named distribution to a manifest, then re-run.
-    48  advance-phase --completed-phase 2: the SAB declares an architecture
+    48  advance-phase --completed 2: the SAB declares an architecture
         constraint a tool this framework runs decides, and this project has
         not configured that tool to decide it. Write the config the block
         names (or drop the declaration), then re-run.
@@ -157,7 +157,7 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
         an EXAMPLE is still there — a `*_example_*` test name, or a SAB
         template module path whose root package this project does not
         deliver. Replace each one the block names, then re-run.
-    50  advance-phase --completed-phase 1: a SPEC.md line citation in a
+    50  advance-phase --completed 1: a SPEC.md line citation in a
         Phase 1 deliverable lands on a blank line, a table separator, or
         past the end of the file. Correct each number the block names to
         the line that carries the content, then re-run.

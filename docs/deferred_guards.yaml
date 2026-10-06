@@ -2428,10 +2428,12 @@ entries:
       2026-10-03: 條件是「harness 以確定性方式執行 check_test_mirrors_spec(例如接進 Gate 1 finalize)」。本輪實測未成立。實測語料兩種用法並存(taskq-final 11 條恆真、taskq-super 4 條合法重綁);mirror 目前只由 agent prompt 執行,且其測試語料本身以恆真式構造,改動波及面大;站5 已在規格層要求每個 case 對產品有斷言。
   - round: 113
     item: "`.claude/workflows/standalone-mutmut.js` 傳入 `mutation-test-score` 不接受的旗標"
-    verdict: NOT_MET
-    guard: "manual"
+    verdict: MET
+    condition_met_in: "2026-10-06 老闆裁定:納入 workflowgen"
+    guard: "tests/test_cli_command_names_exist.py::test_every_flag_an_invocation_passes_is_accepted"
+    resolved_in: "Round 114 站1"
     evidence: >-
-      2026-10-03: 條件是「老闆裁定此檔的處置(手改、納入 workflowgen、或退役)」。本輪實測未成立。實測 `mutation-test-score --help` 只接受 `--project`,該 workflow 每次以 exit 2 失敗;它是手工維護檔(無 workflowgen 來源),而老闆規定 workflow JS 不得手改。
+      2026-10-06: 條件「老闆裁定此檔的處置」成立(納入 workflowgen)。Round 114 站1 以 scripts/workflowgen/spec_mutmut.py 重生為薄包裝:只執行 `mutation-test-score --project`,分數經 relay 讀回框架寫的 .methodology/mutation_score.json,門檻於生成時讀 gate_configs;agent 自算的 kill rate / 排除 / adjusted 分數移除。旗標守衛擴到每個呼叫的 flag,反證以舊檔還原即轉紅。
   - round: 113
     item: "測試目錄的「≤15 檔/目錄」數值規則(站D 邊界)"
     verdict: NOT_MET

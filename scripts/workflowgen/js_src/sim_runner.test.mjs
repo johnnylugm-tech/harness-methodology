@@ -1725,3 +1725,49 @@ test('a targets manifest that does not survive the relay halts as infra, before 
   assert.equal(result.owner, 'infra')
   assert.ok(!huntLabels(events).includes('hunt-scout'))
 })
+
+// ---- Round 114 站1: standalone-mutmut is generated, and only relays ----
+// It used to pass flags mutation-test-score rejects (every run exited 2) and
+// to compute its own kill rate. Now the agent transcribes one exit code and
+// the score is the one the framework wrote to .methodology/mutation_score.json.
+const MUTMUT = WF('standalone-mutmut.js')
+const mutmutLoad = (score) => ({
+  match: /^loadpy-/,
+  respond: (call) => call.label.includes('mutation_score')
+    ? relayFrame('content', JSON.stringify({ score, killed: 285, survived: 10, paths_to_mutate: 'src/pkg/service' }))
+    : relayFrame('content', JSON.stringify({ survivor_count: 10, survivors: [{ file: 'a.py' }] })),
+})
+
+test('round114: standalone-mutmut reports the score the framework recorded', async () => {
+  const { result, events } = await runWorkflow(
+    MUTMUT,
+    makeHappyResponder([{ match: /^mutation-run$/, respond: { rc: 0 } }, mutmutLoad(96.6)]),
+    { args: { repo: '/sim/project' } },
+  )
+  assert.equal(result.status, 'PASS', JSON.stringify(result).slice(0, 200))
+  assert.equal(result.score, 96.6)
+  const run = events.agents.find((a) => a.label === 'mutation-run')
+  assert.match(run.prompt, /mutation-test-score --project /)
+  assert.doesNotMatch(run.prompt, /--paths-to-mutate|--timeout/)
+})
+
+test('round114: standalone-mutmut does not read a score when the command failed', async () => {
+  const { result, events } = await runWorkflow(
+    MUTMUT,
+    makeHappyResponder([{ match: /^mutation-run$/, respond: { rc: 2 } }, mutmutLoad(96.6)]),
+    { args: { repo: '/sim/project' } },
+  )
+  assert.match(String(result.error ?? ''), /did not produce a score/)
+  assert.ok(!events.agents.some((a) => a.label.startsWith('loadpy-')),
+            'a failed run must not be reported with an older run\'s score')
+})
+
+test('round114: standalone-mutmut fails a score under the gate threshold', async () => {
+  const { result } = await runWorkflow(
+    MUTMUT,
+    makeHappyResponder([{ match: /^mutation-run$/, respond: { rc: 0 } }, mutmutLoad(41.0)]),
+    { args: { repo: '/sim/project' } },
+  )
+  assert.match(String(result.error ?? ''), /below the gate threshold/)
+  assert.equal(result.threshold, 70)
+})
