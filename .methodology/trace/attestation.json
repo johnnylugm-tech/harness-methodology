@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "96cc2603558af67b287d7fa0ac79df44163357fc",
-  "content_sha256": "62ffb13928e05b8dbe5ac068f203feb1b74d1fd3956723574b65c95c6c47f558",
+  "git_sha": "8746d4fe9d33f66e43ca679639988fb36d4311dd",
+  "content_sha256": "0737518266677a51514723415ef2a74e46b0ff546a89f6f2854af61849830e82",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -10,13 +10,18 @@
     "project_id": "harness-methodology",
     "completeness": {
       "total_requirements": 13,
-      "srs_coverage": "38.5%",
+      "srs_coverage": "0.0%",
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 127,
+      "total_links": 122,
       "missing_mappings": {
         "fr_without_srs": [
+          "FR-01",
+          "FR-02",
+          "FR-03",
+          "FR-04",
+          "FR-05",
           "FR-06",
           "FR-07",
           "FR-08",
@@ -27,11 +32,17 @@
           "FR-99"
         ],
         "fr_without_code": [],
-        "fr_without_test": []
+        "fr_without_test": [],
+        "fr_without_design": []
       }
     },
     "missing": {
       "fr_without_srs": [
+        "FR-01",
+        "FR-02",
+        "FR-03",
+        "FR-04",
+        "FR-05",
         "FR-06",
         "FR-07",
         "FR-08",
@@ -42,13 +53,14 @@
         "FR-99"
       ],
       "fr_without_code": [],
-      "fr_without_test": []
+      "fr_without_test": [],
+      "fr_without_design": []
     },
     "requirements": {
       "FR-01": {
         "fr_id": "FR-01",
         "status": "verified",
-        "srs_section": "SAD.md",
+        "srs_section": null,
         "code_files": [
           "constitution/citation_parser.py",
           "core/canonical_form.py",
@@ -113,7 +125,7 @@
       "FR-02": {
         "fr_id": "FR-02",
         "status": "verified",
-        "srs_section": "SAD.md",
+        "srs_section": null,
         "code_files": [
           "cli/fr_step_stages.py",
           "tests/cli/test_fr_cmds_cli.py",
@@ -145,7 +157,7 @@
       "FR-03": {
         "fr_id": "FR-03",
         "status": "verified",
-        "srs_section": "SAD.md",
+        "srs_section": null,
         "code_files": [
           "tests/cli/test_fr_cmds_cli.py",
           "tests/test_scanner_js_traceability.py",
@@ -162,7 +174,7 @@
       "FR-04": {
         "fr_id": "FR-04",
         "status": "verified",
-        "srs_section": "SAD.md",
+        "srs_section": null,
         "code_files": [
           "tests/cli/test_fr_cmds_cli.py",
           "tests/test_fr_step_completion_truth.py",
@@ -179,7 +191,7 @@
       "FR-05": {
         "fr_id": "FR-05",
         "status": "verified",
-        "srs_section": "SAD.md",
+        "srs_section": null,
         "code_files": [
           "tests/test_scanner_unification.py",
           "tests/test_traceability_pipeline.py"

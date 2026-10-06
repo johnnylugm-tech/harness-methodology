@@ -679,6 +679,7 @@ def check_traceability(
             priority="HIGH",
             metadata={
                 "sad_mapped": fr_id in sad_frs,
+                "srs_declared": fr_id in srs_frs,
                 "code_files": fr_to_code.get(fr_id, []),
                 "test_files": fr_to_tests.get(fr_id, []),
             },

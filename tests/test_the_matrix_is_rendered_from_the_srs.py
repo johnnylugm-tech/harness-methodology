@@ -84,6 +84,24 @@ def test_an_srs_requirement_missing_from_the_sad_is_a_named_gap(tmp_path):
     assert missing["fr_without_srs"] == []
 
 
+def test_an_fr_only_code_mentions_is_not_a_design_gap(tmp_path):
+    """A ghost FR (in code, declared by neither SRS nor SAD) is an SRS gap,
+    not a design gap — found when this repository's own attestation listed
+    its code-only FRs under "without design"."""
+    from scripts.build_traceability import build_traceability
+
+    proj = _project(tmp_path, sad=True)
+    src = proj / "pkg"
+    src.mkdir()
+    # Built at runtime: a literal annotation here would itself be scanned
+    # into this repository's own trace attestation.
+    tag = "[" + "FR-" + "77" + "]"
+    (src / "ghost.py").write_text(f'"""{tag} undeclared."""\n', encoding="utf-8")
+    missing = build_traceability(proj).verify_completeness()["missing_mappings"]
+    assert "FR-77" in missing["fr_without_srs"]
+    assert "FR-77" not in missing["fr_without_design"]
+
+
 def test_both_builders_answer_from_the_same_universe(tmp_path):
     from core.traceability.scanner import check_traceability
     from scripts.build_traceability import build_traceability

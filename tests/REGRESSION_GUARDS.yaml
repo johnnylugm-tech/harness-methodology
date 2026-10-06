@@ -6405,3 +6405,7 @@
 - test: tests/e2e/test_cli_journeys.py::TestAdvanceJourneys::test_rejected_commit_rolls_back_exit_6
   bug: "the views advance-phase renders were not in its commit targets or owned set: after a rejected commit and rollback, the retry refused (exit 38) on the matrix the previous attempt had rendered — latent from P3 on, exposed when the matrix render moved to P1"
   fixed_in: "Round 114 站7 (_rendered_view_paths in _advance_commit_targets and _uncommitted_deliverables)"
+
+- test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_an_fr_only_code_mentions_is_not_a_design_gap
+  bug: "fr_without_design listed every FR with sad_mapped=False, including ghost FRs only code mentions — this repository's own attestation showed its code-only FRs as 'without design'"
+  fixed_in: "Round 114 站7 follow-up (srs_declared AND NOT sad_mapped)"

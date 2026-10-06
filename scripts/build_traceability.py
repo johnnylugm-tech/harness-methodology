@@ -148,6 +148,7 @@ def build_traceability(
             priority="HIGH",
             metadata={
                 "sad_mapped": fr_id in sad_frs,
+                "srs_declared": fr_id in srs_frs,
                 "code_files": code_fr_map.get(fr_id, []),
                 "test_files": test_fr_map.get(fr_id, []),
                 "sad_modules": sad_modules.get(fr_id, []),

@@ -11214,3 +11214,11 @@ advance 被 render 取代 —— 與現行在 P3 exit 的行為相同,只是提�
 `_uncommitted_deliverables` 的 owned 集合 —— view 是 advance 的產物,與 STAGE_PASS 同類。反證:拿掉 owned → e2e 紅。
 函式 ratchet `_advance_step_commit_and_push` 399 → 400。既有 plan / workflowgen / anchor 測試依新的 P1 三子任務結構改寫
 (性質不變:順序、依賴、每個 A prompt 帶 stub 規則、每個 agent 撰寫的文件都被告知其錨點)。
+
+**站7 後續修正(8746d4fe 之後)**:提交時 pre-commit 要求重建本 repo 自己的 trace attestation,重建結果揭露兩件事:
+1. `fr_without_design` 的實作把所有 `sad_mapped=False` 的 FR 都列入,包括只出現在程式碼中的 ghost FR
+   (本 repo 的 FR-06..09、20..22、99)—— 與定義「SRS 宣告、SAD 未設計」不符。改為要求 `srs_declared`
+   與 `sad_mapped=False` 同時成立;ghost FR 只屬 `fr_without_srs`。新測試以 ghost FR 反證(條件改回即紅)。
+2. 本 repo 在 layout 路徑沒有 SRS.md,所以自身 attestation 的 SRS coverage 由 38.5% 如實降為 0.0%
+   —— 先前的 38.5% 是 SAD 冒充 SRS。照實提交,不另造 SRS。
+另:測試 fixture 若以字面寫出 `[FR-NN]` 標註,會被掃進本 repo 自己的 attestation;改為執行期組字串。
