@@ -610,7 +610,7 @@
     "cli.phase_cmds::_precheck_deliverable_anchors": "571ea4b2e04ee02f",
     "cli.phase_cmds::_precheck_early_stage_pass": "8ad43800c6949432",
     "cli.phase_cmds::_precheck_manifest_and_p1_baselines": "dc21888933c44acc",
-    "cli.phase_cmds::_precheck_p3_security_and_quality": "04c596e163302ef9",
+    "cli.phase_cmds::_precheck_p3_security_and_quality": "7ea28d693b8789fa",
     "cli.phase_cmds::_precheck_per_fr_gate1_and_phase_truth": "e9a2329e1a6166c6",
     "cli.phase_cmds::_precheck_scope_violations": "c9499da14650364f",
     "cli.phase_cmds::_precheck_stage_pass_staging": "9a2f18f5b925f395",

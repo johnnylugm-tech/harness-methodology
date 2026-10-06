@@ -41,6 +41,17 @@ sinks:
       harness_bridge.finalize_gate raises GateBlockedError
       (dimension_not_measured) when a suite-measured dimension carries
       score_source=stubbed_boundary. Round 67 站2.
+  "advance:*":
+    sink: report-only
+    why: >-
+      Round 114 站2. advance-phase re-asks Gate 1's linting/type_safety question
+      with Gate 1's tool; when that tool produces no score here (not on PATH,
+      timed out) the advance neither passes nor blocks on it. The verdict on
+      the dimension belongs to the gate, whose S2 tool check refuses to score
+      a gate whose tool is absent and whose S4 blocks an unverifiable score —
+      a second refusal at the advance would be a second enforcer of one
+      dimension, the defect this station removes. The row keeps the gap
+      visible, which the old "not installed, skipping" print did not.
   "gate:arch-constraints":
     sink: verdict
     where: >-

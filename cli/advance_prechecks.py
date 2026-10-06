@@ -18,6 +18,10 @@ leaving it behind would mean importing back into phase_cmds — a cycle that
 resolves only by line order. cli/phase_cmds.py re-exports both it and the nine,
 so every existing caller, every `monkeypatch.setattr(phase_cmds, ...)` and
 tests/test_mypy_excludes_harness_submodule.py's import keep working.
+
+Round 114 站2 retired `_MYPY_EXCLUDE_ARGS` with the `mypy .` call it served:
+the step now runs Gate 1's own tools on Gate 1's target
+(`_lint_and_type_verdict`), which never walks into harness/.
 """
 
 from __future__ import annotations
@@ -42,19 +46,57 @@ from core.utils.delivery_scope import BACKUP_SUFFIXES
 from core.utils.project_layout import ProjectLayout
 
 
-# Round 43: the harness submodule is always mounted at this fixed path
-# (init-project / submodule_guard.py both hardcode "harness" too — there is
-# no per-project override anywhere), and it ships its own test fixtures
-# shaped like the framework's canonical `03-development/` layout. mypy has
-# no default boundary at a nested `.git` the way ruff's file-walker does, so
-# `mypy .` from a consumer project's root walks straight into
-# harness/tests/fixtures/.../03-development/tests/conftest.py and collides
-# with the consumer's own 03-development/tests/conftest.py ("Duplicate
-# module named conftest") the moment the latter exists — aborting the whole
-# type-check before it examines anything else. Named here so the exclusion
-# is independently testable rather than an inline literal in the
-# subprocess.run() call below.
-_MYPY_EXCLUDE_ARGS = ["--exclude", "^harness/"]
+def _lint_and_type_verdict(project: Path) -> "int | None":
+    """Linting and type safety, judged the way Gate 1 judges them.
+
+    Round 114 站2. This step used to run `ruff check .` and `mypy .`, each only
+    when `shutil.which` found it, while Gate 1 scores the same two dimensions
+    with the tool its YAML names (ruff and pyright for Python) over
+    `{src_target}`. Two judges, two tools, two trees: on taskq-open's tree
+    before 6df7c21 Gate 2's pyright found 0 errors in 47 files and this step's
+    mypy blocked on 7 — the project's own SPEC names pyright — and `ruff .`
+    reached the framework-written harness_cli.py shim, which the agent then
+    hand-edited.
+
+    Now one question with one answer: the tool `resolve_tool_id` gives for the
+    project's language, run by `run_tool` on the target Gate 1 measures, scored
+    by `compute_tool_score`, against Gate 1's threshold. Exit codes stay 18/19.
+    A tool that produces no score is not a pass and not a block: it is said and
+    recorded (Round 32), as the old "not installed, skipping" was not.
+    """
+    from core.degradation_ledger import record_degradation
+    from core.quality_gate.gate_thresholds import load_gate_dimensions
+    from core.utils.lang_patterns import project_language
+    from harness.tool_runners import compute_tool_score, run_tool
+    from harness.toolchains.registry import resolve_tool_id
+
+    language = project_language(project)
+    dims = {d["name"]: d for d in load_gate_dimensions(1)}
+    for dim, label, code in (("linting", "Linting", 18), ("type_safety", "Type Safety", 19)):
+        entry = dims.get(dim)
+        if entry is None:
+            continue
+        tool = resolve_tool_id(dim, language, yaml_tool=entry.get("tool"))
+        if not tool:
+            continue
+        output, rc = run_tool(tool, str(project))
+        score = compute_tool_score(tool, output, rc)
+        if score is None:
+            print(f"  [WARN] {label} ({tool}) produced no score (rc {rc}) — not judged here.")
+            record_degradation(
+                project, f"advance:{dim}",
+                f"'{tool}' produced no score at advance-phase (rc {rc})",
+                why=(output or "")[-300:], owner="infra" if rc == -3 else "harness")
+            continue
+        threshold = float(entry["threshold"])
+        if score < threshold:
+            if output:
+                print(output[-4000:])
+            print(f"\n[BLOCKED] {label} ({tool}) failure.")
+            print(f"  {tool} scored {score:.1f} < {threshold:.0f}, Gate 1's threshold, on the "
+                  f"target Gate 1 measures. Fix the findings above before advancing.")
+            return code
+    return None
 
 
 def _precheck_cleared_dir_evidence(_cleared_reads, project) -> "int | None":
@@ -1065,25 +1107,11 @@ def _precheck_p3_security_and_quality(completed_phase, project) -> "int | None":
                 )
                 return 9
 
-            # 0.2 Linting (ruff)
-            if shutil.which("ruff"):
-                _rf_r = subprocess.run(["ruff", "check", ".", "--extend-ignore", "RUF001,RUF002,RUF003"], cwd=str(project))
-                if _rf_r.returncode != 0:
-                    print("\n[BLOCKED] Linting (ruff) failure.")
-                    print("  Please fix the linting errors before advancing.")
-                    return 18
-            else:
-                print("  [WARN] ruff not installed. Skipping linting.")
-
-            # 0.3 Type Safety (mypy)
-            if shutil.which("mypy"):
-                _mp_r = subprocess.run([sys.executable, "-m", "mypy", ".", "--ignore-missing-imports", *_MYPY_EXCLUDE_ARGS], cwd=str(project))
-                if _mp_r.returncode != 0:
-                    print("\n[BLOCKED] Type Safety (mypy) failure.")
-                    print("  Please fix the type errors before advancing.")
-                    return 19
-            else:
-                print("  [WARN] mypy not installed. Skipping type safety.")
+            # 0.2 / 0.3 Linting and Type Safety — Gate 1's tools, target and
+            # threshold (Round 114 站2; see _lint_and_type_verdict).
+            _lt_rc = _lint_and_type_verdict(project)
+            if _lt_rc is not None:
+                return _lt_rc
 
             # Round 25: the suite runs once per advance-phase and every
             # threshold reads that one measurement. `--cov-fail-under=100` used

@@ -978,36 +978,35 @@ def test_l1_advance_prechecks_gitleaks_blocks(tmp_path, monkeypatch):
     assert _advance_prechecks(tmp_path, 3) == 20
 
 
+def _gate_tool_scores(monkeypatch, scores):
+    """Round 114 站2: the step asks Gate 1's tools (ruff, pyright for Python)
+    through harness.tool_runners, so that is where a failing tool is faked."""
+    import harness.tool_runners as tr
+
+    monkeypatch.setattr(tr, "run_tool", lambda tool, root, **kw: ("", 0))
+    monkeypatch.setattr(tr, "compute_tool_score", lambda tool, out, rc: scores.get(tool, 100.0))
+
+
 def test_l1_advance_prechecks_ruff_blocks(tmp_path, monkeypatch):
-    """rc=18: ruff finds lint errors → advance blocked."""
+    """rc=18: Gate 1's linting tool scores under its threshold → advance blocked."""
     from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
-
-    def fake_run(cmd, **kwargs):
-        class R:
-            returncode = 1 if cmd[0] == "ruff" else 0
-            stdout = ""
-        return R()
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: type("R", (), {"returncode": 0, "stdout": ""})())
+    _gate_tool_scores(monkeypatch, {"ruff": 50.0})
 
     record_milestones_landed_green(tmp_path, 3)
     assert _advance_prechecks(tmp_path, 3) == 18
 
 
 def test_l1_advance_prechecks_mypy_blocks(tmp_path, monkeypatch):
-    """rc=19: mypy finds type errors → advance blocked."""
+    """rc=19: Gate 1's type_safety tool (pyright) scores under its threshold →
+    advance blocked. The name is kept; mypy is no longer what this step runs."""
     from cli.phase_cmds import _advance_prechecks
 
     _setup_advance_prechecks_env(tmp_path, monkeypatch)
-
-    def fake_run(cmd, **kwargs):
-        is_mypy = len(cmd) >= 3 and cmd[1] == "-m" and cmd[2] == "mypy"
-        class R:
-            returncode = 1 if is_mypy else 0
-            stdout = ""
-        return R()
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: type("R", (), {"returncode": 0, "stdout": ""})())
+    _gate_tool_scores(monkeypatch, {"pyright": 50.0})
 
     record_milestones_landed_green(tmp_path, 3)
     assert _advance_prechecks(tmp_path, 3) == 19

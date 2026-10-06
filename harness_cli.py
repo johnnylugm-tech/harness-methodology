@@ -57,10 +57,10 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     16  (retired 減法 T3 — constitution keyword scoring is on-demand only)
     17  advance-phase precondition block — finalize-gate not called for a
         required gate OR unresolved deferred_fixes.md items
-    18  advance-phase precondition block — ruff linting failure OR
+    18  advance-phase precondition block — linting failure (Gate 1's tool) OR
         submodule safety violation
-    19  sync-harness: SubmoduleSyncError, OR advance-phase: mypy
-        type-safety failure
+    19  sync-harness: SubmoduleSyncError, OR advance-phase: type-safety
+        failure (Gate 1's tool)
     20  advance-phase: gitleaks secrets scan failed or timed out
     21  WRITE_SCOPE violation: a file is in a place the pipeline will not keep
         it — an untracked diagnostic script at the repo root (move to

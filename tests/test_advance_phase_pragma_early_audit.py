@@ -69,13 +69,12 @@ def test_advance_prechecks_calls_audit_pragma_no_cover():
         "Plan E: _advance_prechecks must call _audit_pragma_no_cover to "
         "catch non-allowlist pragma BEFORE coverage/lint/type run."
     )
+    # Round 114 站2: the lint/type stage is one call to `_lint_and_type_verdict`
+    # (Gate 1's tools), no longer a `subprocess.run(["ruff", ...])`.
     ruff = [n.lineno for n in ast.walk(fn)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-            and n.func.attr == "run" and n.args
-            and isinstance(n.args[0], ast.List) and n.args[0].elts
-            and isinstance(n.args[0].elts[0], ast.Constant)
-            and n.args[0].elts[0].value == "ruff"]
-    assert ruff, "expected the ruff stage — this test anchors on it"
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            and n.func.id == "_lint_and_type_verdict"]
+    assert ruff, "expected the lint/type stage — this test anchors on it"
     assert min(audit) < min(ruff), (
         f"the pragma audit runs at line {min(audit)}, after the ruff stage at "
         f"{min(ruff)} — Plan E's whole point is failing before lint/type/"

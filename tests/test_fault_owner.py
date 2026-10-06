@@ -192,7 +192,7 @@ def test_overloaded_exit_codes_need_their_message():
         exit_code=19, text="[sync-harness] FAILED: could not fast-forward submodule"
     ).owner == Owner.INFRA
     assert _classify(
-        exit_code=19, text="[BLOCKED] Type Safety (mypy) failure."
+        exit_code=19, text="[BLOCKED] Type Safety (pyright) failure."
     ).owner == Owner.PROJECT
 
 

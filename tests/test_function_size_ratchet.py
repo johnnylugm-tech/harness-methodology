@@ -236,7 +236,10 @@ _CEILINGS: dict[str, int] = {
     # `sys.version_info < (3, 11)` async-coverage hint — dead once the floor is 3.11,
     # because harness_cli.py refuses to start below it — left 7 lines of slack, and a
     # ceiling above the function pre-authorises growth nobody asked for.
-"cli/advance_prechecks.py::_precheck_p3_security_and_quality": 330,
+    # 2026-10-06: 330 -> 316 (Round 114 站2). Harvested: the hard-coded
+    # `ruff check .` / `mypy .` block (19 lines) became one call to
+    # `_lint_and_type_verdict`, which asks Gate 1's tools the Gate 1 question.
+"cli/advance_prechecks.py::_precheck_p3_security_and_quality": 316,
     # The extracted block, plus what it needed to become useful: three per-kind
     # remediation branches (a declared file not on disk, a delivered file in no
     # layer, an import the matrix forbids — three findings with three different
@@ -280,7 +283,7 @@ _CEILINGS: dict[str, int] = {
     # templates/.gitleaks.toml the same way [2/11] delivers the CI workflow —
     # except never overwritten: three corpus projects already hand-author
     # this file with their own allowlist entries.
-    "cli/project_cmds.py::cmd_init_project": 434,  # 2026-09-05: 432 -> 434 — Round 96 站1. Net +2: the `--gitleaks-only` early return (+14) minus the gitleaks write moving into `_write_gitleaks_config` (-12), so the repair path and the install path are one implementation.
+    "cli/project_cmds.py::cmd_init_project": 436,  # 2026-10-06: 434 -> 436 — Round 114 站2: the shim it writes has one import per line (the framework-written file must pass the project's lint). # 2026-09-05: 432 -> 434 — Round 96 站1. Net +2: the `--gitleaks-only` early return (+14) minus the gitleaks write moving into `_write_gitleaks_config` (-12), so the repair path and the install path are one implementation.
     # 369 at Round 98 站4, from 322: +47 for SEC-R9 — every `verified_by` name
     # declared in SAD.md §6 must be a case in TEST_SPEC.md, from phase 3, the
     # same phase rule R1-R7 use. 12 lines are the check; the other 35 record

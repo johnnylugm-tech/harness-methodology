@@ -276,13 +276,12 @@ def test_advance_prechecks_runs_the_phantom_audit_before_the_slow_stages():
     # function" — `_advance_prechecks` shells out to git and gitleaks well
     # before this. Anchor on the ruff stage by its argv, which is the first
     # of the three.
+    # Round 114 站2: the lint/type stage is one call to `_lint_and_type_verdict`
+    # (Gate 1's tools), no longer a `subprocess.run(["ruff", ...])`.
     ruff_lines = [
         n.lineno for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "run" and n.args
-        and isinstance(n.args[0], ast.List) and n.args[0].elts
-        and isinstance(n.args[0].elts[0], ast.Constant)
-        and n.args[0].elts[0].value == "ruff"
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == "_lint_and_type_verdict"
     ]
     assert ruff_lines, (
         "expected the ruff stage inside _advance_prechecks — this test "

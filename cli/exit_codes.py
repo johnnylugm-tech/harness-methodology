@@ -17,9 +17,9 @@ already scripts against a specific exit code today keeps working):
      blocks share one code.
   17 means BOTH "finalize-gate not called for a required gate" AND
      "unresolved deferred fixes in deferred_fixes.md" — same situation.
-  18 means BOTH "ruff linting failure" AND "submodule safety violation".
+  18 means BOTH "linting failure (Gate 1's tool)" AND "submodule safety violation".
   19 means BOTH "sync-harness SubmoduleSyncError" (a different subcommand
-     entirely) AND "mypy type-safety failure" (advance-phase).
+     entirely) AND "type-safety failure" (advance-phase, Gate 1's tool).
 All four are internally consistent in ONE respect: every site prints a
 `[BLOCKED]`/`[FATAL]` message identifying the specific precondition before
 returning, so the exit code alone is never the only signal — but a script
@@ -155,8 +155,8 @@ REGISTRY: dict[int, str] = {
     EX_NEXT_PHASE_PLAN_MISSING: "advance-phase: next phase's plan file not found — run generate-next-plan first",
     EX_RETIRED_CONSTITUTION_GATE: "RETIRED (減法 T3) — constitution keyword scoring is on-demand only; kept as a tombstone, do not reuse this number",
     EX_ADVANCE_GATE_NOT_FINALIZED: "advance-phase precondition block — finalize-gate not called for a required gate OR unresolved deferred_fixes.md items (see printed message)",
-    EX_ADVANCE_QUALITY_CHECK_FAIL: "advance-phase precondition block — ruff linting failure OR submodule safety violation (see printed message)",
-    EX_SYNC_OR_TYPE_CHECK_FAIL: "sync-harness: SubmoduleSyncError, OR advance-phase: mypy type-safety failure (see printed message)",
+    EX_ADVANCE_QUALITY_CHECK_FAIL: "advance-phase precondition block — linting failure (Gate 1's tool) OR submodule safety violation (see printed message)",
+    EX_SYNC_OR_TYPE_CHECK_FAIL: "sync-harness: SubmoduleSyncError, OR advance-phase: type-safety failure (Gate 1's tool) (see printed message)",
     EX_SECRETS_SCAN_FAIL: "advance-phase: gitleaks secrets scan failed or timed out",
     EX_SCOPE_VIOLATION: "WRITE_SCOPE violation: a file is in a place the pipeline will not keep it. Either an untracked diagnostic script at the repo root (move to .sessi-work/tmp or delete), or a delivered test reading evidence from a directory advance-phase clears at every transition (move the evidence under .methodology/). Fix and re-run advance-phase",
     EX_GHOST_DETECTED: "GHOST_DETECTED — agent claimed work but made no substantive code change (see .sessi-work/ghost_detected/)",

@@ -100,12 +100,11 @@ from cli.handoff_validators import (  # noqa: F401  re-export after Round 80 站
 )
 
 # Round 82 站2: the nine checks advance-phase runs before it will move a phase
-# now live in cli/advance_prechecks.py, with `_MYPY_EXCLUDE_ARGS` — the only
-# name here they read. Re-exported: every call site in `_advance_prechecks`,
-# every test that patches them through this module, and
-# tests/test_mypy_excludes_harness_submodule.py reach them by these names.
+# now live in cli/advance_prechecks.py. Re-exported: every call site in
+# `_advance_prechecks` and every test that patches them through this module
+# reach them by these names. (`_MYPY_EXCLUDE_ARGS` travelled with them and was
+# retired in Round 114 站2 with the `mypy .` call it served.)
 from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2 split
-    _MYPY_EXCLUDE_ARGS,
     _precheck_backup_artifacts,
     _precheck_cleared_dir_evidence,
     _precheck_declared_constraints_are_configured,

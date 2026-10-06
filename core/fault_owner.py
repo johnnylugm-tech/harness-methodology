@@ -127,8 +127,8 @@ OWNER_BY_EXIT: dict[int, str] = {
     16: Owner.NONE,  # RETIRED tombstone (減法 T3) — never returned
     # Measured: all three sites (2531 / 2546 / 3307) are project-side.
     17: Owner.PROJECT,
-    18: Owner.UNKNOWN,  # ruff (project) OR submodule edits (infra) — see _DISCRIMINATORS
-    19: Owner.UNKNOWN,  # sync-harness (infra) OR mypy (project) — see _DISCRIMINATORS
+    18: Owner.UNKNOWN,  # lint (project) OR submodule edits (infra) — see _DISCRIMINATORS
+    19: Owner.UNKNOWN,  # sync-harness (infra) OR type errors (project) — see _DISCRIMINATORS
     20: Owner.UNKNOWN,  # gitleaks timeout (infra) OR secrets found (project)
     21: Owner.PROJECT,  # untracked diagnostic scripts at the repo root
     # GHOST_DETECTED. Not the agent's "fault" in a way any tree records, but
@@ -295,9 +295,9 @@ _DISCRIMINATORS: dict[int, tuple[tuple[re.Pattern[str], str, str], ...]] = {
     ),
     18: (
         (
-            re.compile(r"Linting \(ruff\) failure", re.I),
+            re.compile(r"Linting \([\w-]+\) failure", re.I),
             Owner.PROJECT,
-            "ruff findings in the project's code",
+            "lint findings in the project's code (Gate 1's linting tool)",
         ),
         (
             re.compile(r"submodule", re.I),
@@ -312,9 +312,9 @@ _DISCRIMINATORS: dict[int, tuple[tuple[re.Pattern[str], str, str], ...]] = {
             "sync-harness could not update the submodule",
         ),
         (
-            re.compile(r"Type Safety \(mypy\) failure", re.I),
+            re.compile(r"Type Safety \([\w-]+\) failure", re.I),
             Owner.PROJECT,
-            "mypy findings in the project's code",
+            "type errors in the project's code (Gate 1's type_safety tool)",
         ),
     ),
     20: (

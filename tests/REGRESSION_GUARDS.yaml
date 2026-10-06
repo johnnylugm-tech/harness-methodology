@@ -6293,3 +6293,23 @@
 - test: tests/test_workflow_sim.py::test_sim_testbed_passes
   bug: "standalone-mutmut must report the score mutation-test-score recorded, read no score after a failed run, and fail a score under the gate threshold read from gate_configs"
   fixed_in: "Round 114 站1 (three sim scenarios, floor 167 -> 170)"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_a_tree_the_gate_passes_is_not_blocked_by_another_type_checker
+  bug: "advance-phase ran `mypy .` (only when `shutil.which` found it) while Gate 1 scores type_safety with pyright over {src_target}: on taskq-open's tree before 6df7c21 Gate 2 found 0 errors in 47 files and advance blocked on 7 mypy errors; the project's own SPEC names pyright"
+  fixed_in: "Round 114 站2 (`_lint_and_type_verdict`: Gate 1's tool for the language, run_tool on Gate 1's target, compute_tool_score against Gate 1's threshold)"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_a_type_error_the_gate_tool_sees_still_blocks
+  bug: "negative control: replacing the second enforcer must not remove the check — a real type error still blocks with exit 19"
+  fixed_in: "Round 114 站2"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_a_lint_finding_in_the_source_blocks
+  bug: "negative control for linting: a ruff finding in the source still blocks with exit 18, while the framework-written shim outside the target is not judged"
+  fixed_in: "Round 114 站2"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_the_owner_classifier_reads_the_new_message
+  bug: "core/fault_owner's 18/19 discriminators matched the literal `(ruff)` / `(mypy)`; once the message names the gate's tool, a fixed tool name would drop the PROJECT attribution to UNKNOWN"
+  fixed_in: "Round 114 站2"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_the_shim_init_project_writes_passes_lint
+  bug: "init-project wrote `import subprocess, sys, pathlib` (E401) into the delivered tree; taskq-open's agent hand-edited the 'do not edit' shim to pass advance-phase (f19cd01), and four corpus projects still carry it"
+  fixed_in: "Round 114 站2"

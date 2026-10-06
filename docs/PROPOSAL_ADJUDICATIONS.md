@@ -11066,3 +11066,29 @@ exit code;分數以 relay 讀回框架寫的 `.methodology/mutation_score.json`;
 
 反證:逐一還原 push_cmds / advance_prechecks:417 / hook / harness_bridge 的錯誤旗標,以及以舊
 standalone-mutmut.js 覆蓋,守衛皆轉紅;`cp` 還原 sha256 一致。sim floor 167 → 170。
+
+### 站2 — advance-phase 用 gate 的工具判 linting / type_safety
+
+`_precheck_p3_security_and_quality` 在 P3 起每次 advance 都跑 `ruff check .` 與 `mypy .`(各自以
+`shutil.which` 找到才跑 —— 環境旋鈕,R40),而 Gate 1 以 YAML 指名的工具(Python:ruff、pyright)
+量 `{src_target}`。一個維度兩個判定者(R38):
+
+- taskq-open `6df7c21^` 的樹(scratchpad 副本實測):gate 工具 ruff 100、pyright 100(47 檔 0 錯);
+  `mypy .` 7 錯,advance exit 19,專案改碼迎合第二個判定者。專案自己的 SPEC.md:421 指名 pyright。
+- `ruff .` 量到框架寫入的 `harness_cli.py` shim(E401),agent 手改標明「do not edit」的檔(`f19cd01`);
+  語料另有 4 個專案帶著同一 shim。
+
+修:`_lint_and_type_verdict` —— `resolve_tool_id(dim, language, yaml_tool=gate1 的 tool)` →
+`run_tool` → `compute_tool_score`,對 Gate 1 門檻;exit code 仍 18/19;無分數時 WARN + degradation
+(不再沉默略過)。`fault_owner` 18/19 判別式改為 `\([\w-]+\)`(工具名不再寫死)。shim 改一行一個 import。
+
+**副作用實測**:taskq-super / taskq-redo / taskq-api 的副本以新邏輯重判,皆 rc None(無新阻擋)。
+JS/TS 專案的 advance 改用其 gate 工具(原為 `ruff .` 與無 .py 時的 mypy);語料無 P3 以上的 JS 專案。
+
+**退役(R64 先讀理由)**:`_MYPY_EXCLUDE_ARGS` 與 `tests/test_mypy_excludes_harness_submodule.py`。
+它守的是「`mypy .` 從專案根目錄走進 harness/ 的 fixture,撞名 conftest」—— 這次移除的正是那個
+`mypy .` 呼叫;pyright 只量 `{src_target}`,不會走進 harness/。該測試未登記為守衛。
+函式 ratchet `_precheck_p3_security_and_quality` 330 → 316(收割)。
+
+反證:把 type_safety 的工具改回 mypy → 2 紅;判別式寫回 `(mypy)`、shim 寫回多重 import → 2 紅;
+`cp` 還原 sha256 一致。
