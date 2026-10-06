@@ -267,6 +267,83 @@ def bound_deliverable_path(project: Path, deliverable_id: str) -> "Path | None":
     return None
 
 
+FRAMEWORK_WRITES_FIELD = "framework_writes"
+CHANGE_REVIEWS_FIELD = "change_reviews"
+
+
+def bound_sha(record: dict) -> "str | None":
+    """The bytes an approval vouches for now (Round 114 站6).
+
+    What Agent B reviewed, carried forward through the framework's own
+    recorded rewrites (`record_framework_write`) — and only through an
+    unbroken chain: a rewrite recorded from bytes the approval did not vouch
+    for carries nothing forward, so it cannot launder a hand edit.
+    """
+    sha = record.get(REVIEWED_SHA_FIELD)
+    for write in record.get(FRAMEWORK_WRITES_FIELD) or []:
+        if isinstance(write, dict) and write.get("from") == sha and isinstance(write.get("to"), str):
+            sha = write["to"]
+    return sha
+
+
+def _approval_ids(phase: int) -> "list[tuple[str, str]]":
+    """(approval id, committed path) for the deliverables Agent B reviews in *phase*.
+
+    PHASE_DELIVERABLES names what is reviewed; PHASE_DELIVERABLE_PATHS names
+    what is delivered. Round 114 站7 split them for TRACEABILITY_MATRIX.md
+    (delivered, rendered, not reviewed) — an approval file left from before
+    must not send the framework's render to a reviewer.
+    """
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS, PHASE_DELIVERABLES
+
+    paths = PHASE_DELIVERABLE_PATHS.get(phase, {})
+    return [(did, paths[did]) for did in PHASE_DELIVERABLES.get(phase, []) if did in paths]
+
+
+def record_framework_write(project: "str | Path", rel_path: str, before: str, after: str,
+                           writer: str) -> None:
+    """A framework renderer rewrote a reviewed deliverable: say so on its approval.
+
+    Round 114 站6. SPEC_TRACKING.md's Status column is refreshed from P3 by
+    the framework; that is not a change for Agent B to review. The approval
+    gains `{from, to, writer}`, appended only when *before* is exactly what
+    the approval vouches for now (`bound_sha`). Never raises: a record that
+    cannot be updated leaves the file stale, which is the safe direction.
+    """
+    project = Path(project)
+    if before == after:
+        return
+    approvals_dir = project / ".methodology" / "agent_b_approvals"
+    for phase in (1, 2, 6):
+        for did, rel in _approval_ids(phase):
+            if rel != rel_path:
+                continue
+            record = approvals_dir / f"{did}.json"
+            try:
+                data = json.loads(record.read_text(encoding="utf-8"))
+                if not isinstance(data, dict) or bound_sha(data) != before:
+                    continue
+                data.setdefault(FRAMEWORK_WRITES_FIELD, []).append(
+                    {"from": before, "to": after, "writer": writer})
+                record.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+            except (OSError, ValueError):
+                continue
+
+
+def stale_approvals_before(project: Path, phase: int) -> "list[dict]":
+    """Stale approvals of every phase that closed before *phase*.
+
+    Round 114 站6. `stale_approvals` answers for the phase being completed;
+    this answers for the ones already closed, which nothing asked about —
+    SAD.md was edited after Phase 2 in 4 of 15 corpus projects. A record with
+    no reviewed sha (written before Round 113's binding) is left out: it says
+    nothing about what was reviewed, and a phase that closed under the old
+    rule is not re-judged on it.
+    """
+    return [row for p in (1, 2, 6) if p < phase
+            for row in stale_approvals(project, p) if row["reviewed"]]
+
+
 def stale_approvals(project: Path, phase: int) -> "list[dict]":
     """APPROVE records of `phase` whose reviewed bytes are not the file's now.
 
@@ -274,14 +351,14 @@ def stale_approvals(project: Path, phase: int) -> "list[dict]":
     `reviewed` is None for a record written before the binding existed — it
     says nothing about what B saw, so it is as stale as a changed file. A
     missing file or a missing/non-APPROVE record is not reported here; those
-    are verify_agent_b_approvals_core's own findings.
+    are verify_agent_b_approvals_core's own findings. Round 114 站6: the
+    comparison is against `bound_sha` (the framework's own recorded rewrites
+    carried forward), over the ids Agent B reviews.
     """
-    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLE_PATHS
-
     project = Path(project)
     approvals_dir = project / ".methodology" / "agent_b_approvals"
     rows: list[dict] = []
-    for did, rel in PHASE_DELIVERABLE_PATHS.get(phase, {}).items():
+    for did, rel in _approval_ids(phase):
         path = bound_deliverable_path(project, did)
         record = approvals_dir / f"{did}.json"
         if path is None or not path.is_file() or not record.is_file():
@@ -293,7 +370,7 @@ def stale_approvals(project: Path, phase: int) -> "list[dict]":
         if not isinstance(data, dict) or data.get("review_status") != "APPROVE":
             continue
         current = file_sha256(path)
-        reviewed = data.get(REVIEWED_SHA_FIELD)
+        reviewed = bound_sha(data)
         if reviewed != current:
             rows.append({"id": did, "path": rel, "reviewed": reviewed, "current": current})
     return rows

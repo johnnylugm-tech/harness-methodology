@@ -219,6 +219,11 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
                 )
                 return 1
 
+    # Round 114 站6: a change review of a closed-phase deliverable is bound to
+    # the bytes review-change-context measured, never to a sha in the payload.
+    if getattr(args, "bind_context", False):
+        return _bind_change_review(project, fr_id, payload)
+
     # Round 113 站1/站2: what B reviewed, and what B found.
     if isinstance(payload, dict):
         _gaps = payload.get("gaps")
@@ -261,6 +266,123 @@ def cmd_write_approval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _review_context_path(project: Path, fr_id: str) -> Path:
+    return project / ".sessi-work" / "review_ctx" / f"{fr_id}.json"
+
+
+def _bind_change_review(project: Path, fr_id: str, payload: object) -> int:
+    """Append an APPROVE change review to *fr_id*'s approval and rebind it.
+
+    Round 114 站6. The new binding is the `current_sha256` that
+    review-change-context computed, and only if the file still has exactly
+    those bytes — a change made after the context was built was not reviewed.
+    The original review's record (docs_embedded, citations) is kept; the
+    change review is appended, not substituted (R44).
+    """
+    import json as _json
+
+    if not isinstance(payload, dict) or payload.get("review_status") != "APPROVE":
+        print("[write-approval] BLOCKED: --bind-context records an APPROVE change "
+              "review; a rejected change is not bound.", file=sys.stderr)
+        return 1
+    if len(str(payload.get("reason", "")).strip()) < agent_b_approvals.MIN_REVIEW_REASON_CHARS:
+        print("[write-approval] BLOCKED: the change review needs a reason of at least "
+              f"{agent_b_approvals.MIN_REVIEW_REASON_CHARS} characters.", file=sys.stderr)
+        return 1
+    if not payload.get("citations"):
+        print("[write-approval] BLOCKED: the change review must cite what it read.", file=sys.stderr)
+        return 1
+    ctx_path = _review_context_path(project, fr_id)
+    record_path = project / ".methodology" / "agent_b_approvals" / f"{fr_id}.json"
+    try:
+        context = _json.loads(ctx_path.read_text(encoding="utf-8"))
+        record = _json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"[write-approval] BLOCKED: no review context or approval for {fr_id} "
+              f"({exc}); run `harness_cli.py review-change-context --id {fr_id}` first.",
+              file=sys.stderr)
+        return 1
+    path = agent_b_approvals.bound_deliverable_path(project, fr_id)
+    if path is None or not path.is_file() \
+            or agent_b_approvals.file_sha256(path) != context.get("current_sha256"):
+        print(f"[write-approval] BLOCKED: {fr_id} changed after its review context was "
+              "built — that change was not reviewed. Rebuild the context and review again.",
+              file=sys.stderr)
+        return 1
+    record.setdefault(agent_b_approvals.CHANGE_REVIEWS_FIELD, []).append({
+        "from": context.get("reviewed_sha256"), "to": context["current_sha256"],
+        "reason": payload.get("reason"), "citations": payload.get("citations"),
+        "gaps": payload.get("gaps") or [],
+    })
+    record[agent_b_approvals.REVIEWED_SHA_FIELD] = context["current_sha256"]
+    _write_approval_file(project, fr_id, record)
+    print(f"[write-approval] OK: {fr_id} change review bound to {context['current_sha256'][:12]}")
+    return 0
+
+
+def cmd_review_change_context(args: argparse.Namespace) -> int:
+    """Build what a change reviewer reads: the diff since the reviewed bytes.
+
+    Round 114 站6. The reviewed version is found in the project's git history
+    by its sha256 (the approval vouches for those bytes); the context file
+    carries that diff, the ADR amendment headings, and the sha256 of the file
+    as it is now — which `write-approval --bind-context` binds to, so the
+    binding never comes from the reviewing agent. When the reviewed bytes
+    were never committed, the context says so and the reviewer reads the
+    whole file.
+    """
+    import difflib
+    import hashlib
+    import json as _json
+    import subprocess
+
+    project = Path(args.project).resolve()
+    fr_id = args.id
+    record_path = project / ".methodology" / "agent_b_approvals" / f"{fr_id}.json"
+    path = agent_b_approvals.bound_deliverable_path(project, fr_id)
+    try:
+        record = _json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"[review-change-context] ERROR: no approval for {fr_id}: {exc}", file=sys.stderr)
+        return 1
+    if path is None or not path.is_file():
+        print(f"[review-change-context] ERROR: {fr_id} names no delivered file", file=sys.stderr)
+        return 1
+    rel = path.relative_to(project).as_posix()
+    reviewed = agent_b_approvals.bound_sha(record)
+    current_text = path.read_text(encoding="utf-8", errors="replace")
+    previous: "str | None" = None
+    log = subprocess.run(["git", "-C", str(project), "log", "--format=%H", "-n", "300", "--", rel],
+                         capture_output=True, text=True)
+    for commit in log.stdout.split():
+        blob = subprocess.run(["git", "-C", str(project), "show", f"{commit}:{rel}"],
+                              capture_output=True)
+        if blob.returncode == 0 and hashlib.sha256(blob.stdout).hexdigest() == reviewed:
+            previous = blob.stdout.decode("utf-8", errors="replace")
+            break
+    diff = "".join(difflib.unified_diff(
+        previous.splitlines(keepends=True), current_text.splitlines(keepends=True),
+        fromfile=f"{rel} (reviewed)", tofile=f"{rel} (now)")) if previous is not None else None
+    from core.utils.project_layout import ProjectLayout
+
+    adr = ProjectLayout(project).adr_path
+    amendments = [line.strip() for line in adr.read_text(encoding="utf-8", errors="replace").splitlines()
+                  if line.startswith("#") and "amendment" in line.lower()] if adr.is_file() else []
+    context = {
+        "id": fr_id, "path": rel, "reviewed_sha256": reviewed,
+        "current_sha256": agent_b_approvals.file_sha256(path),
+        "previous_version_found": previous is not None, "diff": diff,
+        "adr_amendments": amendments,
+    }
+    out = _review_context_path(project, fr_id)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(_json.dumps(context, indent=2, ensure_ascii=False), encoding="utf-8")
+    found = "diff since the reviewed version" if previous is not None else \
+        "the reviewed version is not in git history — review the whole file"
+    print(f"[review-change-context] {fr_id}: {found}. Context: {out}")
+    return 0
+
+
 def cmd_stale_approvals(args: argparse.Namespace) -> int:
     """Print the phase's approvals whose reviewed bytes are not the file's now.
 
@@ -272,7 +394,11 @@ def cmd_stale_approvals(args: argparse.Namespace) -> int:
     import json as _json
 
     project = Path(args.project).resolve()
-    rows = agent_b_approvals.stale_approvals(project, int(args.phase))
+    if getattr(args, "before", None) is not None:
+        # Round 114 站6: every phase that closed before this one.
+        rows = agent_b_approvals.stale_approvals_before(project, int(args.before))
+    else:
+        rows = agent_b_approvals.stale_approvals(project, int(args.phase))
     for row in rows:
         print(f"[stale-approvals] {row['id']}: reviewed "
               f"{(row['reviewed'] or 'unrecorded')[:12]} now {row['current'][:12]} "
@@ -546,8 +672,20 @@ def register(sub) -> None:
         help="List a phase's Agent B approvals whose reviewed file has changed since",
     )
     sta.add_argument("--project", default=".")
-    sta.add_argument("--phase", type=int, required=True)
+    sta_scope = sta.add_mutually_exclusive_group(required=True)
+    sta_scope.add_argument("--phase", type=int, help="the phase being completed")
+    sta_scope.add_argument("--before", type=int,
+                           help="every phase that closed before this one (Round 114 站6)")
     sta.set_defaults(func=cmd_stale_approvals)
+
+    rcc = sub.add_parser(
+        "review-change-context",
+        help="Write what a change reviewer reads for a closed-phase deliverable: the "
+             "diff since the reviewed bytes, found in git (Round 114 站6)",
+    )
+    rcc.add_argument("--project", default=".")
+    rcc.add_argument("--id", required=True, help="Approval id, e.g. SAD.md")
+    rcc.set_defaults(func=cmd_review_change_context)
 
     vab = sub.add_parser(
         "verify-agent-b-approvals",
@@ -591,6 +729,9 @@ def register(sub) -> None:
                          "inner double quotes in shell.")
     wa.add_argument("--stdin", action="store_true",
                     help="Read JSON payload from stdin (alternative to --json for large payloads)")
+    wa.add_argument("--bind-context", action="store_true", dest="bind_context",
+                    help="Record an APPROVE change review and bind the approval to the bytes "
+                         "review-change-context measured (Round 114 站6)")
     wa.set_defaults(func=cmd_write_approval)
 
     # verify-file (architectural fix — replaces 18 LLM-as-shell-wrapper verify sites in 6 phases)

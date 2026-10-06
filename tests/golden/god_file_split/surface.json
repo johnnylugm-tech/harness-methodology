@@ -384,6 +384,12 @@
       "--project",
       "-h"
     ],
+    "review-change-context": [
+      "--help",
+      "--id",
+      "--project",
+      "-h"
+    ],
     "review-fr-tests": [
       "--fr-id",
       "--help",
@@ -462,6 +468,7 @@
       "-h"
     ],
     "stale-approvals": [
+      "--before",
       "--help",
       "--phase",
       "--project",
@@ -542,6 +549,7 @@
       "-h"
     ],
     "write-approval": [
+      "--bind-context",
       "--fr-id",
       "--help",
       "--json",
@@ -578,7 +586,7 @@
     "cli.check_cmds::cmd_verify_gate": "2faad2569c64e836",
     "cli.check_cmds::cmd_verify_spec": "d849969a2639708b",
     "cli.check_cmds::cmd_verify_trace": "a69351f714ce3397",
-    "cli.check_cmds::cmd_write_approval": "9788ddf29021ffe3",
+    "cli.check_cmds::cmd_write_approval": "8fd663067dcec470",
     "cli.fr_cmds::_abort_dispatch_structurally_broken": "1e446834b394f8b8",
     "cli.fr_cmds::_fr_step_already_done": "8d727a1da62d6143",
     "cli.fr_cmds::_fr_step_lineage_boundary": "9e34f00a1257279a",
@@ -592,7 +600,7 @@
     "cli.fr_cmds::_resolve_precondition_block": "b111c228eda74005",
     "cli.phase_cmds::_advance_commit_targets": "9e008b02b287d30a",
     "cli.phase_cmds::_advance_fsm": "aba6cad676648853",
-    "cli.phase_cmds::_advance_prechecks": "d331ed03d1d85f1d",
+    "cli.phase_cmds::_advance_prechecks": "f9f5d343ac7f420e",
     "cli.phase_cmds::_advance_step_commit_and_push": "b1f1f97fecae995e",
     "cli.phase_cmds::_advance_step_refuse_open_obligations": "3bbd179befbb11fd",
     "cli.phase_cmds::_advance_step_refuse_phase_9": "376297f093a139f1",

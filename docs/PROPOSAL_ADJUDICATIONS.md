@@ -11222,3 +11222,42 @@ advance 被 render 取代 —— 與現行在 P3 exit 的行為相同,只是提�
 2. 本 repo 在 layout 路徑沒有 SRS.md,所以自身 attestation 的 SRS coverage 由 38.5% 如實降為 0.0%
    —— 先前的 38.5% 是 SAD 冒充 SRS。照實提交,不另造 SRS。
 另:測試 fixture 若以字面寫出 `[FR-NN]` 標註,會被掃進本 repo 自己的 attestation;改為執行期組字串。
+
+### 站6 — 已關閉 phase 的審核文件被改寫時,由 B 審查那個變更(老闆裁定:方案 A)
+
+R113 站1 只在「本次正要完成的 phase」比對核准綁定。語料:SAD.md 在 P2 之後被改,4/15 個專案共 11 個
+commit,只有 1 個有 ADR 記錄 —— taskq-new 把 `taskq.api.deps` 移出 high_risk_modules(放寬),
+taskq-open 的 Gate 1 fixer 改寫 typed constraint 與 SAB.json(`a79ffd8`、`5682a9f`);SRS.md 在 P2 被改
+(`5c7f5b5`)。taskq-open 走完 P8 時有 5 份核准描述的是已不存在的 bytes。
+
+**第二輪驗證改寫的設計**:第一版計畫要把 P1/P2 的 review cfg 提到外層供 P3+ 重審,實測 cfg 與 abLoop /
+persistApproval 都依賴每個 phase 自己的 `RELAYED_SHA`,無法 hoist,每 phase 複製約 25 KB。改為:
+- **Python 建 context**:`review-change-context --id X` 以 sha256 在 git 歷史找出被審核的那一版,寫出 diff、
+  ADR 的 amendment 標題與現在檔案的 sha;找不到就說明,改審全文。
+- **綁定只由 Python 決定**:`write-approval --fr-id X --bind-context` 只接受 APPROVE,把 `reviewed_sha256`
+  改為 context 量到的 sha,且檔案此刻必須仍是那份 bytes;原審核記錄保留,變更審查以 `change_reviews` 追加(R44)。
+- **JS 一個自足函式** `reviewChangedDeliverables(phaseNum, { phase: '<box>' })`:無 per-phase const、回傳
+  halt() 同形物件,run-all 只 hoist 一份;每個 advance 迴圈(P2–P8)每輪開頭先跑。box 名以 `{ phase: }` 字面量
+  從 phase 本體傳入,run-all 才會加 `P<N> · ` 前綴;標籤依 phase 計數,run-all 與單檔的派工序列一致。
+- **advance precheck** `_precheck_reviewed_deliverables_unchanged`:仍有未審的變更 → exit 53(PROJECT)。
+
+兩種不送審的情況:
+- **框架自己的 render**:SPEC_TRACKING Status 欄自 P3 由框架刷新。原計畫用 `refresh_status_table` 正規化
+  比對 —— 驗證發現核准的 sha 來自 relay frame(原始 bytes),兩端無法一致正規化。改為 `record_framework_write`:
+  render 寫入時在核准上記 `{from, to, writer}`,`bound_sha` 只沿「從核准所擔保的 bytes 開始」的不斷鏈前進,
+  所以不會洗掉更早的手改。amend-sab **不**記框架寫入 —— 架構修訂是專案的決定,要審。
+- **R113 綁定之前寫的核准**:沒記錄審過什麼,已關閉的 phase 不以它重判(延續 R113 1d)。
+
+另修:`stale_approvals` 原本走 `PHASE_DELIVERABLE_PATHS`,站7 後 matrix 仍在該表(仍是交付物),舊專案留下的
+matrix 核准會把框架的 render 送審。改為只看 `PHASE_DELIVERABLES`(被審的 id)∩ 路徑表。
+
+REJECT 時直接 halt(owner project),不把 gaps 交給 advance 的修復 agent:被核准文件的變更被否決,
+要修或要還原是專案的決定,不該由 advance 迴圈繞過。
+
+語料(以各自目前 phase 量):只有 taskq-open 會被要求重審 SRS / SPEC_TRACKING / SAD / ADR(它已在 P9);
+其餘專案的核准都早於 R113 綁定,一律略過,不追溯阻擋。
+
+反證:bound_sha 不跟鏈、納入無綁定核准、改走路徑表、綁定改用舊 sha、不檢查 context 之後的變更、render 不記寫入、
+拿掉 phase_cmds 呼叫、拿掉 advance 迴圈呼叫 → 各自轉紅;`cp` 還原一致。run-all 441116 → 445263,上限 445363;
+sim floor 174 → 177。ratchet:advance_prechecks 1335 → 1359、phase_cmds 2303 → 2309、js_blocks 2427 → 2478、
+`_advance_prechecks` 292 → 297;split golden 重生。

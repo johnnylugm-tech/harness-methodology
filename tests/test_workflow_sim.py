@@ -164,4 +164,7 @@ def test_sim_testbed_passes():
     # project-owned halt after two rounds that leave tests undelivered.
     # 173 -> 174 (2026-10-06): Round 114 站7 — P1 dispatches no traceability
     # author/reviewer and approves exactly SRS / SPEC_TRACKING / TEST_INVENTORY.
-    assert int(m.group(1)) >= 174, f"sim suite shrank: only {m.group(1)} passing tests (floor 174)"
+    # 174 -> 177 (2026-10-06): Round 114 站6 — a closed phase's changed
+    # deliverable: an approved change is bound before advance-phase, a
+    # rejected one halts, and a bind that fails halts.
+    assert int(m.group(1)) >= 177, f"sim suite shrank: only {m.group(1)} passing tests (floor 177)"

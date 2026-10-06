@@ -207,6 +207,7 @@ OWNER_BY_EXIT: dict[int, str] = {
     50: Owner.PROJECT,  # a Phase 1 deliverable's SPEC.md line citation lands off content
     51: Owner.PROJECT,  # the phase's milestone push did not land on a green build
     52: Owner.PROJECT,  # a declared non-FR test is still unwritten at the P4 exit
+    53: Owner.PROJECT,  # a closed phase's reviewed deliverable changed without review
     70: Owner.HARNESS,  # [HARNESS-BUG] — the crash boundary
     130: Owner.NONE,  # Ctrl-C
 }

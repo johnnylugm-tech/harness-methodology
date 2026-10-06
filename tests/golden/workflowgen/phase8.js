@@ -232,6 +232,34 @@ const DELTA_FAST_SCHEMA = {
   required: ['pass_fr_ids', 'fail_fr_ids'],
 }
 
+// ---- reviewChangedDeliverables (Round 114 站6) ----
+const CHANGED_DOCS_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+const CHANGE_REVIEW_SCHEMA = { type: 'object', properties: { review_status: { type: 'string', enum: ['APPROVE', 'REJECT'] }, reason: { type: 'string' }, citations: { type: 'array', items: { type: 'string' } }, gaps: { type: 'array', items: { type: 'object' } } }, required: ['review_status', 'reason', 'citations'] }
+const __changeReviewCalls = {}
+async function reviewChangedDeliverables(phaseNum, box) {
+  const n = phaseNum + '-' + (__changeReviewCalls[phaseNum] = (__changeReviewCalls[phaseNum] || 0) + 1)
+  const phaseName = box.phase
+  const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --before ' + phaseNum + ' --project ' + REPO
+    + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+    { label: 'changed-docs-' + n, phase: phaseName, agentType: 'general-purpose', schema: CHANGED_DOCS_SCHEMA })
+  if (!res || !Array.isArray(res.stale)) return { halt_step: 'change-review', error: 'stale-approvals --before reported no list', owner: 'infra' }
+  for (const id of res.stale) {
+    log('  change review (approved in an earlier phase, edited since): ' + id)
+    const rv = await dispatch('YOU ARE AGENT B, CHANGE REVIEWER. ' + id + ' was approved in an earlier phase and has changed since.\nREPO: ' + REPO + '\n'
+      + '1. Run `' + PY + ' ' + REPO + '/harness_cli.py review-change-context --project ' + REPO + ' --id "' + id + '"`; read the context file it names (the diff since the reviewed bytes, ADR amendment headings) and the whole current file.\n'
+      + '2. Judge the CHANGE: consistent with SPEC.md and the other approved deliverables? Does it drop or weaken a requirement, constraint, threat or high-risk module without a recorded reason?\n'
+      + '3. Report via the StructuredOutput tool: review_status APPROVE or REJECT; reason (>= 40 chars); citations (path:line you read in the current file); gaps (what is wrong, for REJECT). Do NOT edit any file.',
+      { label: 'change-review-' + n + '-' + id, phase: phaseName, agentType: 'general-purpose', schema: CHANGE_REVIEW_SCHEMA })
+    if (!rv || rv.review_status !== 'APPROVE') return { halt_step: 'change-review', error: id + ' changed after its review and the change review did not approve it', gaps: rv ? rv.gaps : null, owner: 'project' }
+    const payload = JSON.stringify({ review_status: 'APPROVE', reason: rv.reason, citations: rv.citations, gaps: rv.gaps || [] }).replace(/'/g, "'\\''")
+    const w = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py write-approval --project ' + REPO + ' --fr-id "' + id + '" --bind-context --json \'' + payload + '\'; echo RC=$?\n'
+      + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',
+      { label: 'change-bind-' + n + '-' + id, phase: phaseName, agentType: 'general-purpose', schema: RC_SCHEMA })
+    if (!(w && w.rc === 0)) return { halt_step: 'change-review', error: 'write-approval --bind-context did not record the change review of ' + id, rc: w ? w.rc : null }
+  }
+  return res.stale.length
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════
 // Phase: Entry & Preflight
@@ -698,6 +726,7 @@ let p8Ok = false, pushReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Final Push round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(8, { phase: 'Final Push' }); if (cr && cr.halt_step) return cr }
   // Last-line integrity guard: the phase-exit push commits .methodology/
   // wholesale — block here so mid-run corruption never reaches git history
   // (2026-07-02: commit 3198402 baked a corrupted manifest into main).

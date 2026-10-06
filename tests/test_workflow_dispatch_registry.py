@@ -169,6 +169,15 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^hunt-targets$", "carrier", "schema",
      "bug-hunt-targets rc transcribed into RC_SCHEMA; the manifest itself "
      "then arrives through the loadFileViaPython relay, not through prose"),
+    (r"^changed-docs-$", "carrier", "schema",
+     "Round 114 站6: `stale-approvals --before N` ids transcribed into "
+     "CHANGED_DOCS_SCHEMA; advance-phase re-asks it (exit 53)"),
+    (r"^change-review-$", "judgment", "schema",
+     "Round 114 站6: Agent B's change review over the context Python built "
+     "(CHANGE_REVIEW_SCHEMA); a REJECT halts, an APPROVE is bound by Python"),
+    (r"^change-bind-$", "carrier", "schema",
+     "Round 114 站6: `write-approval --bind-context` rc into RC_SCHEMA — the "
+     "binding is the sha review-change-context measured, not the agent's"),
     (r"^declared-check-r$", "carrier", "schema",
      "Round 114 站5: `undelivered-tests --non-fr` rc transcribed into RC_SCHEMA; "
      "advance-phase --completed 4 re-asks the same command (exit 52)"),

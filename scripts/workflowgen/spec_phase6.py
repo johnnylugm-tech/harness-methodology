@@ -271,6 +271,7 @@ def _render_phase6_tag_advance() -> str:
         + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
         + "  log('  Tag & Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
 
+        + "  { const cr = await reviewChangedDeliverables(6, { phase: 'Tag & Advance' }); if (cr && cr.halt_step) return cr }\n"
         + "  { const st = await reReviewStaleApprovals(6, 'Tag & Advance', () => p6PeerReview()); if (st && st.halt_step) return st }\n"
         + "  // Manifest integrity: enforced by advance-phase itself since Round 22 站2\n"
         + "  // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command\n"
@@ -354,7 +355,8 @@ def generate_phase6() -> str:
         + B.BUDGET_GUARD_BLOCK,
         B.WRITE_SCOPE_BLOCK,
         "",
-        B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA", "DA_CHALLENGE_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA", "DA_CHALLENGE_SCHEMA"]),
+        B.render_change_review(),  # Round 114 站6
         B.render_json_utils(),
         _render_phase6_entry_preflight(),
         B.render_gate_loop(

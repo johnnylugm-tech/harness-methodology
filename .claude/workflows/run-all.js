@@ -395,6 +395,35 @@ const HUNT_RECORD_SCHEMA = {
 }
 
 
+// ---- reviewChangedDeliverables (Round 114 站6) ----
+const CHANGED_DOCS_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }
+const CHANGE_REVIEW_SCHEMA = { type: 'object', properties: { review_status: { type: 'string', enum: ['APPROVE', 'REJECT'] }, reason: { type: 'string' }, citations: { type: 'array', items: { type: 'string' } }, gaps: { type: 'array', items: { type: 'object' } } }, required: ['review_status', 'reason', 'citations'] }
+const __changeReviewCalls = {}
+async function reviewChangedDeliverables(phaseNum, box) {
+  const n = phaseNum + '-' + (__changeReviewCalls[phaseNum] = (__changeReviewCalls[phaseNum] || 0) + 1)
+  const phaseName = box.phase
+  const res = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --before ' + phaseNum + ' --project ' + REPO
+    + '\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',
+    { label: 'changed-docs-' + n, phase: phaseName, agentType: 'general-purpose', schema: CHANGED_DOCS_SCHEMA })
+  if (!res || !Array.isArray(res.stale)) return { halt_step: 'change-review', error: 'stale-approvals --before reported no list', owner: 'infra' }
+  for (const id of res.stale) {
+    log('  change review (approved in an earlier phase, edited since): ' + id)
+    const rv = await dispatch('YOU ARE AGENT B, CHANGE REVIEWER. ' + id + ' was approved in an earlier phase and has changed since.\nREPO: ' + REPO + '\n'
+      + '1. Run `' + PY + ' ' + REPO + '/harness_cli.py review-change-context --project ' + REPO + ' --id "' + id + '"`; read the context file it names (the diff since the reviewed bytes, ADR amendment headings) and the whole current file.\n'
+      + '2. Judge the CHANGE: consistent with SPEC.md and the other approved deliverables? Does it drop or weaken a requirement, constraint, threat or high-risk module without a recorded reason?\n'
+      + '3. Report via the StructuredOutput tool: review_status APPROVE or REJECT; reason (>= 40 chars); citations (path:line you read in the current file); gaps (what is wrong, for REJECT). Do NOT edit any file.',
+      { label: 'change-review-' + n + '-' + id, phase: phaseName, agentType: 'general-purpose', schema: CHANGE_REVIEW_SCHEMA })
+    if (!rv || rv.review_status !== 'APPROVE') return { halt_step: 'change-review', error: id + ' changed after its review and the change review did not approve it', gaps: rv ? rv.gaps : null, owner: 'project' }
+    const payload = JSON.stringify({ review_status: 'APPROVE', reason: rv.reason, citations: rv.citations, gaps: rv.gaps || [] }).replace(/'/g, "'\\''")
+    const w = await dispatch('Run EXACTLY this command via the Bash tool:\n' + PY + ' ' + REPO + '/harness_cli.py write-approval --project ' + REPO + ' --fr-id "' + id + '" --bind-context --json \'' + payload + '\'; echo RC=$?\n'
+      + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',
+      { label: 'change-bind-' + n + '-' + id, phase: phaseName, agentType: 'general-purpose', schema: RC_SCHEMA })
+    if (!(w && w.rc === 0)) return { halt_step: 'change-review', error: 'write-approval --bind-context did not record the change review of ' + id, rc: w ? w.rc : null }
+  }
+  return res.stale.length
+}
+
+
 async function runPhase1() {
 
 
@@ -1650,6 +1679,8 @@ async function abLoop(cfg) {
 
 
 
+
+
 async function persistApproval(deliverableId, b2, diskPath) {
   const rawReason = String(b2.reason ?? '').trim()
   const synthReason = 'Agent B approved ' + deliverableId + ' (review_status=' + (b2.review_status ?? 'APPROVE')
@@ -2286,6 +2317,7 @@ const rerunP2 = async (ids) => {
 }
 let advanceReport = ''
 for (let advRound = 1; advRound <= 2; advRound++) {
+{ const cr = await reviewChangedDeliverables(2, { phase: 'P2 · Advance' }); if (cr && cr.halt_step) return cr }
 const stale = await reReviewStaleApprovals(2, 'Advance', rerunP2)
 if (stale && stale.halt_step) return stale
 if (advRound === 2 && !stale) break
@@ -2327,6 +2359,7 @@ async function runPhase3() {
 
 
 log('REPO = ' + REPO + ' | PY = ' + PY)
+
 
 
 
@@ -2813,6 +2846,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(3, { phase: 'P3 · Advance' }); if (cr && cr.halt_step) return cr }
   advanceReport = await dispatch(
     'YOU ARE THE PHASE-3 EXIT ORCHESTRATOR. Advance to Phase 4. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
@@ -2918,6 +2952,7 @@ log('REPO = ' + REPO + ' | PY = ' + PY)
 
 const HUNT_MODEL = (args && typeof args === 'object' && typeof args.huntModel === 'string') ? args.huntModel : 'claude-opus-4-8'
 log('HUNT_MODEL = ' + HUNT_MODEL)
+
 
 
 
@@ -3594,6 +3629,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(4, { phase: 'P4 · Advance' }); if (cr && cr.halt_step) return cr }
   advanceReport = await dispatch(
     'YOU ARE THE PHASE-4 EXIT ORCHESTRATOR. Advance to Phase 5. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
@@ -3656,6 +3692,7 @@ async function runPhase5() {
 
 
 log('REPO = ' + REPO + ' | PY = ' + PY)
+
 
 
 
@@ -3979,6 +4016,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(5, { phase: 'P5 · Advance' }); if (cr && cr.halt_step) return cr }
   advanceReport = await dispatch(
     'YOU ARE THE PHASE-5 EXIT ORCHESTRATOR. Advance to Phase 6. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
@@ -4096,6 +4134,8 @@ async function reReviewStaleApprovals(phaseNum, phaseName, rerun) {
   return halt('stale-approvals', { error: 'approvals still stale after re-review' })
 }
 const MAX_OUTER_ATTEMPTS_PEER = 3  // peer-review dispatch retry at orchestrator level
+
+
 
 
 
@@ -4410,6 +4450,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Tag & Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(6, { phase: 'P6 · Tag & Advance' }); if (cr && cr.halt_step) return cr }
   { const st = await reReviewStaleApprovals(6, 'Tag & Advance', () => p6PeerReview()); if (st && st.halt_step) return st }
   advanceReport = await dispatch(
     'YOU ARE THE PHASE-6 EXIT ORCHESTRATOR. Tag the Gate 4 release + advance to Phase 7. ROUND ' + round + '.\n'
@@ -4462,6 +4503,7 @@ async function runPhase7() {
 
 
 log('REPO = ' + REPO + ' | PY = ' + PY)
+
 
 
 
@@ -4784,6 +4826,7 @@ let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(7, { phase: 'P7 · Advance' }); if (cr && cr.halt_step) return cr }
   advanceReport = await dispatch(
     'YOU ARE THE PHASE-7 EXIT ORCHESTRATOR. Advance to Phase 8. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
@@ -4836,6 +4879,7 @@ async function runPhase8() {
 
 
 log('REPO = ' + REPO + ' | PY = ' + PY)
+
 
 
 
@@ -5170,6 +5214,7 @@ let p8Ok = false, pushReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
   log('  Final Push round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(8, { phase: 'P8 · Final Push' }); if (cr && cr.halt_step) return cr }
   const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)
   if (!pushIntegrity.ok) {
     return halt('final-push', { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' })

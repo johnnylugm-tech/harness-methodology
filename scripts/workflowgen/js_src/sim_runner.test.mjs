@@ -1817,3 +1817,38 @@ test('round114: P1 dispatches no traceability author or reviewer and approves th
     .filter(Boolean))].sort()
   assert.deepEqual(approvals, ['SPEC_TRACKING.md', 'SRS.md', 'TEST_INVENTORY.yaml'])
 })
+
+// ---- Round 114 站6: a closed phase's reviewed deliverable that changed is reviewed again ----
+// `stale-approvals --before N` names it; Agent B reviews the change over the
+// context Python built; APPROVE is bound by `write-approval --bind-context`.
+const p3WithChange = (review, bindRc = 0) => makeHappyResponder([
+  { match: /^changed-docs-3-1$/, respond: { stale: ['SAD.md'] } },
+  { match: /^change-review-3-1-SAD\.md$/, respond: review },
+  { match: /^change-bind-3-1-SAD\.md$/, respond: { rc: bindRc } },
+  ...happyOverrides(),
+])
+
+test('round114: an approved change is bound before the phase advances', async () => {
+  const { result, events } = await runWorkflow(WF('phase3-implementation.js'), p3WithChange(
+    { review_status: 'APPROVE', reason: 'the declared __main__ entry is consistent with SPEC and SRS', citations: ['02-architecture/SAD.md:3'] }))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  const labels = events.agents.map((a) => a.label)
+  assert.ok(labels.indexOf('change-bind-3-1-SAD.md') < labels.indexOf('advance-r1'))
+  const bind = events.agents.find((a) => a.label === 'change-bind-3-1-SAD.md')
+  assert.match(bind.prompt, /write-approval --project \S+ --fr-id "SAD\.md" --bind-context/)
+  assert.doesNotMatch(bind.prompt, /reviewed_sha256/, 'the binding comes from Python, never from the agent')
+})
+
+test('round114: a rejected change stops the run before advance-phase', async () => {
+  const { result, events } = await runWorkflow(WF('phase3-implementation.js'), p3WithChange(
+    { review_status: 'REJECT', reason: 'drops taskq.api.deps from high_risk_modules with no recorded reason', citations: [], gaps: [{ severity: 'high' }] }))
+  assert.equal(result.halt_step, 'change-review')
+  assert.equal(result.owner, 'project')
+  assert.ok(!events.agents.some((a) => a.label === 'advance-r1'))
+})
+
+test('round114: a change review that could not be bound stops the run', async () => {
+  const { result } = await runWorkflow(WF('phase3-implementation.js'), p3WithChange(
+    { review_status: 'APPROVE', reason: 'consistent with the rest of the architecture document', citations: ['x:1'] }, 1))
+  assert.equal(result.halt_step, 'change-review')
+})

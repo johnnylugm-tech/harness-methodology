@@ -313,6 +313,7 @@ def generate_phase4() -> str:
         B.WRITE_SCOPE_BLOCK,
         "",
         B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "FR_STEP_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA", "DELTA_FAST_SCHEMA", "GATE_VERIFY_SCHEMA", "PHASE_SCHEMA", "HUNT_RESULT_SCHEMA", "THREAT_HUNT_SCHEMA", "VERIFY_SCHEMA", "HUNT_RECORD_SCHEMA"]),
+        B.render_change_review(),  # Round 114 站6
         B.render_load_file_via_python(),
         B.render_entry_preflight(
             phase=4, gate_num=2, gate_owner_phase=3, prev_phase=3,

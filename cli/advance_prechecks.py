@@ -737,6 +737,32 @@ def _precheck_open_decisions_are_not_due(
         return None
 
 
+def _precheck_reviewed_deliverables_unchanged(completed_phase, project) -> "int | None":
+    """A closed phase's reviewed deliverable that changed since has to be reviewed again.
+
+    Round 114 站6. Round 113 bound an approval to the bytes Agent B reviewed
+    and asked only about the phase being completed. SAD.md was edited after
+    Phase 2 in 4 of 15 corpus projects (11 commits, one with an ADR record),
+    SRS.md during Phase 2 — and nothing asked. The phase's Advance step sends
+    each named deliverable to a change review before it runs this command.
+    """
+    from cli.exit_codes import EX_ADVANCE_REVIEWED_DELIVERABLE_CHANGED
+
+    rows = agent_b_approvals.stale_approvals_before(Path(project), completed_phase)
+    if not rows:
+        return None
+    print(f"\n[BLOCKED] {len(rows)} deliverable(s) reviewed in an earlier phase changed "
+          f"after that review:")
+    for row in rows:
+        print(f"  - {row['id']} ({row['path']}): reviewed {row['reviewed'][:12]}…, now "
+              f"{row['current'][:12]}…")
+    print(f"  → review each change: `harness_cli.py review-change-context --id <id>`, then "
+          f"record the reviewer's verdict with `write-approval --fr-id <id> --bind-context`. "
+          f"The workflow's Advance step does both. `harness_cli.py stale-approvals --before "
+          f"{completed_phase}` lists what remains.")
+    return EX_ADVANCE_REVIEWED_DELIVERABLE_CHANGED
+
+
 def _precheck_declared_tests_delivered(
     completed_phase, project, *, test_outcomes=None,
 ) -> "int | None":

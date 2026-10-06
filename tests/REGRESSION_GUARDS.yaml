@@ -6409,3 +6409,39 @@
 - test: tests/test_the_matrix_is_rendered_from_the_srs.py::test_an_fr_only_code_mentions_is_not_a_design_gap
   bug: "fr_without_design listed every FR with sad_mapped=False, including ghost FRs only code mentions — this repository's own attestation showed its code-only FRs as 'without design'"
   fixed_in: "Round 114 站7 follow-up (srs_declared AND NOT sad_mapped)"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_a_closed_phase_document_edited_later_is_named
+  bug: "Round 113 站1 checked an approval's binding only for the phase being completed; SAD.md was edited after Phase 2 in 4 of 15 corpus projects (11 commits, 1 with an ADR record) — taskq-new dropped taskq.api.deps from high_risk_modules, taskq-open's Gate 1 fixers rewrote typed constraints — and SRS.md during Phase 2; taskq-open ended Phase 8 with five approvals describing bytes that no longer exist"
+  fixed_in: "Round 114 站6 (stale_approvals_before: every closed phase, at every advance)"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_the_advance_refuses_while_a_closed_phase_change_is_unreviewed
+  bug: "a changed closed-phase deliverable must stop the advance until its change is reviewed"
+  fixed_in: "Round 114 站6 (_precheck_reviewed_deliverables_unchanged, exit 53)"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_a_change_review_is_bound_to_what_python_measured
+  bug: "a change review's binding must be the bytes Python measured when it built the reviewer's context (diff since the reviewed version, found in git), never a sha the agent reports; the original review's record is kept (R44)"
+  fixed_in: "Round 114 站6 (review-change-context; write-approval --bind-context)"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_a_bind_refuses_a_file_that_changed_after_its_context
+  bug: "a change made after the reviewer's context was built was not reviewed and must not be bound"
+  fixed_in: "Round 114 站6"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_the_spec_tracking_status_render_is_not_sent_to_review
+  bug: "SPEC_TRACKING.md's Status column is the framework's render from P3; without a record of that write every advance would send the render to Agent B"
+  fixed_in: "Round 114 站6 (record_framework_write from write_spec_tracking; bound_sha follows the chain)"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_a_framework_write_does_not_launder_an_earlier_hand_edit
+  bug: "a framework rewrite recorded from bytes the approval did not vouch for must carry nothing forward"
+  fixed_in: "Round 114 站6"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_an_approval_from_before_binding_does_not_block_a_closed_phase
+  bug: "an approval written before Round 113's binding says nothing about what was reviewed; a phase that closed under the old rule is not re-judged on it"
+  fixed_in: "Round 114 站6"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_a_retired_approval_id_is_not_asked_about
+  bug: "stale checks iterated delivered paths, so a TRACEABILITY_MATRIX.md approval left from before 站7 would send the framework's render to a reviewer"
+  fixed_in: "Round 114 站6 (_approval_ids: PHASE_DELIVERABLES ∩ PHASE_DELIVERABLE_PATHS)"
+
+- test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_every_advance_loop_after_p1_reviews_changes_first
+  bug: "a block with no executor forbids its own remedy (R103): every advance loop from P2 to P8 runs the change review before advance-phase"
+  fixed_in: "Round 114 站6 (reviewChangedDeliverables, hoisted once in run-all)"

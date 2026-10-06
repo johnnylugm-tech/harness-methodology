@@ -19,6 +19,7 @@ Status.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 
@@ -112,4 +113,14 @@ def write_spec_tracking(project: Path, rt, out_path: Path | None = None) -> None
     old = path.read_text(encoding="utf-8", errors="replace")
     new, changed = refresh_status_table(old, fr_status)
     if changed:
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
         path.write_text(new, encoding="utf-8")
+        # Round 114 站6: this column is the framework's to write. Carry the
+        # Agent B approval forward rather than send the render to a reviewer.
+        layout = ProjectLayout(project)
+        if path.resolve() == layout.spec_tracking_path.resolve():
+            from core.quality_gate.agent_b_approvals import record_framework_write
+
+            record_framework_write(project, layout.get_relative_str(layout.spec_tracking_path),
+                                   before, hashlib.sha256(path.read_bytes()).hexdigest(),
+                                   "spec_tracking_render")

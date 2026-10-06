@@ -117,6 +117,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_p3_criteria_review,
     _precheck_p3_security_and_quality,
     _precheck_per_fr_gate1_and_phase_truth,
+    _precheck_reviewed_deliverables_unchanged,
     _precheck_scope_violations,
     _precheck_spec_citations_land_on_content,
     _precheck_stage_pass_staging,
@@ -2081,6 +2082,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
     # report first; this one reads every FR's approval and re-measures the
     # assertions it pinned.
     _pre_rc = _precheck_p3_criteria_review(completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # Round 114 站6: a closed phase's reviewed deliverable changed since.
+    _pre_rc = _precheck_reviewed_deliverables_unchanged(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

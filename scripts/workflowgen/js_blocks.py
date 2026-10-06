@@ -1328,6 +1328,7 @@ def render_advance_loop(
         + "const ADVANCE_MAX_ROUNDS = 5\n"
         + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
         + "  log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
+        + f"  {{ const cr = await reviewChangedDeliverables({phase}, {{ phase: 'Advance' }}); if (cr && cr.halt_step) return cr }}\n"
         + "  // Manifest integrity: enforced by advance-phase itself since Round 22 站2\n"
         + "  // (cli/phase_cmds.py::_advance_prechecks, exit 27 with the restore command\n"
         + "  // in its [BLOCKED] message). It runs first, before any other precheck, and\n"
@@ -2136,6 +2137,56 @@ def render_stale_rereview() -> str:
         "    reviewed += res.stale.length\n"
         "  }\n"
         "  return halt('stale-approvals', { error: 'approvals still stale after re-review' })\n"
+        "}\n"
+    )
+
+
+def render_change_review() -> str:
+    """Round 114 站6 — a closed phase's reviewed deliverable changed since: review the change.
+
+    `harness_cli.py stale-approvals --before N` names them; for each, Agent B
+    reads the context Python built (`review-change-context`: the diff since
+    the reviewed bytes, found in git) and the whole file, and judges the
+    change. APPROVE is recorded with `write-approval --bind-context`, which
+    binds to the bytes Python measured — never to a sha the agent reports. A
+    REJECT stops the run: a change to an approved document is the project's
+    to fix or revert, not this loop's to talk past.
+
+    Self-contained on purpose — no per-phase const, no `halt` (the returned
+    object has halt()'s shape) — so run-all hoists one copy for P2-P8. Labels count per phase,
+    so a phase's dispatches read the same in run-all as standalone. Its
+    box name arrives as `{ phase: '<box>' }` at the call site: that literal is
+    inside a phase body, where run-all prefixes it with `P<N> · `. The
+    counter keeps labels distinct: the runtime may serve an identical
+    (prompt, opts) dispatch from cache, and the answer changes between calls.
+    """
+    return (
+        "// ---- reviewChangedDeliverables (Round 114 站6) ----\n"
+        "const CHANGED_DOCS_SCHEMA = { type: 'object', properties: { stale: { type: 'array', items: { type: 'string' } } }, required: ['stale'] }\n"
+        "const CHANGE_REVIEW_SCHEMA = { type: 'object', properties: { review_status: { type: 'string', enum: ['APPROVE', 'REJECT'] }, reason: { type: 'string' }, citations: { type: 'array', items: { type: 'string' } }, gaps: { type: 'array', items: { type: 'object' } } }, required: ['review_status', 'reason', 'citations'] }\n"
+        "const __changeReviewCalls = {}\n"
+        "async function reviewChangedDeliverables(phaseNum, box) {\n"
+        "  const n = phaseNum + '-' + (__changeReviewCalls[phaseNum] = (__changeReviewCalls[phaseNum] || 0) + 1)\n"
+        "  const phaseName = box.phase\n"
+        "  const res = await agent('Run EXACTLY this command via the Bash tool:\\n' + PY + ' ' + REPO + '/harness_cli.py stale-approvals --before ' + phaseNum + ' --project ' + REPO\n"
+        "    + '\\nThen report via the StructuredOutput tool: stale = the JSON array printed after `STALE:`.',\n"
+        "    { label: 'changed-docs-' + n, phase: phaseName, agentType: 'general-purpose', schema: CHANGED_DOCS_SCHEMA })\n"
+        "  if (!res || !Array.isArray(res.stale)) return { halt_step: 'change-review', error: 'stale-approvals --before reported no list', owner: 'infra' }\n"
+        "  for (const id of res.stale) {\n"
+        "    log('  change review (approved in an earlier phase, edited since): ' + id)\n"
+        "    const rv = await agent('YOU ARE AGENT B, CHANGE REVIEWER. ' + id + ' was approved in an earlier phase and has changed since.\\nREPO: ' + REPO + '\\n'\n"
+        "      + '1. Run `' + PY + ' ' + REPO + '/harness_cli.py review-change-context --project ' + REPO + ' --id \"' + id + '\"`; read the context file it names (the diff since the reviewed bytes, ADR amendment headings) and the whole current file.\\n'\n"
+        "      + '2. Judge the CHANGE: consistent with SPEC.md and the other approved deliverables? Does it drop or weaken a requirement, constraint, threat or high-risk module without a recorded reason?\\n'\n"
+        "      + '3. Report via the StructuredOutput tool: review_status APPROVE or REJECT; reason (>= 40 chars); citations (path:line you read in the current file); gaps (what is wrong, for REJECT). Do NOT edit any file.',\n"
+        "      { label: 'change-review-' + n + '-' + id, phase: phaseName, agentType: 'general-purpose', schema: CHANGE_REVIEW_SCHEMA })\n"
+        "    if (!rv || rv.review_status !== 'APPROVE') return { halt_step: 'change-review', error: id + ' changed after its review and the change review did not approve it', gaps: rv ? rv.gaps : null, owner: 'project' }\n"
+        "    const payload = JSON.stringify({ review_status: 'APPROVE', reason: rv.reason, citations: rv.citations, gaps: rv.gaps || [] }).replace(/'/g, \"'\\\\''\")\n"
+        "    const w = await agent('Run EXACTLY this command via the Bash tool:\\n' + PY + ' ' + REPO + '/harness_cli.py write-approval --project ' + REPO + ' --fr-id \"' + id + '\" --bind-context --json \\'' + payload + '\\'; echo RC=$?\\n'\n"
+        "      + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.',\n"
+        "      { label: 'change-bind-' + n + '-' + id, phase: phaseName, agentType: 'general-purpose', schema: RC_SCHEMA })\n"
+        "    if (!(w && w.rc === 0)) return { halt_step: 'change-review', error: 'write-approval --bind-context did not record the change review of ' + id, rc: w ? w.rc : null }\n"
+        "  }\n"
+        "  return res.stale.length\n"
         "}\n"
     )
 

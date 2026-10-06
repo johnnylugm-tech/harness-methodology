@@ -104,6 +104,7 @@ def _render_final_push() -> str:
         + "const ADVANCE_MAX_ROUNDS = 5\n"
         + "for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {\n"
         + "  log('  Final Push round ' + round + '/' + ADVANCE_MAX_ROUNDS)\n"
+        + "  { const cr = await reviewChangedDeliverables(8, { phase: 'Final Push' }); if (cr && cr.halt_step) return cr }\n"
         + "  // Last-line integrity guard: the phase-exit push commits .methodology/\n"
         + "  // wholesale — block here so mid-run corruption never reaches git history\n"
         + "  // (2026-07-02: commit 3198402 baked a corrupted manifest into main).\n"
@@ -166,6 +167,7 @@ def generate_phase8() -> str:
         B.WRITE_SCOPE_BLOCK,
         "",
         B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "FR_STEP_SCHEMA", "ENV_CHECK_SCHEMA", "CTX_SCHEMA", "DELTA_FAST_SCHEMA"]),
+        B.render_change_review(),  # Round 114 站6
         B.render_entry_preflight(
             phase=8, gate_num=4, gate_owner_phase=6, prev_phase=7,
             extra_note=(

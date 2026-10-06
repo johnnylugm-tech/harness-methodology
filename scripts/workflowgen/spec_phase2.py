@@ -559,6 +559,7 @@ def _render_phase2_advance() -> str:
         + "}\n"
         + "let advanceReport = ''\n"
         + "for (let advRound = 1; advRound <= 2; advRound++) {\n"
+        + "{ const cr = await reviewChangedDeliverables(2, { phase: 'Advance' }); if (cr && cr.halt_step) return cr }\n"
         + "const stale = await reReviewStaleApprovals(2, 'Advance', rerunP2)\n"
         + "if (stale && stale.halt_step) return stale\n"
         + "if (advRound === 2 && !stale) break\n"
@@ -615,7 +616,8 @@ def generate_phase2() -> str:
         B.render_doc_block(),
         B.render_structured_b_review(default_phase_num=2),
         B.render_generic_ab_loop(b_role="TECH_LEAD", phase_num=2),
-        B.render_schemas(["VERDICT_SCHEMA", "GATE_VERIFY_SCHEMA"]),
+        B.render_schemas(["VERDICT_SCHEMA", "RC_SCHEMA", "GATE_VERIFY_SCHEMA"]),
+        B.render_change_review(),  # Round 114 站6
         B.render_persist_approval(synthesize_reason=True, use_schema_verdict=True),
         B.render_stale_rereview(),
         B.render_load_file_via_python(),

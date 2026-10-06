@@ -88,6 +88,9 @@ _SHARED_HOISTS: tuple[tuple[str, str, bool], ...] = (
     ("const PY", "const PY = REPO + '/.venv/bin/python'\n", True),
     ("WRITE_SCOPE", B.WRITE_SCOPE_BLOCK, True),
     ("budget guard", B.BUDGET_GUARD_BLOCK, False),
+    # Round 114 站6: self-contained (no per-phase const, returns halt()'s
+    # shape), so P2-P8 share one copy instead of seven.
+    ("change review", B.render_change_review(), False),
 )
 
 # CTX_SCHEMA is declared by two entries in js_blocks._SCHEMA_DEFS: the plain
@@ -427,6 +430,8 @@ def generate_runall() -> str:
         B.RECORD_BLOCK_FN_BLOCK,
         "",
         B.render_schemas(list(_SCHEMA_UNION)),
+        "",
+        B.render_change_review(),
         "",
         "\n".join(bodies),
         _render_driver(all_titles),

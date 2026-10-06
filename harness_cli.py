@@ -168,6 +168,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     52  advance-phase --completed 4: a test TEST_SPEC.md declares outside
         every FR's rows has no passing result. Write it;
         `harness_cli.py undelivered-tests --non-fr` lists them.
+    53  advance-phase: a deliverable Agent B reviewed in an earlier, closed
+        phase changed since that review. The Advance step sends it to a
+        change review; `stale-approvals --before N` lists them.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output
