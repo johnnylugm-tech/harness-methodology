@@ -199,6 +199,32 @@ def pending_findings(project_root: "str | Path") -> list[dict]:
     return out
 
 
+DEFECT_SEVERITIES = ("critical", "high", "medium", "low")
+
+
+def defect_summary(project_root: "str | Path") -> "dict | None":
+    """Confirmed findings by severity and status, from the bug hunt report.
+
+    Round 115 站5. The framework's one defect ledger; QUALITY_REPORT.md's
+    defect section and its verifier both read it here. None when there is no
+    readable report — not measured, which is not zero.
+    """
+    try:
+        report = json.loads((Path(project_root) / REPORT_RELPATH).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    findings = [f for f in report.get("findings") or [] if isinstance(f, dict)]
+    counts = {sev: {"open": 0, "resolved": 0, "refuted": 0} for sev in DEFECT_SEVERITIES}
+    for f in findings:
+        sev = str(f.get("severity", "")).lower()
+        res = f.get("resolution")
+        status = str(res.get("status", "")).lower() if isinstance(res, dict) else ""
+        if f.get("confirmed") and sev in counts and status in counts[sev]:
+            counts[sev][status] += 1
+    return {"confirmed": counts,
+            "unconfirmed": sum(1 for f in findings if not f.get("confirmed"))}
+
+
 def verify_bug_hunt_report(project_root: str) -> BugHuntVerdict:
     """Validate the hunt report and return the adversarial_review verdict."""
     root = Path(project_root)

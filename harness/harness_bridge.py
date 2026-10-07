@@ -2914,6 +2914,7 @@ class HarnessBridge(_FinalizeStages):
         _quality_complete = _overall_score >= _gt and _all_dims_pass
 
         self._stage_dimension_thresholds(_all_dims_pass, _dim_passes, _dim_weights, _effective_threshold, ctx, dims)
+        self._stage_record_dimension_verdicts(raw, dims, _dim_passes, _effective_threshold)
         # Round 73 站5: non-blocking must not mean free (Round 68 站1). The row
         # is what a later round reads to ask whether a gate's dimension list
         # and the manifest's NFR mapping were ever meant to differ; owner is

@@ -405,6 +405,26 @@ class _FinalizeStages:
 
 
     @staticmethod
+    def _stage_record_dimension_verdicts(raw, dims, _dim_passes, _effective_threshold) -> None:
+        """Write each dimension's threshold and verdict where the gate decides them.
+
+        Round 115 站5. `_effective_threshold` (the gate config's value first)
+        and `_dim_passes` decided the verdict and were written nowhere; the
+        breakdown's `threshold` is the agent's. QUALITY_REPORT.md therefore
+        rendered PASS from a `score >= 70` of its own. Recorded on `raw`, which
+        becomes `finalized_result` and is persisted, so the report and its
+        verifier read the verdict instead of deriving another.
+        """
+        breakdown = raw.get("breakdown") if isinstance(raw, dict) else None
+        if not isinstance(breakdown, dict):
+            return
+        for d in dims:
+            entry = breakdown.get(d.name)
+            if isinstance(entry, dict):
+                entry["effective_threshold"] = _effective_threshold(d)
+                entry["passed"] = _dim_passes(d)
+
+    @staticmethod
     def _stage_dimension_thresholds(_all_dims_pass, _dim_passes, _dim_weights, _effective_threshold, ctx, dims) -> None:
         """Dimension thresholds — extracted verbatim from `finalize_gate`.
 

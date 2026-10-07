@@ -11371,3 +11371,23 @@ phase9_plan 的引用。
 
 反證:以 9a8fd191 的 spec_phase8 生成 phase8,兩個新 sim 情境與 run-all/phase8 parity 轉紅;以 HEAD 的
 push_cmds 還原,損壞 manifest 測試轉紅。run-all 上限 -954;sim floor 184。
+
+### 站5 — 品質報告呈現 gate 自己的判決與缺陷來源(harness)
+
+狀態欄:renderer 以自己的 `score >= 70` 印 PASS;gate 實際以 `harness_bridge._effective_threshold`
+(gate config 優先)判每一維度,這個數字與 `_dim_passes` 的結果都沒有寫入任何地方(breakdown 的 `threshold`
+是 agent 寫的)。finalize 新增 `_stage_record_dimension_verdicts`,把 `effective_threshold` 與 `passed` 寫進
+`raw`(即 `finalized_result`,經 `build_persisted_gate_result` 落盤,且早於 Gate 4 交付物 render:
+gate_cmds 2589 < 2832)。renderer 只印記錄的判決(附門檻);沒有記錄就寫 UNKNOWN,不重算。verifier 比對
+狀態欄。語料:當前 renderer 下沒有活的錯誤 PASS(taskq-renew 的 77.8 < 80 出自已移除的 DA-waiver 時代),
+屬潛伏缺陷。
+
+缺陷摘要:讀 `gate_result["issues"]`,語料 13/13 份 gate4_result 沒有這個欄位 —— 每份報告都寫 0/0/0/0,
+包括 hunt 中有 confirmed CRITICAL 的 taskq-new。改由 `bug_hunt_verifier.defect_summary`(框架唯一的缺陷
+帳本)提供 confirmed 依 severity × status 的計數與 unconfirmed 數;沒有報告寫「Not measured」。verifier
+以同一個 reader 比對(不呼叫 renderer)。回放:taskq-new 副本顯示 Critical 2(resolved 1, refuted 1)、
+High 2(refuted 2)。不追溯:QUALITY_REPORT 只在 finalize 時 render。
+
+反證:以 HEAD 的 renderer / verifier / gate_stages 還原,7 個新測試全紅。三個既有測試的 fixture 補上
+`passed`(它們斷言的是「無 waiver 逃逸」,意圖不變);smoke 測試的 0/1/1/1 斷言出自那個死讀者,改為
+「Not measured」。

@@ -54,10 +54,9 @@ class TestGenerateQualityReport:
         assert "Per-FR Gate 1 Summary" in content
         assert "Defect / Issue Summary" in content
         assert "ASPICE Traceability" in content
-        # Defect counts
-        assert "Critical**: 1" in content
-        assert "High**: 1" in content
-        assert "Medium**: 1" in content
+        # Round 115 站5: defect counts come from the bug hunt report, not a
+        # gate-result `issues` field no producer writes; none here → not measured.
+        assert "Not measured: no .methodology/bug_hunt_report.json" in content
         # Gate rows present
         assert "FR-01" in content
         assert "FR-02" in content

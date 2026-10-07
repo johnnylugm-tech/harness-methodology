@@ -6342,6 +6342,34 @@
   bug: "Round 115 站4 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: a landed p8 push whose advance failed gets another advance round instead of a PASS, and an advance that never reaches Phase 9 halts. Counter-proof run 2026-10-07: the phase8 workflow generated from 9a8fd191 turns both red"
   fixed_in: "Round 115 站4"
 
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_the_status_is_the_recorded_verdict_not_a_threshold_of_its_own
+  bug: "QUALITY_REPORT.md printed PASS for any score >= 70, a threshold of its own; the gate judges against _effective_threshold (gate config first), so 85 under a threshold of 100 read PASS beside a FAIL verdict"
+  fixed_in: "Round 115 站5"
+
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_a_dimension_with_no_recorded_verdict_is_not_given_one
+  bug: "a report must not invent a verdict the gate did not record"
+  fixed_in: "Round 115 站5"
+
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_finalize_records_the_threshold_and_verdict_it_used
+  bug: "_effective_threshold and _dim_passes decided the verdict and were written nowhere; the breakdown threshold is the agent's"
+  fixed_in: "Round 115 站5"
+
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_the_defect_counts_come_from_the_hunt_report
+  bug: "the defect summary counted gate_result[issues], a field no producer writes (13 of 13 corpus gate-4 results lack it), so every report said 0/0/0/0 — taskq-new's included, whose hunt holds a confirmed CRITICAL"
+  fixed_in: "Round 115 站5"
+
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_no_hunt_report_is_not_zero_defects
+  bug: "no bug hunt report is not measured, not zero defects"
+  fixed_in: "Round 115 站5"
+
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_the_verifier_catches_a_status_that_disagrees_with_the_verdict
+  bug: "quality_report_verify compared scores only, so a PASS rendered beside a FAIL verdict was accepted"
+  fixed_in: "Round 115 站5"
+
+- test: tests/test_the_quality_report_states_the_gates_verdict.py::test_the_verifier_catches_a_defect_count_that_disagrees_with_the_hunt
+  bug: "the defect section had no verifier at all"
+  fixed_in: "Round 115 站5"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

@@ -116,10 +116,22 @@ def _build_dimension_table(gate_result: dict[str, Any]) -> list[str]:
             status = "⊘ EXCLUDED" if excluded else "⊘ FRAMEWORK-OWNED"
             score_display = "N/A"
         else:
-            status = "✓ PASS" if score >= 70 else "✗ FAIL"
+            # Round 115 站5: the verdict finalize-gate recorded against the
+            # threshold it used — never a `score >= 70` of this file's own.
             score_display = f"{score}/100"
+            status = _status_cell(entry)
         lines.append(f"| {label} | {score_display} | {status} | {detail} |")
     return lines
+
+
+def _status_cell(entry: Any) -> str:
+    """`✓ PASS (>= T)` / `✗ FAIL (< T)` from the recorded verdict, else UNKNOWN."""
+    passed = entry.get("passed") if isinstance(entry, dict) else None
+    threshold = entry.get("effective_threshold") if isinstance(entry, dict) else None
+    if not isinstance(passed, bool):
+        return "UNKNOWN — no verdict recorded"
+    bar = f" (threshold {threshold:g})" if isinstance(threshold, (int, float)) else ""
+    return ("✓ PASS" if passed else "✗ FAIL") + bar
 
 
 def _build_fr_summary(quality_manifest: dict[str, Any]) -> list[str]:
@@ -143,20 +155,27 @@ def _build_fr_summary(quality_manifest: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _build_defect_summary(quality_manifest: dict[str, Any],
-                          gate_result: dict[str, Any]) -> list[str]:
-    """Extract defect/issue counts from manifest and gate result."""
-    issues = gate_result.get("issues", [])
-    critical = sum(1 for i in issues if isinstance(i, dict) and i.get("severity") == "critical")
-    high = sum(1 for i in issues if isinstance(i, dict) and i.get("severity") == "high")
-    medium = sum(1 for i in issues if isinstance(i, dict) and i.get("severity") == "medium")
-    low = sum(1 for i in issues if isinstance(i, dict) and i.get("severity") == "low")
-    return [
-        f"- **Critical**: {critical}",
-        f"- **High**: {high}",
-        f"- **Medium**: {medium}",
-        f"- **Low**: {low}",
-    ]
+def _build_defect_summary(project: Path) -> list[str]:
+    """Confirmed defects by severity and status, read from the bug hunt report.
+
+    Round 115 站5: this counted `gate_result["issues"]`, which no producer
+    writes — 13 of 13 corpus gate-4 results lack it, so every report said
+    0/0/0/0. The bug hunt report is the framework's defect ledger; with no
+    report the count was not measured, and the section says so.
+    """
+    from core.quality_gate.bug_hunt_verifier import DEFECT_SEVERITIES, REPORT_RELPATH, defect_summary
+
+    summary = defect_summary(project)
+    if summary is None:
+        return [f"- Not measured: no {REPORT_RELPATH.as_posix()} — this report states no defect count."]
+    lines = [f"- Source: {REPORT_RELPATH.as_posix()} (adversarial bug hunt; confirmed findings)"]
+    for sev in DEFECT_SEVERITIES:
+        c = summary["confirmed"][sev]
+        total = sum(c.values())
+        detail = f" (open {c['open']}, resolved {c['resolved']}, refuted {c['refuted']})" if total else ""
+        lines.append(f"- **{sev.title()}**: {total}{detail}")
+    lines.append(f"- Unconfirmed findings (rejected by adversarial verify): {summary['unconfirmed']}")
+    return lines
 
 
 def _crg_call(project: Path, func: str, **kwargs) -> dict:
@@ -305,7 +324,7 @@ def generate_quality_report(project_root: str,
         "## Defect / Issue Summary",
         "",
     ])
-    lines.extend(_build_defect_summary(manifest, gate_result))
+    lines.extend(_build_defect_summary(project))
 
     lines.extend([
         "",

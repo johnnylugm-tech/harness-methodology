@@ -145,7 +145,33 @@ def verify_quality_report(project: Path) -> list[str]:
         if isinstance(gate1, dict):
             violations.extend(_check_fr_rows(lines, gate1, report_path))
 
+    violations.extend(_check_defects(lines, project, report_path))
     return violations
+
+
+_DEFECT_LINE = re.compile(r"^- \*\*(?P<sev>[A-Za-z]+)\*\*: (?P<n>\d+)")
+
+
+def _check_defects(lines: list[str], project: Path, report_path: Path) -> list[str]:
+    """The defect section against the bug hunt report (Round 115 站5).
+
+    Read from the report's own numbers, not by calling the renderer.
+    """
+    from core.quality_gate.bug_hunt_verifier import defect_summary
+
+    summary = defect_summary(project)
+    shown = {m["sev"].lower(): int(m["n"]) for m in map(_DEFECT_LINE.match, lines) if m}
+    if summary is None:
+        if shown:
+            return [f"{report_path.name} gives defect counts {shown} but there is no bug hunt "
+                    f"report to take them from — not measured is not zero"]
+        return []
+    out = []
+    for sev, by_status in summary["confirmed"].items():
+        if shown.get(sev) != sum(by_status.values()):
+            out.append(f"{report_path.name}: {sev.title()} shows {shown.get(sev)} but the bug hunt "
+                       f"report holds {sum(by_status.values())} confirmed. Re-run finalize-gate.")
+    return out
 
 
 def _check_dimensions(
@@ -194,6 +220,16 @@ def _check_dimensions(
                 f"{report_path.name}: '{label}' shows {shown} but gate{gate_num}_result.json "
                 f"records {truth}. Re-run finalize-gate to re-render."
             )
+        elif truth is not None:
+            # Round 115 站5: the status is the verdict finalize-gate recorded.
+            passed = entry.get("passed")
+            want = ("PASS" if passed else "FAIL") if isinstance(passed, bool) else "UNKNOWN"
+            if want not in status_cell or ({"PASS", "FAIL"} - {want}) & set(status_cell.split()):
+                violations.append(
+                    f"{report_path.name}: '{label}' status is {status_cell.strip()!r} but "
+                    f"gate{gate_num}_result.json records passed={passed!r} — expected {want}. "
+                    f"Re-run finalize-gate to re-render."
+                )
 
     missing = sorted(set(breakdown) - seen)
     if missing:

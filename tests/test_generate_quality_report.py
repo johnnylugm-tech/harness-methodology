@@ -58,7 +58,7 @@ def test_a_low_score_renders_fail_with_no_escape():
     in the same commit — a reader whose writer was gone.
     """
     gate_result = {
-        "breakdown": {"architecture": {"score": 0, "detail": "cohesion 0.228"}},
+        "breakdown": {"architecture": {"score": 0, "detail": "cohesion 0.228", "passed": False}},
     }
     text = "\n".join(_build_dimension_table(gate_result))
     assert "Architecture" in text
@@ -73,7 +73,7 @@ def test_an_agent_written_waiver_field_changes_nothing():
     here and still is not — it is simply no longer honoured anywhere.
     """
     gate_result = {
-        "breakdown": {"security": {"score": 0, "detail": "no auth checks found"}},
+        "breakdown": {"security": {"score": 0, "detail": "no auth checks found", "passed": False}},
         "da_waiver": {"security": True},  # agent's own self-assessment
     }
     text = "\n".join(_build_dimension_table(gate_result))
@@ -92,8 +92,8 @@ def test_a_stale_manifest_waiver_does_not_resurrect_the_pass(tmp_path):
     (tmp_path / ".methodology" / "gate4_result.json").write_text(json.dumps({
         "composite_score": 40,
         "breakdown": {
-            "security": {"score": 0, "detail": "unvalidated agent claim"},
-            "architecture": {"score": 0, "detail": "was waived before R38"},
+            "security": {"score": 0, "detail": "unvalidated agent claim", "passed": False},
+            "architecture": {"score": 0, "detail": "was waived before R38", "passed": False},
         },
         "da_waiver": {"security": True},
     }))
@@ -102,8 +102,8 @@ def test_a_stale_manifest_waiver_does_not_resurrect_the_pass(tmp_path):
     }))
     generate_quality_report(str(tmp_path))
     report = (tmp_path / "06-quality" / "QUALITY_REPORT.md").read_text(encoding="utf-8")
-    assert "| Security | 0/100 | ✗ FAIL |" in report
-    assert "| Architecture | 0/100 | ✗ FAIL |" in report
+    assert "| Security | 0/100 | ✗ FAIL" in report
+    assert "| Architecture | 0/100 | ✗ FAIL" in report
     assert "DA-waiver" not in report
 
 

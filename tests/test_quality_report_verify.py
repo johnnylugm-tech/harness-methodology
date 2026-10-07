@@ -36,6 +36,11 @@ pytestmark = [pytest.mark.core]
 
 
 def _project(tmp_path, breakdown, gate1=None, gate_num=4):
+    # Round 115 站5: finalize-gate records a verdict for every scored
+    # dimension; these fixtures describe passing ones unless they say otherwise.
+    for entry in breakdown.values():
+        if isinstance(entry, dict) and entry.get("score") is not None:
+            entry.setdefault("passed", True)
     (tmp_path / ".methodology").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".methodology" / f"gate{gate_num}_result.json").write_text(
         json.dumps({"gate": gate_num, "composite_score": 97.4, "breakdown": breakdown}),
