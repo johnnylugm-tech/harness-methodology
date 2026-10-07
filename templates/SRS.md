@@ -110,6 +110,12 @@ Note: `type:` must be one of the values above — this list mirrors
 `tests/test_sab_parser.py::TestCanonicalTemplate::test_srs_template_nfr_type_example_matches_vocabulary`;
 if it ever falls out of sync that test fails.
 
+Note: an NFR whose criterion carries a latency number may add
+`"targets": [{"ac": "AC-N1.1", "statistic": "p95", "op": "<", "value": 30, "unit": "ms", "spec_ref": "SPEC.md:<line>"}]`
+(statistic: mean|median|max|p90|p95|p99; op: < or <=; unit: ms or s). The cited SPEC.md line must
+state the value with its unit — `harness_cli.py advance-phase --completed 1` checks it — and the
+performance gate judges each target against its own number (Round 115 站8).
+
 Note: Fill in the JSON above - used for downstream requirements traceability.
 Every `### FR-NN` in the canonical source (project-root `SPEC.md`) MUST appear
 here, and every FR here MUST trace back to a canonical clause — `harness_cli.py check-spec-alignment` blocks on a dropped or

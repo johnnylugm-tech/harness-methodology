@@ -162,4 +162,9 @@ def illegal_nfr_vocabulary(project: "str | Path") -> "list[str]":
                     f"{nid}: `dimension:` {value!r} names no scored dimension. "
                     f"Known: {', '.join(sorted(roster))}"
                 )
+    # Round 115 站8: a typed latency target is checked where it is written —
+    # its vocabulary, its AC, and that the canonical line it cites states it.
+    from core.quality_gate.latency_targets import target_findings
+
+    findings.extend(target_findings(project))
     return findings

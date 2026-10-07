@@ -217,6 +217,8 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         cmd=("pytest", "{root}", "--benchmark-only", "--benchmark-disable-gc",
              "--benchmark-columns", "mean,max",
              "--benchmark-json=.sessi-work/benchmark_report.json",
+             # Round 115 站8: raw rounds, so a declared p95 target can be computed.
+             "--benchmark-save-data",
              "--tb", "no", "-q"),
         timeout=180,
         check_cmd=f"pytest --version 2>&1 && {sys.executable} -c 'import pytest_benchmark' 2>&1",

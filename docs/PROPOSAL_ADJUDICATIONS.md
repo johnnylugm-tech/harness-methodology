@@ -11420,3 +11420,33 @@ digest、宣告測試以清單綁定)。實測:SPEC 的「MUST drop」改「MUST
 degradation」,不做:`approval_defects` 是純函式且每次 advance 被呼叫,在此寫 ledger 會重複產生同一列
 (R114 §不做 記載過 91 次重複),不改變任何判定。語料 SPEC.md 幾乎不變(多數 1 個 commit),屬潛伏缺陷。
 反證:HEAD 的 criteria_review / approvals 讓 4/5 新測試轉紅。
+
+### 站8 — HM-06 最小 schema:NFR 的 latency 目標是可檢查的型別化事實(harness + P1 prompt;老闆裁定本輪設計)
+
+`performance` 維度被 manifest 對應到專案的 latency NFR(NFR-01 → performance),卻以框架自訂公式評分
+(每個 benchmark mean > 1000/3000 ms 扣分),從不讀 NFR 自己的目標。taskq-open 的 SPEC 寫 p95 < 30/80 ms,
+其 SRS:183 自己寫明「框架的 performance 不檢查 p95」,Gate 4 記 performance 100 —— 框架選的數字被當成專案
+需求的判定(R105)。
+
+最小 schema(只收 latency):SRS NFR 可帶 `targets: [{ac, statistic, op, value, unit, spec_ref}]`。
+`core/quality_gate/latency_targets.py`:
+- `target_findings`(接入 P1 exit 的 `illegal_nfr_vocabulary`):詞彙、AC 必須在 SRS 正文(機器區塊以外)
+  出現、`spec_ref` 必須是 `<file>:<line>` 且該行寫出同一數值與單位 —— 抓 tokenizer 看不到的 30→80 漂移。
+- `target_verdicts`:經 TEST_INVENTORY 的 `ac` 找宣告測試;有同名且帶 raw rounds 的 benchmark → 框架計算
+  (tool-measured);否則以該測試的 `delivery_outcome`(test-asserted);兩者皆無 → unmeasured(記錄,不計
+  為零也不計為通過,R35)。
+- `judge_performance_by_latency_targets`(同模組,finalize-gate 呼叫;放在模組而非 god file
+  harness_bridge):結果寫入 breakdown 的 `latency_targets`;量到的違反使 performance 為 0;沒有宣告目標的
+  專案標 `latency_basis: generic`,分數不變。
+- 框架的 benchmark 命令加 `--benchmark-save-data`(實測 pytest-benchmark 5.2.3 會在 JSON 帶 `stats.data`),
+  evaluate_dimension.md 同步(R17);P1 SRS prompt 與 SRS 模板說明格式(模板 JSON 不放範例值,R105)。
+
+第一版「unmeasured 即 FAIL」改為「記錄不計分」:JS 契約只有 `mean_ms`、不提供 test outcomes 的語言,
+unmeasured 即 FAIL 會讓這些專案永遠失敗(破壞共通性);未交付的宣告測試已由 R114 站5 在 P4 exit 擋下。
+限制:test-asserted 不驗測試內預算等於 SPEC 值 —— 那是 P3 criteria review(讀 SPEC 與測試)的問題,
+其核准自站7 起綁定需求原文。
+
+回放(taskq-open 副本注入目標):`spec_ref` SPEC.md:180/181 通過;AC-N1.1/N1.2 依據為 test-asserted;
+把 AC-N1.1 改成 80 → 「SPEC.md:180 does not state 80ms」。
+次序註記:本站的模組先於其測試寫成(違反「先寫紅測試」);反證以 HEAD 的三個接線檔
+(srs_nfr_validate、harness_bridge、toolchain registry)還原,4 個接線測試轉紅。run-all 上限 +476(實測 449314,headroom 100)。

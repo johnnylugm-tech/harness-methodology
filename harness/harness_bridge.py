@@ -58,6 +58,7 @@ from harness.decision_log import DecisionLogWriter, DecisionLogEntry, DecisionCo
 from harness.effort_tracker import EffortTracker
 from core.phase_topology import PER_FR_GATE1_PHASES
 from core.quality_gate.constitution.profile import GateConfig
+from core.quality_gate.latency_targets import judge_performance_by_latency_targets
 from core.utils.project_layout import ProjectLayout
 
 try:
@@ -352,6 +353,7 @@ def _override_adversarial_review_dim_score(
             f"score={verdict.score:.1f}"
         )
     return _new_dims, _changed
+
 
 
 
@@ -2658,6 +2660,8 @@ class HarnessBridge(_FinalizeStages):
         )
         if _ar_overridden:
             _crg_overrides_applied = True
+        dims, _lt_overridden = judge_performance_by_latency_targets(dims, ctx.project_root, raw)
+        _crg_overrides_applied = _crg_overrides_applied or _lt_overridden
 
         # ── CRG findings enrichment (MCP path, graceful degrade) ──────────
         # Runs after CRG independent score override so score is already final.

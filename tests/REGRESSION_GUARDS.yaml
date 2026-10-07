@@ -6406,6 +6406,38 @@
   bug: "approvals written before the digest existed are not failed retroactively"
   fixed_in: "Round 115 站7"
 
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_a_number_that_drifted_from_the_spec_is_named
+  bug: "token overlap cannot see 30 -> 80 between SPEC and SRS; a typed target must cite a SPEC line that states its value with its unit"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_the_phase_1_vocabulary_check_reports_them
+  bug: "the target check runs where the SRS is written, at the Phase 1 exit (illegal_nfr_vocabulary)"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_a_benchmark_with_raw_rounds_is_measured_by_the_framework
+  bug: "the performance dimension scored a framework formula (mean > 1000 ms) as the verdict on taskq-open's NFR-01 (p95 < 30 ms); a benchmark named after the AC's test is now compared against the declared statistic"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_without_a_benchmark_the_declared_tests_verdict_is_the_basis
+  bug: "a target without a benchmark is judged by its declared test's outcome, and the basis is recorded"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_unmeasured_is_stated_not_scored
+  bug: "an unmeasured target is recorded as unmeasured — not zero, not a pass"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_the_gate_sets_performance_to_zero_on_a_measured_violation_and_records_the_basis
+  bug: "a measured violation of a declared target fails the performance dimension"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_a_project_without_targets_keeps_the_generic_score_and_says_so
+  bug: "a project that declares no target keeps the generic formula, labelled generic"
+  fixed_in: "Round 115 站8"
+
+- test: tests/test_a_latency_target_is_judged_against_its_own_number.py::test_the_benchmark_run_keeps_its_raw_rounds
+  bug: "pytest-benchmark reports no p95; the framework run keeps raw rounds (--benchmark-save-data) so one can be computed"
+  fixed_in: "Round 115 站8"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"
