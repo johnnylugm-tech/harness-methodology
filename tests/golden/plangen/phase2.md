@@ -255,7 +255,7 @@ are not re-opened. This bounds backtracking to a single step.
 **Agent B**: TECH_LEAD
 
 **A/B Work** (HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews):
-- **[A-1]** Agent A (ARCHITECT): Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in tests/integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section. **v2.9.1 B.3**: parser expects `### FR-XX: ...` followed by table rows. A prose strategy doc with no table rows will FAIL the D4 spec-coverage check (no vacuous pass when FRs are defined) — re-run this skill if TEST_SPEC.md is wrong shape. **Direction B (Properties)**: If an FR has algebraic invariants, declare a `**Properties**` table for it.
+- **[A-1]** Agent A (ARCHITECT): Generate TEST_SPEC.md via derive_test_cases.md skill → preserve TEST_INVENTORY.yaml names where specified → apply Step 1b Architecture-Risk Triggers FIRST (scan SAD modules: shared mutable state → force NP-13; external process → force NP-15; network client/cache → force NP-07; forced cases go in the test root's integration/ and are tagged SAD: in Pattern Activation table) → apply 8-Question Protocol per FR (Q1-Q8 + Step 2.5 Interface Contracts + Step 4 Infrastructure Wiring) → fill concrete Inputs + a Sub-assertion predicate table per FR → run check-test-spec-consistency → populate cross-cutting section. **v2.9.1 B.3**: parser expects `### FR-XX: ...` followed by table rows. A prose strategy doc with no table rows will FAIL the D4 spec-coverage check (no vacuous pass when FRs are defined) — re-run this skill if TEST_SPEC.md is wrong shape. **Direction B (Properties)**: If an FR has algebraic invariants, declare a `**Properties**` table for it.
   - FORBIDDEN: vague/non-testable acceptance criteria
 - **[A-2]** Agent A returns `{status, files, confidence, citations, summary}`
 - **[B-1]** Agent B (TECH_LEAD) — dispatch as separate subagent:
@@ -301,7 +301,7 @@ are not re-opened. This bounds backtracking to a single step.
   - 8-Question Protocol applied per FR (Q1-Q8 as applicable by classification, YAML names do NOT exempt missing categories)?
   - Classification assigned per FR (API_ENDPOINT|DATA_ENTITY|ALGORITHM|STATE_MACHINE|INTEGRATION|SECURITY_CONTROL|INFRASTRUCTURE)?
   - NFR Pattern Activation table filled (Step 1 of derive_test_cases.md)?
-  - Architecture-risk triggers applied (Step 1b)? SAD modules with shared mutable state → NP-13 forced; external process → NP-15; network client/cache → NP-07. Forced cases recorded in tests/integration/ with SAD: source tag.
+  - Architecture-risk triggers applied (Step 1b)? SAD modules with shared mutable state → NP-13 forced; external process → NP-15; network client/cache → NP-07. Forced cases recorded in the test root's integration/ with SAD: source tag.
   - Every case has concrete Inputs in TRUE form (key="value"), NOT pytest-id form (underscore-replaced)?
   - Sub-assertions table populated per FR (rule_id + predicate + applies_to referencing real case #s)?
   - Self-consistency gate passes? (python3 harness_cli.py check-test-spec-consistency --project .)

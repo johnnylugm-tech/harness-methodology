@@ -238,8 +238,11 @@ TOOL_SPECS: dict[str, ToolSpec] = {
     # cross-validation blocks (a passing agent score is then unverifiable).
     "pytest-cov-integration": ToolSpec(
         tool_id="pytest-cov-integration",
-        cmd=("pytest", "03-development/tests/integration",
-             "--cov=03-development/src", "--cov-report=term-missing",
+        # Round 116 站3: the measured roots, like pytest-cov and the JS
+        # integration tools — the hard-coded 03-development paths made
+        # taskq-final mirror its root tests/ to be measured at all.
+        cmd=("pytest", "{test_target}/integration",
+             "--cov={cov_target}", "--cov-report=term-missing",
              "-q", "--tb=no", "--no-header"),
         timeout=180,
         check_cmd="pytest --version 2>&1 && coverage --version 2>&1",

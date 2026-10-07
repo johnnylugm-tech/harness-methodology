@@ -207,7 +207,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
   - Output: `.methodology/bug_hunt_report.json` + `.audit/*.md`
 
 - **[HUNT-RESOLVE]** For each **confirmed critical/high** finding, set `resolution.status`:
-  - `resolved`: must include `fix_commit` (commit SHA) or `repro_test` (path in `tests/`)
+  - `resolved`: must include `fix_commit` (commit SHA) and `repro_test` (under the measured test root, committed with the fix)
   - `refuted`: must include `refute_evidence` (explanation + line citation)
   - Medium/low findings: record only — not required to resolve before Gate 3
 
@@ -269,9 +269,9 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). Phase exits via Gate 3 (1
 | error_handling | (1) **Presence**: add try/except blocks. `grep -r 'try:' 03-development/src/` to see coverage. (2) **Anti-patterns** (v2.9 A1, −5 each): remove `except BaseException:` (flagged even with re-raise), bare `except:` without re-raise, `except Exception: pass`. Run `python3 harness_cli.py run-tool ast-error-handling --project .` to see exact deductions. |
 | documentation | Add docstrings to public functions/classes. `python3 -m ast_docstrings` or manual: every `def`/`class` in `03-development/src/` needs a docstring. |
 | readability | Refactor complex functions (readability_v2 < 65). Run `python3 harness_cli.py run-tool readability-v2 --project .` to see scores per file. |
-| performance | Add pytest-benchmark tests. Create `tests/test_perf.py` with `def test_latency(benchmark): ...` |
+| performance | Add pytest-benchmark tests. Create `test_perf.py` in the test root (the directory TDD-RED writes to) with `def test_latency(benchmark): ...` |
 | test_assertion_quality | Add `assert` statements to test functions. Every test must have ≥1 substantive assertion. |
-| integration_coverage | Add integration tests in `03-development/tests/integration/` that exercise end-to-end flows. |
+| integration_coverage | Add integration tests in `integration/` under the test root (the directory TDD-RED writes to) that exercise end-to-end flows. |
 | security | Fix bandit HIGH/MEDIUM issues. Run `bandit -r 03-development/src/ -f json` to see them. |
 | linting | Run `ruff check .` — fix violations. |
 | type_safety | Run `pyright . --outputjson` — fix errorCount > 0. |

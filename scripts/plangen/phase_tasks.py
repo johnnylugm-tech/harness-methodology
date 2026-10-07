@@ -52,6 +52,14 @@ from .blocks import (
 # Phase Task Generators
 # ============================================================================
 
+def _test_root(repo_path: Path) -> str:
+    """The test root the framework measures, as the plan states it (Round 116 站3)."""
+    from core.utils.project_layout import ProjectLayout
+
+    layout = ProjectLayout(repo_path)
+    return layout.get_relative_str(layout.active_test_dir)
+
+
 def generate_phase1_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False) -> List[str]:
     """Generate Phase 1 detailed tasks (Requirements Specification).
 
@@ -493,7 +501,9 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
 
     lines.append("### Phase 3 Deliverables")
     lines.append("- `03-development/src/` - All FR modules implemented")
-    lines.append("- `tests/` - Unit tests (≥80% coverage per FR)")
+    from core.utils.project_layout import ProjectLayout
+    _layout = ProjectLayout(repo_path)
+    lines.append(f"- `{_layout.get_relative_str(_layout.active_test_dir)}/` - Unit tests (≥80% coverage per FR)")
     lines.append(_sessions_spawn_deliverable())
     lines.append("- Gate 1 PASS for every FR")
     lines.append("- Gate 2 PASS (phase exit, composite ≥ 75)")
@@ -747,7 +757,7 @@ def generate_phase5_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
         "  - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence",
         "  - Include: test coverage %, mutation score, deferred issues from Gate 3",
         "  - Certify: all Gate 3 open issues addressed or deferred with justification",
-        "- Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)",
+        f"- Re-run integration tests: `pytest {_test_root(repo_path)}/integration/ -q` (or equivalent per NFRs)",
         "- Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`",
         "- Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`",
         "",
@@ -1106,7 +1116,7 @@ def generate_phase9_tasks(repo_path: Path, dynamic: bool = False, gate_meta: "di
         "",
         "- **[CR-OPEN]** `python3 harness_cli.py cr-open --type bug --title '...' --severity high --project .`",
         "- **[REPRO-FIRST]** Write a FAILING repro test BEFORE touching code; record it:",
-        "  `cr-update --cr CR-NN --set repro_test=tests/test_crNN_repro.py`",
+        f"  `cr-update --cr CR-NN --set repro_test={_test_root(repo_path)}/test_crNN_repro.py`",
         "- **[ROOT-CAUSE]** Document root cause: `cr-update --cr CR-NN --set root_cause='...'`",
         "  then advance: `--status ANALYZED` → `--status APPROVED` → `--status IN_PROGRESS`",
         "- **[FIX]** Fix code (keep `[FR-XX]` annotations). If an SRS acceptance",

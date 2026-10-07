@@ -115,7 +115,7 @@ Rules:
 - Record each Step-1b activation in the TEST_SPEC "Pattern Activation" table
   with its trigger source: `SAD: <module>` (vs `SRS: <keyword>` from Step 1).
 - **Integration variant required**: every Step-1b-forced case MUST live under
-  `tests/integration/` (declared in TEST_SPEC like any other case). D4
+  the test root's `integration/` directory (declared in TEST_SPEC like any other case). D4
   spec-coverage and the P3 mirror gate then enforce existence and fidelity —
   the spec IS the enforcement; no new machinery.
 - A module with a risk trait and NO forced case in TEST_SPEC is an Agent B
@@ -341,7 +341,7 @@ computation with no NFR latency constraint).
 **Step-1b-forced patterns may NOT be skipped.** If this FR is implemented by a
 module with an architecture-risk trait, its forced cases (concurrent-load /
 subprocess-timeout / backoff-bounded / cache-reachability) are mandatory and
-their integration variants go in the `tests/integration/` section.
+their integration variants go in the test root's `integration/` directory.
 
 Type: `nfr_pattern`  
 Derivation: `Q6/NP-{ID}` (SRS-triggered) or `Q6/1b/NP-{ID}` (SAD-triggered)
@@ -502,7 +502,7 @@ Standard Verification:
 - [ ] **Architecture-risk coverage (Step 1b)**: every SAD module with a risk
       trait (shared mutable state / external process / network retry / cache)
       has its forced cases in TEST_SPEC, with `SAD: <module>` trigger recorded
-      and integration variants under `tests/integration/`. A risky module with
+      and integration variants under the test root's `integration/`. A risky module with
       zero forced cases → REJECT
 - [ ] **Threat coverage (Step 1c)**: every SAD §6 threat (when
       `applicability: full`) has its `verified_by` test as a row in the

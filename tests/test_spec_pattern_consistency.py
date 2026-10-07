@@ -46,8 +46,10 @@ class TestPatternTableConsistency:
         ]:
             assert trait in step1b, f"missing risk trait: {trait}"
             assert pattern in step1b
-        # Spec-side enforcement contract
-        assert "tests/integration/" in step1b
+        # Spec-side enforcement contract. Round 116 站3: the location is the
+        # measured test root's integration/ (it was spelled as a root
+        # `tests/integration/`, a root the suite may not run).
+        assert "test root's `integration/`" in step1b
         assert "REJECT" in step1b
 
     def test_q6_forbids_skipping_forced_patterns(self):

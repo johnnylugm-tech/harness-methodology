@@ -32,7 +32,7 @@ Tests must fail because the FEATURE is missing, not because of external side-eff
 - Use standard top-level imports (e.g. `from src.engines.xxx import yyy`). Do NOT use try/except ImportError. If pytest returns Exit Code 2 (Collection Error) due to missing modules, this is a VALID RED STATE. Do not try to "fix" it by hiding the import.
 - If tests call methods that perform real external operations (HMAC signature
   verification, DB connections, HTTP calls), use a pytest autouse fixture in
-  `tests/conftest.py` (or an inline @pytest.fixture) to mock them. This is
+  `03-development/tests/conftest.py` (or an inline @pytest.fixture) to mock them. This is
   NOT 'implementing the feature' — it is required test isolation.
 - Example: a pipeline.process() call performs HMAC verification internally.
   Add an autouse fixture: monkeypatch.setattr(Verifier, 'verify', lambda *a: True)

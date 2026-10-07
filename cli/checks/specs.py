@@ -777,7 +777,11 @@ def cmd_check_test_mirrors_spec(args: argparse.Namespace) -> int:
     # Bug #26 fix: --test-file accepts nargs="+", so args.test_files is a list.
     # Iterate each file; aggregate violations across all files. The command
     # fails (exit 1) if any one file has an error-severity violation.
-    test_files = [Path(f).resolve() for f in args.test_files]
+    # Round 116 站3: default to the FR's test file in the measured test root,
+    # and resolve a relative path against the project, not the caller's cwd.
+    test_files = ([(p if p.is_absolute() else project / p).resolve()
+                   for p in map(Path, args.test_files)]
+                  if args.test_files else [ProjectLayout(project).fr_test_file(fr_id)])
 
     if not spec_path.exists():
         print("[check-test-mirrors-spec] 02-architecture/TEST_SPEC.md not found — skipping.")
@@ -903,7 +907,7 @@ def register(sub) -> None:
     )
     ctms.add_argument("--project", default=".", help="Project root (default: .)")
     ctms.add_argument("--fr-id", dest="fr_id", required=True, help="FR id (e.g. FR-01)")
-    ctms.add_argument("--test-file", dest="test_files", nargs="+", required=True, help="Path(s) to the RED test file(s); accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py")
+    ctms.add_argument("--test-file", dest="test_files", nargs="+", default=None, help="Path(s) to the RED test file(s), relative to --project; accepts one or more paths to support per-FR splits like test_fr01_inputs.py + test_fr01_edge.py. Default: the FR's test_fr<NN>.py in the measured test root")
     ctms.set_defaults(func=cmd_check_test_mirrors_spec)
 
     # check-spec-alignment (P1: canonical_spec ↔ SRS front-edge coverage gate)

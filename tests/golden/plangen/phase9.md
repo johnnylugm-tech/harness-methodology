@@ -69,7 +69,7 @@ Phase 9 is a RE-ENTRANT STEADY STATE — it never exits (`advance-phase --comple
 
 - **[CR-OPEN]** `python3 harness_cli.py cr-open --type bug --title '...' --severity high --project .`
 - **[REPRO-FIRST]** Write a FAILING repro test BEFORE touching code; record it:
-  `cr-update --cr CR-NN --set repro_test=tests/test_crNN_repro.py`
+  `cr-update --cr CR-NN --set repro_test=03-development/tests/test_crNN_repro.py`
 - **[ROOT-CAUSE]** Document root cause: `cr-update --cr CR-NN --set root_cause='...'`
   then advance: `--status ANALYZED` → `--status APPROVED` → `--status IN_PROGRESS`
 - **[FIX]** Fix code (keep `[FR-XX]` annotations). If an SRS acceptance

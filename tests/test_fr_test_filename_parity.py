@@ -88,8 +88,6 @@ DERIVATIONS = {
 # literal `test_fr`. Keys are checked against an AST scan below, so a new one
 # cannot be added without an entry here saying which derivation it uses.
 FR_TEST_FILENAME_SITES: dict[str, str] = {
-    "cli/fr_cmds.py": "canonical_form.fr_num_str",
-    "cli/fr_prompts/__init__.py": "canonical_form.fr_num_str",
     # Round 82 站4: `_fr_step_already_done` and the rest of the idempotence
     # family moved here out of cli/fr_cmds.py. Same derivation, because the
     # move was byte-identical — this entry exists so the scan is not silently
@@ -97,6 +95,10 @@ FR_TEST_FILENAME_SITES: dict[str, str] = {
     "cli/fr_step_stages.py": "canonical_form.fr_num_str",
     "cli/gate_cmds.py": "gate_cmds/cov_utils/gate1_evidence inline zfill",
     "core/canonical_form.py": "canonical_form.fr_num_str",
+    # Round 116 站3: ProjectLayout.fr_test_file is now the one place run-fr-step,
+    # the FR prompts and check-test-mirrors-spec take an FR's test file from
+    # (cli/fr_cmds.py and cli/fr_prompts/__init__.py built it themselves).
+    "core/utils/project_layout.py": "canonical_form.fr_num_str",
     "core/quality_gate/cov_utils.py": "gate_cmds/cov_utils/gate1_evidence inline zfill",
     "core/quality_gate/property_check.py": "property_check first-digits-anywhere",
     "core/quality_gate/red_assertion_check.py": "red_assertion_check N?FR- inline zfill",

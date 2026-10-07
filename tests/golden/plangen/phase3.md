@@ -318,9 +318,9 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
 | error_handling | (1) **Presence**: add try/except blocks. `grep -r 'try:' 03-development/src/` to see coverage. (2) **Anti-patterns** (v2.9 A1, −5 each): remove `except BaseException:` (flagged even with re-raise), bare `except:` without re-raise, `except Exception: pass`. Run `python3 harness_cli.py run-tool ast-error-handling --project .` to see exact deductions. |
 | documentation | Add docstrings to public functions/classes. `python3 -m ast_docstrings` or manual: every `def`/`class` in `03-development/src/` needs a docstring. |
 | readability | Refactor complex functions (readability_v2 < 65). Run `python3 harness_cli.py run-tool readability-v2 --project .` to see scores per file. |
-| performance | Add pytest-benchmark tests. Create `tests/test_perf.py` with `def test_latency(benchmark): ...` |
+| performance | Add pytest-benchmark tests. Create `test_perf.py` in the test root (the directory TDD-RED writes to) with `def test_latency(benchmark): ...` |
 | test_assertion_quality | Add `assert` statements to test functions. Every test must have ≥1 substantive assertion. |
-| integration_coverage | Add integration tests in `03-development/tests/integration/` that exercise end-to-end flows. |
+| integration_coverage | Add integration tests in `integration/` under the test root (the directory TDD-RED writes to) that exercise end-to-end flows. |
 | security | Fix bandit HIGH/MEDIUM issues. Run `bandit -r 03-development/src/ -f json` to see them. |
 | linting | Run `ruff check .` — fix violations. |
 | type_safety | Run `pyright . --outputjson` — fix errorCount > 0. |
@@ -357,7 +357,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
 
 ### Phase 3 Deliverables
 - `03-development/src/` - All FR modules implemented
-- `tests/` - Unit tests (≥80% coverage per FR)
+- `03-development/tests/` - Unit tests (≥80% coverage per FR)
 - [x] `.methodology/sessions_spawn.log` — auto-populated by AgentSpawner (non-blocking debug trail)
 - Gate 1 PASS for every FR
 - Gate 2 PASS (phase exit, composite ≥ 75)

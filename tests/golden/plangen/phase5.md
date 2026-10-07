@@ -148,7 +148,7 @@ Each FR ends with a Gate 1 re-evaluation (CHECKPOINT). No harness run-gate — P
   - For each FR: verification status, acceptance criteria result (PASS/FAIL), evidence
   - Include: test coverage %, mutation score, deferred issues from Gate 3
   - Certify: all Gate 3 open issues addressed or deferred with justification
-- Re-run integration tests: `pytest tests/integration/ -q` (or equivalent per NFRs)
+- Re-run integration tests: `pytest 03-development/tests/integration/ -q` (or equivalent per NFRs)
 - Confirm performance NFRs met: review benchmark entries in `04-testing/TEST_RESULTS.md`
 - Re-run security scan clean: `bandit -r 03-development/src/ -ll` + `gitleaks detect`
 

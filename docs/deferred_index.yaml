@@ -2205,3 +2205,33 @@ entries:
     item: "`active_test_dir` 默默只取 03-development/tests(taskq-final 的 root tests/ 未被量測,本輪發現)"
     reason: "超出外部審計範圍;語料唯一一例,需要獨立設計(兩個測試根的量測與交付語意)"
     reopen: "老闆核准另開一輪,或第二個專案出現兩個測試根"
+  - round: 116
+    line: 11542
+    kind: table_row
+    item: "同時量測兩個測試根"
+    reason: "mirror 會讓同一測試出現兩個 node id(taskq-final 的 setup.cfg 自己記錄);一個事實兩份陳述"
+    reopen: "框架正式支援多測試根版面"
+  - round: 116
+    line: 11543
+    kind: table_row
+    item: "fr_cmds / fr_prompts 的 `src_dir = \"03-development/src\"` 寫死"
+    reason: "與 phase 版面一致;root 版面的 Python 專案在語料中為 0(實測 root `src/` 0 個)"
+    reopen: "出現 root 版面的 Python 專案"
+  - round: 116
+    line: 11544
+    kind: table_row
+    item: "`canonical_form.fr_id_to_test_filename` 的 `\"tests\"` 預設值"
+    reason: "沒有 production 呼叫者,只有自測"
+    reopen: "有 production 呼叫者"
+  - round: 116
+    line: 11545
+    kind: table_row
+    item: "修正語料中的 symlink(taskq-final、omnibot、tts-new)"
+    reason: "語料唯讀,專案已過 P8"
+    reopen: "—"
+  - round: 116
+    line: 11546
+    kind: table_row
+    item: "P3 workflow 的「TRACEABILITY_MATRIX.md §5 is the canonical listing」"
+    reason: "R114 站7 起 matrix 由框架 render;是否仍有 §5 屬另一個陳述漂移,不在測試根範圍"
+    reopen: "下一輪 prompt↔產出漂移盤點"

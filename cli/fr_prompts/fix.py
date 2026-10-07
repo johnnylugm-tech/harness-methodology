@@ -72,14 +72,14 @@ def build_test_fix_prompt(
         )
         task = (
             f"1. Identify the infrastructure call that intercepts (HMAC verifier, DB, HTTP).\n"
-            f"2. Add a pytest autouse fixture to `{test_file}` (or `tests/conftest.py`) "
+            f"2. Add a pytest autouse fixture to `{test_file}` (or `{_suite_dir}/conftest.py`) "
             f"that mocks it so tests reach the feature logic:\n"
             f"   @pytest.fixture(autouse=True)\n"
             f"   def _bypass_infra(monkeypatch):\n"
             f"       monkeypatch.setattr(InfraClass, 'verify', lambda *a, **kw: True)\n"
             f"3. Run `python3 -m pytest {test_file} -q` — tests must now fail for the RIGHT reason "
             f"(AssertionError or NameError from missing feature, NOT 401/auth error).\n"
-            f"4. Commit: `git add {test_file} tests/conftest.py && "
+            f"4. Commit: `git add {test_file} {_suite_dir}/conftest.py && "
             f"git commit -m 'test({fr_id}): fix test isolation — add autouse infra mock'`\n\n"
         )
     return (
@@ -255,7 +255,7 @@ def build_lint_fix_prompt(fr_id: str, phase: int, project: Path, srs_path: Path,
     return (
         f"You are a linting fixer for {fr_id}.\n\n"
         f"[FORBIDDEN — read first]\n"
-        f"- Modifying test files in `tests/`\n"
+        f"- Modifying test files in `{Path(test_file).parent}/`\n"
         f"- Suppressing violations with `# noqa` unless the violation is a false positive "
         f"(document why if you use noqa)\n\n"
         f"[SITUATION]\n"

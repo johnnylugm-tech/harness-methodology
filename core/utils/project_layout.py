@@ -307,6 +307,17 @@ class ProjectLayout:
             out += sorted(self.get_relative_str(p) for p in files(other) if p.resolve() not in reached)
         return out
 
+    def fr_test_file(self, fr_id: str) -> Path:
+        """Where an FR's tests live: `test_fr<NN>.py` in the measured test root.
+
+        Round 116 站3: one definition for run-fr-step, the FR prompts and
+        check-test-mirrors-spec (the P3 workflow used to hard-code
+        `tests/test_fr<NN>.py`, a root the suite may not run).
+        """
+        from core.canonical_form import fr_num_str
+
+        return self.active_test_dir / f"test_fr{fr_num_str(fr_id)}.py"
+
     @property
     def active_test_dir(self) -> Path:
         """The test root the framework's suite runs (see `_active_root`)."""

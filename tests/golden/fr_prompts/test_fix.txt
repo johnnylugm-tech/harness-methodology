@@ -13,12 +13,12 @@ PYTEST: 2 failed, 8 passed
 
 [TASK]
 1. Identify the infrastructure call that intercepts (HMAC verifier, DB, HTTP).
-2. Add a pytest autouse fixture to `03-development/tests/test_fr01.py` (or `tests/conftest.py`) that mocks it so tests reach the feature logic:
+2. Add a pytest autouse fixture to `03-development/tests/test_fr01.py` (or `03-development/tests/conftest.py`) that mocks it so tests reach the feature logic:
    @pytest.fixture(autouse=True)
    def _bypass_infra(monkeypatch):
        monkeypatch.setattr(InfraClass, 'verify', lambda *a, **kw: True)
 3. Run `python3 -m pytest 03-development/tests/test_fr01.py -q` — tests must now fail for the RIGHT reason (AssertionError or NameError from missing feature, NOT 401/auth error).
-4. Commit: `git add 03-development/tests/test_fr01.py tests/conftest.py && git commit -m 'test(FR-01): fix test isolation — add autouse infra mock'`
+4. Commit: `git add 03-development/tests/test_fr01.py 03-development/tests/conftest.py && git commit -m 'test(FR-01): fix test isolation — add autouse infra mock'`
 
 [OUTPUT FORMAT]
 Return JSON: {"status": "DONE", "fixture_added": true, "commit": "<hash>", "summary": "<under 50 chars>"}

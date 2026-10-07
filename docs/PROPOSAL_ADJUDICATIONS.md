@@ -11513,3 +11513,34 @@ taskq-final / omnibot / tts-new / taskq-open 現況與舊規則相同;框架 rep
 symlink)0;其餘專案 0;框架 repo 0;TS pilot(root 版面,`03-development` 空)0。不追溯:taskq-final 在 P9。
 反證:HEAD 的 project_layout 讓 4/5 新測試轉紅。
 
+### 站3 — 所有「測試在哪裡」的陳述都由量測根推導
+
+仍陳述 root `tests/` 的地方:`pytest-cov-integration` 寫死 `03-development/tests/integration` 與
+`--cov=03-development/src`(同維度 JS 工具用 `{test_target}`);P3 workflow 叫 implementer 註記
+`tests/test_fr<NN>.py` 並以 `check-test-mirrors-spec --test-file tests/test_fr<NN>.py` 檢查(CLI 以 cwd 解析);
+P2 與 plangen 的 forced case 放 `tests/integration/`;P3 plan 的「`tests/` - Unit tests」、「Create
+`tests/test_perf.py`」、hunt resolver 的「path in `tests/`」;fix / TDD prompt 的 `tests/conftest.py`;
+`derive_test_cases.md` 三處。
+
+修正:integration 工具改用 `{test_target}/integration` 與 `--cov={cov_target}`;新增
+`ProjectLayout.fr_test_file(fr_id)`(唯一定義,run-fr-step、FR prompts、mirror check 共用,
+`FR_TEST_FILENAME_SITES` 改登記它);`check-test-mirrors-spec --test-file` 改選填、預設該 FR 的測試檔,
+相對路徑以 `--project` 解析;workflow 改指 TDD-RED 回報的 `test_file`;plangen 以 `_test_root(repo_path)`
+或「the test root」措辭;fr_prompts 以 `test_file` 所在目錄。`test_spec_pattern_consistency` 釘住
+`tests/integration/` 字面的斷言改為新措辭(其意圖 —— Step 1b 陳述 integration 位置 —— 不變)。
+
+反證:以 HEAD 的 8 個來源檔還原,6 個新測試中 5 個轉紅。run-all 上限 +66;specs.py 956 → 957;
+phase_tasks 1162 → 1172;cmd_run_fr_step 872 → 870(收割);split golden 重生。
+
+範圍外觀察:`spec_phase3.py:205` 的 NFR 註記仍說「TRACEABILITY_MATRIX.md §5 is the canonical listing」,
+而 R114 站7 起 matrix 由框架 render —— 未在本輪處理,見 §不做。
+
+### §不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| 同時量測兩個測試根 | mirror 會讓同一測試出現兩個 node id(taskq-final 的 setup.cfg 自己記錄);一個事實兩份陳述 | 框架正式支援多測試根版面 |
+| fr_cmds / fr_prompts 的 `src_dir = "03-development/src"` 寫死 | 與 phase 版面一致;root 版面的 Python 專案在語料中為 0(實測 root `src/` 0 個) | 出現 root 版面的 Python 專案 |
+| `canonical_form.fr_id_to_test_filename` 的 `"tests"` 預設值 | 沒有 production 呼叫者,只有自測 | 有 production 呼叫者 |
+| 修正語料中的 symlink(taskq-final、omnibot、tts-new) | 語料唯讀,專案已過 P8 | — |
+| P3 workflow 的「TRACEABILITY_MATRIX.md §5 is the canonical listing」 | R114 站7 起 matrix 由框架 render;是否仍有 §5 屬另一個陳述漂移,不在測試根範圍 | 下一輪 prompt↔產出漂移盤點 |

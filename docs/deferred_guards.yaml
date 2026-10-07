@@ -2564,7 +2564,39 @@ entries:
       2026-10-07: 條件是「有讀者需要知道哪些核准沒有 digest,而無法從核准檔本身讀出」。本輪實測未成立。核准檔的 criteria_review 區塊本身即可看出有無 requirement_digest。
   - round: 115
     item: "`active_test_dir` 默默只取 03-development/tests(taskq-final 的 root tests/ 未被量測,本輪發現)"
+    verdict: MET
+    condition_met_in: "Round 116(老闆核准另開一輪,2026-10-08)"
+    guard: "tests/test_files_outside_the_measured_root_are_named.py::test_a_file_the_suite_never_runs_is_stray_and_a_mirrored_one_is_not"
+    resolved_in: "Round 116 站1-站3"
+    evidence: >-
+      2026-10-08: 條件是「老闆核准另開一輪,或第二個專案出現兩個測試根」。前半成立:老闆令處理。實測更正 R115:taskq-final 未被量測的是 7 個被追蹤檔案,不是 18(03-development/tests 有 16 個 symlink 指回 root);根源是 active_test_dir 依空目錄存在與否決定。
+  - round: 116
+    item: "同時量測兩個測試根"
     verdict: NOT_MET
     guard: "manual"
     evidence: >-
-      2026-10-07: 條件是「老闆核准另開一輪,或第二個專案出現兩個測試根」。本輪實測未成立。語料掃描(git ls-files)只有 taskq-final 同時有 03-development/tests 與 root tests/ 的測試檔。
+      2026-10-08: 條件是「框架正式支援多測試根版面」。本輪實測未成立:JS 工具鏈模板支援的是 root 或 03-development 二擇一,不是兩者並存。
+  - round: 116
+    item: "fr_cmds / fr_prompts 的 `src_dir = \"03-development/src\"` 寫死"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「出現 root 版面的 Python 專案」。本輪實測未成立:語料 git ls-files 的 root src/ 檔案數全為 0。
+  - round: 116
+    item: "`canonical_form.fr_id_to_test_filename` 的 `\"tests\"` 預設值"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「有 production 呼叫者」。本輪實測未成立:cli、core、harness、scripts 中沒有呼叫者,只有模組自測。
+  - round: 116
+    item: "修正語料中的 symlink(taskq-final、omnibot、tts-new)"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-10-08: re-open 欄為「—」:語料唯讀,ledger 自己陳述此決定沒有再開條件。
+  - round: 116
+    item: "P3 workflow 的「TRACEABILITY_MATRIX.md §5 is the canonical listing」"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「下一輪 prompt↔產出漂移盤點」。本輪未成立:本輪範圍是測試根。

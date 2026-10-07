@@ -6474,6 +6474,30 @@
   bug: "advance-phase names stray files from Phase 3 with exit 54, owner project"
   fixed_in: "Round 116 站2"
 
+- test: tests/test_every_statement_names_the_measured_test_root.py::test_the_integration_tool_runs_the_measured_root
+  bug: "pytest-cov-integration hard-coded 03-development/tests/integration and --cov=03-development/src while its JS siblings use {test_target}; taskq-final built a symlink mirror of its root tests/ to satisfy it, which moved the measured root"
+  fixed_in: "Round 116 站3"
+
+- test: tests/test_every_statement_names_the_measured_test_root.py::test_an_frs_test_file_has_one_definition
+  bug: "run-fr-step and the FR prompts each built test_fr<NN>.py themselves; ProjectLayout.fr_test_file is the one definition"
+  fixed_in: "Round 116 站3"
+
+- test: tests/test_every_statement_names_the_measured_test_root.py::test_the_mirror_check_defaults_to_the_frs_test_file_under_the_project
+  bug: "the P3 workflow passed check-test-mirrors-spec --test-file tests/test_fr<NN>.py, a root path resolved against the caller's cwd"
+  fixed_in: "Round 116 站3"
+
+- test: tests/test_every_statement_names_the_measured_test_root.py::test_no_workflow_names_a_root_tests_directory
+  bug: "the P3 implementer was told to annotate tests/test_fr<NN>.py and P2 to place forced cases in tests/integration/"
+  fixed_in: "Round 116 站3"
+
+- test: tests/test_every_statement_names_the_measured_test_root.py::test_no_fr_prompt_names_a_root_tests_directory
+  bug: "the fix and TDD prompts named tests/conftest.py and forbade edits to tests/"
+  fixed_in: "Round 116 站3"
+
+- test: tests/test_every_statement_names_the_measured_test_root.py::test_no_phase_plan_names_a_root_tests_directory
+  bug: "the P3 plan listed `tests/` - Unit tests and told agents to create tests/test_perf.py; the hunt resolver was told a repro path is in tests/"
+  fixed_in: "Round 116 站3"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

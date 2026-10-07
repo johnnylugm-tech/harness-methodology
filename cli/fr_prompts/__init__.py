@@ -6,7 +6,6 @@ under byte-level golden snapshot protection (tests/test_fr_prompt_snapshots.py).
 
 from pathlib import Path
 
-from core.canonical_form import fr_num_str
 from core.utils.project_layout import ProjectLayout
 
 from cli.fr_prompts._shared import (
@@ -48,10 +47,9 @@ def _build_fr_step_prompt(step: str, fr_id: str, phase: int,
     src_dir, srs_path normalisation) done once here.
     """
     step = step.upper()
-    num_str = fr_num_str(fr_id)
     _layout = ProjectLayout(project)
     test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
-    test_file = f"{test_dir_str}/test_fr{num_str}.py"
+    test_file = _layout.get_relative_str(_layout.fr_test_file(fr_id))
     src_dir = "03-development/src"
 
     if srs_path is None:

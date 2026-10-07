@@ -1,7 +1,7 @@
 You are a linting fixer for FR-01.
 
 [FORBIDDEN — read first]
-- Modifying test files in `tests/`
+- Modifying test files in `03-development/tests/`
 - Suppressing violations with `# noqa` unless the violation is a false positive (document why if you use noqa)
 
 [SITUATION]

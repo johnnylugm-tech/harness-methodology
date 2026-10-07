@@ -28,7 +28,6 @@ from core.agent_spawner import (
     _COMMIT_REQUIRED_STEPS,
     turn_budget_exhausted,
 )
-from core.canonical_form import fr_num_str
 from core.degradation_ledger import record_degradation
 from core.fault_owner import Owner
 from core.harness_config import get_timeout, get_value
@@ -243,11 +242,9 @@ def cmd_run_fr_step(args: argparse.Namespace) -> int:
     srs_path = Path(args.srs).resolve() if args.srs else None
 
     # Compute src_dir and test_file — used by GATE1 retry and _capture_tool_snapshot.
-    _num_str = fr_num_str(fr_id)
     src_dir = "03-development/src"
     _layout = ProjectLayout(project)
-    test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
-    test_file = f"{test_dir_str}/test_fr{_num_str}.py"
+    test_file = _layout.get_relative_str(_layout.fr_test_file(fr_id))
 
     # Per-FR config: read fr_config from quality_manifest.json.
     # Allows large / complex FRs (e.g. FR-19 with 11-stage pipeline) to declare
