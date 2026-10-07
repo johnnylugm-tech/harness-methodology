@@ -767,6 +767,34 @@ def _precheck_reviewed_deliverables_unchanged(completed_phase, project) -> "int 
     return EX_ADVANCE_REVIEWED_DELIVERABLE_CHANGED
 
 
+def _precheck_stray_files(completed_phase, project) -> "int | None":
+    """A test or source file the framework's suite never runs is named.
+
+    Round 116 站2. The suite runs one root (`ProjectLayout.active_test_dir`).
+    taskq-final mirrored its root `tests/` into `03-development/tests` for
+    Gate 2; the measured root moved, and the files written to the old root
+    afterwards — four bug-hunt repros among them — were never run, with
+    nothing saying so. From Phase 3, when code and tests exist.
+    """
+    if completed_phase < 3:
+        return None
+    from cli.exit_codes import EX_ADVANCE_STRAY_TEST_FILES
+    from core.utils.project_layout import ProjectLayout
+
+    layout = ProjectLayout(project)
+    stray = layout.stray_files()
+    if not stray:
+        return None
+    print(f"\n[BLOCKED] {len(stray)} file(s) sit in a root the framework does not measure — "
+          f"its suite runs {layout.get_relative_str(layout.active_test_dir)} and measures "
+          f"{layout.get_relative_str(layout.active_src_dir)} only:")
+    for rel in stray[:30]:
+        print(f"  - {rel}")
+    print("  → fix: `git mv` each into the measured root (keep one test root and one source "
+          "root), commit, then re-run advance-phase.")
+    return EX_ADVANCE_STRAY_TEST_FILES
+
+
 def _precheck_declared_tests_delivered(
     completed_phase, project, *, test_outcomes=None,
 ) -> "int | None":

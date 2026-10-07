@@ -1104,7 +1104,10 @@ _LINE_CEILING.update({
     # 2026-10-07: +9 — capture renderer-owned document/approval pairs before
     # prechecks; extend that snapshot after entry-gate recovery, retaining its
     # recovered FSM state on rollback. Previous: 2309.
-    "cli/phase_cmds.py": 2318,
+    # 2026-10-08: +6 — Round 116 站2: the import and call of
+    # `_precheck_stray_files` (a file in the root the suite does not run)
+    # with its comment. Previous: 2318.
+    "cli/phase_cmds.py": 2324,
     "core/quality_gate/arch_constraints.py": 760,
     "core/quality_gate/import_contracts.py": 313,
     # 2026-10-03: +42 — Round 113 站5: `cases_observing_nothing` (a case whose
@@ -1120,7 +1123,10 @@ _LINE_CEILING.update({
     # 2026-10-07: +4 — a running lint/type tool with no valid result blocks
     # instead of falling through; unavailable tools retain their existing
     # explicit degradation path. Previous: 1359.
-    "cli/advance_prechecks.py": 1363,
+    # 2026-10-08: +28 — Round 116 站2: `_precheck_stray_files` and its
+    # docstring (files the suite never runs, named at the P3+ exits).
+    # Previous: 1363.
+    "cli/advance_prechecks.py": 1391,
     # 2026-10-07: 893 -> 903, crossing the 900-line threshold deliberately:
     # lint/type scorers distinguish failed execution from valid findings, and
     # ToolSpec-declared stdout scoring frames diagnostic stderr without losing

@@ -122,6 +122,7 @@ from cli.advance_prechecks import (  # noqa: F401  re-export after Round 82 站2
     _precheck_scope_violations,
     _precheck_spec_citations_land_on_content,
     _precheck_stage_pass_staging,
+    _precheck_stray_files,
 )
 
 # Round 82 站3: the seven steps advance-phase takes once its prechecks have
@@ -2096,6 +2097,11 @@ def _advance_prechecks(project: Path, completed_phase: int) -> int:
 
     # Round 114 站6: a closed phase's reviewed deliverable changed since.
     _pre_rc = _precheck_reviewed_deliverables_unchanged(completed_phase, project)
+    if _pre_rc is not None:
+        return _pre_rc
+
+    # Round 116 站2: a file in the root the suite does not run is named.
+    _pre_rc = _precheck_stray_files(completed_phase, project)
     if _pre_rc is not None:
         return _pre_rc
 

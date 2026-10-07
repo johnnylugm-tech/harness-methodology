@@ -1,5 +1,11 @@
 {
   "cli": {
+    "adjudicate-bug-hunt": [
+      "--from",
+      "--help",
+      "--project",
+      "-h"
+    ],
     "advance-phase": [
       "--completed",
       "--help",
@@ -39,6 +45,12 @@
       "-h"
     ],
     "bootstrap-env": [
+      "--help",
+      "--json",
+      "--project",
+      "-h"
+    ],
+    "bug-hunt-pending": [
       "--help",
       "--json",
       "--project",
@@ -219,6 +231,10 @@
     "generate-verification-report": [
       "--help",
       "--project",
+      "-h"
+    ],
+    "infra-commit-check": [
+      "--help",
       "-h"
     ],
     "init-project": [
@@ -600,7 +616,7 @@
     "cli.fr_cmds::_resolve_precondition_block": "b111c228eda74005",
     "cli.phase_cmds::_advance_commit_targets": "b4dc3084740be5d6",
     "cli.phase_cmds::_advance_fsm": "aba6cad676648853",
-    "cli.phase_cmds::_advance_prechecks": "f9f5d343ac7f420e",
+    "cli.phase_cmds::_advance_prechecks": "5e6966c18800affc",
     "cli.phase_cmds::_advance_step_commit_and_push": "745f019fb8f4e654",
     "cli.phase_cmds::_advance_step_refuse_open_obligations": "3bbd179befbb11fd",
     "cli.phase_cmds::_advance_step_refuse_phase_9": "376297f093a139f1",

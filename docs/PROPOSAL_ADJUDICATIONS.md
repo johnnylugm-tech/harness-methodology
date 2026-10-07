@@ -11501,3 +11501,15 @@ TS pilot fixture 的 root 版面(phase 文件 + root `src/`、`tests/`)是 JS �
 fixture 補一支既有測試使情境回到「兩個根都有檔案」)。回放:taskq-final init 快照 → `03-development`;
 taskq-final / omnibot / tts-new / taskq-open 現況與舊規則相同;框架 repo 與 TS pilot 仍是 root。
 反證:HEAD 的 project_layout 讓 4/6 新測試轉紅。
+
+### 站2 — 不在量測根的檔案被指名(advance precheck,exit 54)
+
+`ProjectLayout.stray_files()`:tests 與 src 各自取 `_active_root` 沒選中的那個根,列出其中解析後不屬於量測根
+所及檔案集合者(symlink mirror 會被 suite 跑到,不算;`__pycache__`、`.*` 不算)。`_precheck_stray_files`
+在 `completed_phase >= 3` 時阻擋,新 exit 54 `EX_ADVANCE_STRAY_TEST_FILES`(owner PROJECT),補救為 `git mv`
+進量測根;REGISTRY、`OWNER_BY_EXIT`、`harness_cli.py` docstring 同步。
+
+語料回放(唯讀):taskq-final 7 個(與 R115 更正的數字一致);omnibot、tts-new(root `tests` 是指向量測根的
+symlink)0;其餘專案 0;框架 repo 0;TS pilot(root 版面,`03-development` 空)0。不追溯:taskq-final 在 P9。
+反證:HEAD 的 project_layout 讓 4/5 新測試轉紅。
+

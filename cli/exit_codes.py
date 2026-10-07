@@ -139,6 +139,9 @@ EX_ADVANCE_DECLARED_TESTS_UNDELIVERED = 52
 # Round 114 站6. A deliverable Agent B reviewed in a phase that has already
 # closed changed afterwards, and that change has had no review.
 EX_ADVANCE_REVIEWED_DELIVERABLE_CHANGED = 53
+# Round 116 站2. A file sits in the root the framework's suite does not run
+# (`ProjectLayout.stray_files`) — measured on taskq-final: seven, never run.
+EX_ADVANCE_STRAY_TEST_FILES = 54
 EX_HARNESS_BUG = 70
 EX_KEYBOARD_INTERRUPT = 130
 
@@ -192,6 +195,7 @@ REGISTRY: dict[int, str] = {
     EX_ADVANCE_TEMPLATE_EXAMPLE_DELIVERED: "advance-phase: a value this framework wrote into the deliverable as an EXAMPLE is still there — one of templates/TEST_INVENTORY.yaml's `*_example_*` test names, or a module path from the SAB template whose root package this project does not deliver. Replace each one named in the block with this project's own name; every later check reads them as if they were yours",
     EX_ADVANCE_MILESTONE_NOT_GREEN: "advance-phase: this phase's push-milestone has no record of landing on a green build — the push failed, or CI reported red or no verdict. Run the push-milestone the block names; its [BLOCKED] output names the failing CI job",
     EX_ADVANCE_DECLARED_TESTS_UNDELIVERED: "advance-phase --completed 4: a test TEST_SPEC.md declares outside every FR's rows (an NFR section, the Deferred to Downstream Phases table) has no passing result — write it; `harness_cli.py undelivered-tests --non-fr` lists them",
+    EX_ADVANCE_STRAY_TEST_FILES: "advance-phase: a test or source file sits in the root the framework does not measure (root tests/ or src/ beside a populated 03-development one, or the reverse) — the suite never runs it; move it into the measured root (`git mv`), the [BLOCKED] message lists them",
     EX_ADVANCE_REVIEWED_DELIVERABLE_CHANGED: "advance-phase: a deliverable Agent B reviewed in an earlier, closed phase has changed since that review, and the change has not been reviewed — the phase's Advance step sends it to a change review (`harness_cli.py stale-approvals --before N` lists them; review-change-context + write-approval --bind-context record it)",
     EX_ADVANCE_SPEC_CITATION_OFF_CONTENT: "advance-phase: a Phase 1 deliverable cites SPEC.md by a line number that lands on a blank line, a table separator, or past the end of the file — the citation means a neighbouring line. Open SPEC.md at each named number and correct the citation to the line that carries the content",
     EX_HARNESS_BUG: "[HARNESS-BUG] — a defect in harness-methodology's own code: an uncaught exception at the crash boundary (core/errors.py), or the same banner surfacing through a sub-agent's GATE1 output (run-fr-step); not a project quality failure, and no re-run will clear it",

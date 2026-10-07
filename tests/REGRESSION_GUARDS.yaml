@@ -6458,6 +6458,22 @@
   bug: "a __pycache__, .pytest_cache or .gitkeep is not a test"
   fixed_in: "Round 116 站1"
 
+- test: tests/test_files_outside_the_measured_root_are_named.py::test_a_file_the_suite_never_runs_is_stray_and_a_mirrored_one_is_not
+  bug: "taskq-final mirrored root tests/ into 03-development/tests for Gate 2; the measured root moved and seven tracked files written to the old root afterwards (four bug-hunt repros, a benchmark, two conftests) were never run by any framework measurement, and nothing said so"
+  fixed_in: "Round 116 站2"
+
+- test: tests/test_files_outside_the_measured_root_are_named.py::test_a_root_symlinked_onto_the_measured_root_has_no_stray_files
+  bug: "omnibot and tts-new symlink root tests -> 03-development/tests; one root resolved twice is not two roots"
+  fixed_in: "Round 116 站2"
+
+- test: tests/test_files_outside_the_measured_root_are_named.py::test_source_files_outside_the_measured_source_root_are_named
+  bug: "a source file outside active_src_dir is outside coverage and every src-scoped tool"
+  fixed_in: "Round 116 站2"
+
+- test: tests/test_files_outside_the_measured_root_are_named.py::test_the_p3_exit_refuses_stray_files_and_earlier_phases_do_not
+  bug: "advance-phase names stray files from Phase 3 with exit 54, owner project"
+  fixed_in: "Round 116 站2"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

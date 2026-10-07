@@ -171,6 +171,9 @@ section must match it exactly, enforced by tests/test_exit_code_registry.py):
     53  advance-phase: a deliverable Agent B reviewed in an earlier, closed
         phase changed since that review. The Advance step sends it to a
         change review; `stale-approvals --before N` lists them.
+    54  advance-phase --completed >= 3: a test or source file sits in the
+        root the framework does not measure; the suite never runs it. Move
+        it into the measured root (`git mv`) — the block lists them.
     70  [HARNESS-BUG] — a defect in harness-methodology's own code: an
         uncaught exception at the crash boundary (core/errors.py), or the
         same banner surfacing through a sub-agent's GATE1 output

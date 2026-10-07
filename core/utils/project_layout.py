@@ -281,6 +281,32 @@ class ProjectLayout:
             return root_dir
         return phase_dir if self.uses_phase_layout else root_dir
 
+    def stray_files(self) -> list[str]:
+        """Files in the root the framework does not measure, project-relative.
+
+        Round 116 站2. For tests and src alike: every file under the root
+        `_active_root` did not choose, unless it resolves to a file the chosen
+        root reaches (a symlink mirror IS run). taskq-final kept seven such
+        files — four bug-hunt repros, a benchmark, two conftests — that no
+        framework run ever executed, and nothing said so.
+        """
+        def files(d: Path) -> list[Path]:
+            if not d.is_dir():
+                return []
+            return [p for p in d.rglob("*") if p.is_file() and "__pycache__" not in p.parts
+                    and not any(part.startswith(".") for part in p.relative_to(d).parts)]
+
+        out: list[str] = []
+        for phase_dir, root_dir in ((self.phase3_development_dir / "tests", self.root_tests_dir),
+                                    (self.phase3_development_dir / "src", self.root / "src")):
+            active = self._active_root(phase_dir, root_dir)
+            other = root_dir if active == phase_dir else phase_dir
+            if not other.exists() or (active.exists() and other.resolve() == active.resolve()):
+                continue
+            reached = {p.resolve() for p in files(active)}
+            out += sorted(self.get_relative_str(p) for p in files(other) if p.resolve() not in reached)
+        return out
+
     @property
     def active_test_dir(self) -> Path:
         """The test root the framework's suite runs (see `_active_root`)."""
