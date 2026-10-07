@@ -156,13 +156,16 @@ const huntPrompt = (p) => (p.kind === 'threat'
     + 'Read the target fully; use CRG callers_of/callees_of/tests_for. Report only bugs reachable on the current code path with a concrete failure scenario; no style nits, no hypotheticals, nothing static preflight already blocks. An empty findings list is a valid result.\n')
   + 'Each finding: module, lens, severity, title, description, file (project-relative), line_start, line_end, code_snippet (<=8 verbatim lines), reasoning (cite the proving line + trigger), suggested_fix, confidence. READ ONLY — edit nothing.\n\nSCOUT CONTEXT:\n' + huntScout
 const huntHunt = async (p, i, sfx) => await agent(huntPrompt(p), { label: 'hunt-' + i + '-' + p.lens + sfx, phase: 'Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: p.kind === 'threat' ? THREAT_HUNT_SCHEMA : HUNT_RESULT_SCHEMA })
-const huntVerify = async (f, i, j, role) => await agent(
+const huntVerify = async (f, i, j, role, sfx) => await agent(
   (role === 'refute'
     ? 'Try to REFUTE this bug finding (hunt_bugs.md Phase 3). Default is_real=false unless undeniable. Is the cited code at the cited line? Does surrounding code already guard it? Is the scenario reachable? Cite line numbers.\n'
     : 'Independently CONFIRM this bug finding (hunt_bugs.md Phase 3). Default is_real=false unless provable: trace the data flow to the line, check tests_for (a passing test on this path suggests it is handled), and confirm only with a concrete trigger + expected vs actual, citing line numbers.\n')
   + 'REPO: ' + REPO + '\nFINDING:\n' + JSON.stringify(f) + '\nREAD ONLY.',
-  { label: 'hunt-' + i + '-' + j + '-' + role, phase: 'Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: VERIFY_SCHEMA })
+  { label: 'hunt-' + i + '-' + j + '-' + role + (sfx || ''), phase: 'Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: VERIFY_SCHEMA })
 const huntCited = (v) => /(:\d+|line\s*\d+|L\d+)/i.test(String(v.evidence) + ' ' + String(v.refutation_attempt))
+// A verifier that returned nothing gave no verdict: it is re-dispatched once, and a finding
+// still missing either verdict is UNJUDGED — never "refuted" (Round 115 站1: `.filter(Boolean)`
+// recorded absence of evidence as a refutation, the one state Gate 3 does not block on).
 const huntJudge = async (res, p, i) => {
   if (!res) return null
   const raw = p.kind === 'threat' ? [res] : (res.findings || [])
@@ -170,7 +173,10 @@ const huntJudge = async (res, p, i) => {
   for (let j = 0; j < raw.length; j++) {
     const f = Object.assign({}, raw[j], { lens: p.lens, module: raw[j].module || p.name })
     if (p.kind === 'threat' && f.mitigation_effective === true) { out.push({ f: f, confirmed: false, refute: String(f.evidence || '') }); continue }
-    const vs = (await parallel([() => huntVerify(f, i, j, 'refute'), () => huntVerify(f, i, j, 'confirm')])).filter(Boolean)
+    const roles = ['refute', 'confirm']
+    const vs = await parallel(roles.map((role) => () => huntVerify(f, i, j, role, '')))
+    for (let k = 0; k < roles.length; k++) if (!vs[k]) vs[k] = await huntVerify(f, i, j, roles[k], '-retry')
+    if (!vs[0] || !vs[1]) { out.push({ f: f, unjudged: true }); continue }
     const real = vs.filter((v) => v.is_real)
     const confirmed = real.length === 2 || (real.length === 1 && huntCited(real[0]))
     const refuter = vs.find((v) => !v.is_real)
@@ -184,6 +190,8 @@ for (let i = 0; i < huntPairs.length; i++) {
 }
 const huntMissing = huntPairs.filter((p, i) => huntRows[i] === null).map((p) => p.lens + ':' + p.path)
 if (huntMissing.length) return halt('bug-hunt', { error: huntMissing.length + ' hunter(s) returned nothing after a retry — the hunt did not cover ' + huntMissing.slice(0, 5).join(', '), owner: 'infra' })
+const huntUnjudged = huntRows.flat().filter((r) => r.unjudged).map((r) => r.f.lens + ':' + r.f.file + ':' + r.f.line_start)
+if (huntUnjudged.length) return halt('bug-hunt', { error: huntUnjudged.length + ' finding(s) got no verdict from a verifier after a retry — ' + huntUnjudged.slice(0, 5).join(', '), owner: 'infra' })
 const huntSeq = {}
 const huntFindings = []
 for (const rows of huntRows) for (const r of rows) {

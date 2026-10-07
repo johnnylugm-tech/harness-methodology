@@ -1686,6 +1686,34 @@ test('a hunter that fails once is retried; failing twice halts as infra before a
   assert.ok(!huntLabels(twice.events).some((l) => /^hunt-record/.test(l)))
 })
 
+// Round 115 站1: a verifier that returned nothing gave no verdict. `.filter(Boolean)`
+// dropped it, and a finding nobody judged was recorded as refuted ("no verifier
+// confirmed") — a non-blocking state reached by absence of evidence.
+test('a verifier that returns nothing once is re-dispatched, and its verdict is the one used', async () => {
+  const { events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-\d+-correctness$/, respond: { findings: [huntFinding()] } },
+    { match: /-refute$/, respond: null },
+    { match: /-refute-retry$/, respond: { is_real: true, refutation_attempt: 'none', evidence: 'src/auth.py:12', severity_agrees: true } },
+    { match: /-confirm$/, respond: { is_real: true, refutation_attempt: 'tried', evidence: 'src/auth.py:12', severity_agrees: true } },
+  ]))
+  assert.ok(huntLabels(events).some((l) => /^hunt-\d+-0-refute-retry$/.test(l)))
+  assert.ok(!huntLabels(events).some((l) => /-confirm-retry$/.test(l)), 'only the silent verifier is re-dispatched')
+  const f = huntRecord(events).findings.find((x) => x.lens === 'correctness')
+  assert.equal(f.confirmed, true)
+})
+
+test('a finding no verifier judged halts as infra; it is never recorded as refuted', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    { match: /^hunt-\d+-correctness$/, respond: { findings: [huntFinding()] } },
+    { match: /-(refute|confirm)(-retry)?$/, respond: null },
+  ]))
+  assert.equal(result.halt_step, 'bug-hunt')
+  assert.equal(result.owner, 'infra')
+  assert.match(result.error, /no verdict/)
+  assert.ok(!huntLabels(events).some((l) => /^hunt-record/.test(l)))
+  assert.ok(!huntLabels(events).some((l) => /^hunt-\d+-correctness-retry$/.test(l)), 'an unjudged finding is not a silent hunter')
+})
+
 test('a part that echoes something other than what was written is retried, then halts before assembling', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
     { match: /^hunt-record-\d+(-retry)?$/, respond: { rc: 0, findings: 99, confirmed: 0, first: 'x', last: 'y' } },

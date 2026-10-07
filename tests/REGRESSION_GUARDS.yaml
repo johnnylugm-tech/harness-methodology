@@ -6250,6 +6250,10 @@
   bug: "P4's Bug Hunt was one agent told to spawn hunters/verifiers with an Agent tool a workflow agent does not have; on taskq-open it ran 0 sub-agents and judged its own findings. Control flow is guarded in scripts/workflowgen/js_src/sim_runner.test.mjs (P4 bug hunt section) via tests/test_workflow_sim.py"
   fixed_in: "the bug hunt runs as the workflow"
 
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "Round 115 站1 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: huntJudge dropped a verifier that returned nothing with `.filter(Boolean)`, so a finding no verifier judged was recorded as refuted ('no verifier confirmed') — the one state Gate 3 never blocks on. The silent verifier is now re-dispatched once and a finding still missing a verdict halts the hunt as infra. Counter-proof run 2026-10-07: restoring spec_phase4.py at 4326dfdb turns both scenarios red"
+  fixed_in: "Round 115 站1"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

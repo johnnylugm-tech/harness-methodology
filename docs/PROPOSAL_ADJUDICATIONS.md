@@ -11275,3 +11275,30 @@ sim floor 174 → 177。ratchet:advance_prechecks 1335 → 1359、phase_cmds 230
 | resolution_ref 同檔另有 `unresolved` 行時判矛盾(站3 第一版) | 會把歷史敘述行判成矛盾;taskq-sol 的原案例在新規則下因沒有 `<id>: resolved` 紀錄而照樣不過 | 出現一份檔案同時有 `<id>: resolved` 與 `<id>: unresolved` 兩筆紀錄格式行的實例 |
 | TRACEABILITY_MATRIX 的「Planned tests」欄(站7 第一版) | 那是 TEST_INVENTORY 的第二份陳述(R33),也會改變專案測試讀取的表格欄位 | 有讀者需要在 matrix 內看到規劃測試、而 TEST_INVENTORY 無法提供 |
 | `EX_FR_STEP_INFRA_ABORT` 常數改名(站4a) | 數字的 owner 與訊息已更正;改名牽動既有測試與 12 個引用點,超出本站範圍 | 有讀者因常數名稱而把 exit 25 當成 infra 處理的實例 |
+
+## Round 115 — HARNESS_IMPROVEMENT_PLAN.md(taskq-open 外部審計)重新驗證與根源修復 (2026-10-07)
+
+老闆令:檢查外部審計 HM-01~HM-12,重新驗證每項的真實性與根源、排除已完成者;每項要明確是 harness
+bug 或 workflow JS bug,採正解、不破壞共通性。裁定:HM-04 P8 = 交付候選;HM-02 修復者可反駁但需
+獨立裁決;HM-06 本輪一併設計最小 schema。
+
+**驗證結論**:報告基準 `27f354ca` 早於 R114;HM-07 缺名、standalone-mutmut、CLI 旗標已由 R114 完成。
+HM-06 collection-error 前提在 advance 時不可達(`_precheck_p3_security_and_quality` 以 exit 9 先擋)。
+HM-11 的 hunt drift 不是缺陷(adversarial_review 只在 Gate 2/3)。報告低估兩項:`chore(harness)`
+標籤繞過 hook(已發生)、resolver 以文字推翻 confirmed CRITICAL(taskq-new,已發生)。本輪第一版的
+HM-01b(threat 由 hunter 自判)經查證撤回,見 §不做。
+
+### 站1 — 沒有判決不等於反駁(workflow JS)
+
+`huntJudge` 以 `.filter(Boolean)` 丟掉回 null 的 verifier,沒有任何 verifier 判過的 finding 被記成
+`refuted`(`'no verifier confirmed'`)—— Gate 3 唯一不阻擋的狀態,由「沒有證據」到達。hunter 的
+null 早有 retry + infra halt,verifier 沒有(不對稱)。語料 0 次發生:workflow 派工的 hunt
+(9bee0f77)還沒有專案跑過;taskq-open 的「0 confirmed」出自其前的單 agent 自審路徑,不在本站範圍。
+
+修正:回 null 的那一個 verifier 重派一次(`-retry`),仍缺判決的 finding 標為 unjudged(不回傳
+null,以免誤觸 hunter retry);pipeline 結束後有任何 unjudged 即 `halt('bug-hunt', owner: infra)`,
+不寫任何 part。嚴格確認規則(2/2 或 1/2 附行號)不動。resume 時已完成的 agent 呼叫由 cache 重放,
+只補派缺的。
+
+反證:以 4326dfdb 的 spec_phase4.py 重生,兩個新 sim 情境轉紅;`cp` 還原 sha256 一致。
+sim floor 177 → 179;run-all 上限 +531。
