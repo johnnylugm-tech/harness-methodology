@@ -1222,7 +1222,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
     'YOU ARE THE PHASE-2 PUSH ORCHESTRATOR.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py push-checkpoint --phase 2 --project ' + REPO + '`\n'
-    + '  - If blocked by a hook error: reword commit message to start with `chore(harness):` (documented bypass; NOT --no-verify), re-run. Retry until success.\n'
+    + '  - If blocked by a hook error: its output names what is wrong — fix that (NOT --no-verify), re-run. Retry until success.\n'
     + 'Step 2: Read ' + REPO + '/HANDOVER.md and confirm it exists.\n'
     + 'Report: "PUSH: PASS|FAIL — <details>".\n\n'
     + 'SCOPE RULES:\n- DO NOT re-do any P2 deliverable.\n- DO NOT run advance-phase here.\n- DO NOT use --no-verify.\n- ONLY push + verify HANDOVER.md.',

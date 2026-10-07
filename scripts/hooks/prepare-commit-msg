@@ -8,6 +8,11 @@
 
 set -e
 
+# Round 115 站3: what THIS commit changes, read before the env below is
+# cleared — `git commit -- <path>` (submodule_sync's bump) stages into a
+# temporary index named by GIT_INDEX_FILE, which the unset would discard.
+_STAGED=$(git diff --cached --name-only --no-renames 2>/dev/null || true)
+
 # Unset git worktree env vars so all git commands resolve to this repo
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
 
@@ -51,9 +56,12 @@ fi
 # Infrastructure-only commits (submodule pointer updates) do not change
 # project code — skip the gate check. The harness version bump itself is
 # the fix; blocking on a failing gate that the new version resolves is circular.
+# Round 115 站3: decided by what the commit CHANGES. It used to be the subject
+# line (`chore(harness):`), the author's own word about its content — and the
+# workflow told agents to write it whenever this hook blocked.
 COMMIT_MSG=$(cat "$1" 2>/dev/null | head -1)
-if echo "$COMMIT_MSG" | grep -qE '^chore\(harness\):'; then
-    echo "Infrastructure commit (harness submodule) — skipping gate check"
+if [ "$(printf '%s\n' "$_STAGED" | "$PYTHON" "$HARNESS_CLI" infra-commit-check 2>/dev/null)" = "INFRA" ]; then
+    echo "Infrastructure commit (only the harness gitlink / CI workflow changed) — skipping gate check"
     exit 0
 fi
 

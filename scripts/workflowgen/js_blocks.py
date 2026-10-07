@@ -1169,7 +1169,7 @@ def render_milestone(
         + "  + 'REPO: ' + REPO + '\\nPYTHON: ' + PY + '\\n\\n'\n"
         + f"  + '0. GUARD: `jq -r --arg t {milestone_type} \\'.last_milestone_head[$t] // empty\\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report \"MILESTONE: PASS (already pushed)\" and stop.\\n'\n"
         + f"  + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type {milestone_type} --project ' + REPO + '`\\n'\n"
-        + "  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\\n\\n'\n"
+        + "  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\\n\\n'\n"
         + "  + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\\n\\n'\n"
         + f"  + 'SCOPE RULES:\\n- DO NOT run advance-phase.\\n- ONLY push-milestone {milestone_type}.',\n"
         + f"  {{ label: '{label}', phase: 'Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA }},\n"

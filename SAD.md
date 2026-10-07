@@ -263,7 +263,7 @@ Full integration guide: **[INTEGRATION.md](INTEGRATION.md)**. Summary:
 | Mechanism | File | Context | Purpose |
 |---|---|---|---|
 | **GitHub Actions CI** | `.github/workflows/harness_ci.yml` | This repo (framework self-test) | Mutation testing (median-3, threshold ≥70, requires `pytest.mark.mutation_oracle` scoped testing via `setup.cfg`) + `pytest tests/` on push/PR to `main` |
-| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase`. Skips checks for `chore(harness):` commits |
+| **Git Hooks installer** | `scripts/setup-git-hooks.sh` | Target project | Installs `prepare-commit-msg` (block commit), `post-merge` (warn), `pre-push` (block push) keyed on `.methodology/state.json` `current_phase`. Skips checks for commits that change only the `harness` gitlink / deployed CI workflow (`infra-commit-check`, judged by changed paths) |
 | **Drift Monitor cron** | `scripts/cron_drift_monitor.py` | Target project (crontab) | ~~Hourly architecture drift detection; alert via log / email / Slack. Path via `DRIFT_PROJECT_PATH` env var~~ **REMOVED** (減法 T4) |
 | **On-demand scripts** | `scripts/*.py` | Target project | FR audit, phase audit, spec compliance, FR mapping — see INTEGRATION.md §3.4 |
 

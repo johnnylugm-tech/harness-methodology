@@ -52,6 +52,24 @@ _TIMEOUT = 10
 _SUBMODULE_DIRNAME = "harness"
 
 
+def is_infrastructure_change(paths: "list[str] | set[str]") -> bool:
+    """True when a commit changes only the framework's own infrastructure.
+
+    Round 115 站3. The git hooks used to decide this from the subject line
+    (`chore(harness):`), which is the commit author's word about its own
+    content — and six workflow prompts told the agent to write it whenever a
+    hook blocked. The framework's producers of such commits change the
+    submodule gitlink (`submodule_sync`, the repair flow) and the CI
+    workflow `init-project --ci-only` redeploys; nothing else is exempt, and
+    a commit that changes nothing is not infrastructure either.
+    """
+    from core.ci_template import deployed_ci_path
+
+    allowed = {_SUBMODULE_DIRNAME, deployed_ci_path("").as_posix()}
+    changed = {p.strip() for p in paths if p.strip()}
+    return bool(changed) and changed <= allowed
+
+
 def pinned_submodule_sha(project: "str | Path") -> "str | None":
     """The commit this project's `harness` submodule points at, or None.
 

@@ -214,7 +214,9 @@ def test_zero_refs_blocks_in_the_framework_repo(tmp_path):
     assert _BLOCKED in result.stdout and "no refs" in result.stdout, (
         "the block has to say WHY nothing was read, or the operator's next "
         f"move is to run it again: {result.stdout[-500:]!r}")
-    assert "All commits are infrastructure" not in result.stdout, (
+    # Round 115 站3 reworded the skip line; asserting on the shared tail keeps
+    # this check from passing vacuously on the new wording.
+    assert "skipping gate check" not in result.stdout, (
         "a push with no commits at all must not be described as one carrying "
         "only infrastructure commits")
 

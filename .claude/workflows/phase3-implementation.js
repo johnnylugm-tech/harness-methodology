@@ -667,7 +667,7 @@ for (const frId of frIds) {
       + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P3-mid)" -1`. If a p3-mid commit already exists, report "MILESTONE: PASS (already pushed)" and stop — do NOT push again.\n'
       + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-mid --project ' + REPO
       + ' --fr-done ' + gate1Pass.length + ' --fr-total ' + frIds.length + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
-      + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+      + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
       + 'Report: "MILESTONE: PASS|FAIL — <details>".\n\n'
       + 'SCOPE RULES:\n- DO NOT run run-gate / advance-phase / implement FRs.\n- ONLY push-milestone p3-mid.',
       { label: 'milestone-p3-mid', phase: 'Per-FR TDD', agentType: 'general-purpose' },
@@ -748,7 +748,7 @@ const preGate2Report = await dispatch(
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P3-pre-gate2)" -1`. If a p3-pre-gate2 commit already exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-pre-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
-  + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+  + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
   + 'SCOPE RULES:\n- DO NOT run run-gate or advance-phase.\n- ONLY push-milestone p3-pre-gate2.',
   { label: 'milestone-pre-gate2', phase: 'Milestones', agentType: 'general-purpose', schema: VERDICT_SCHEMA },

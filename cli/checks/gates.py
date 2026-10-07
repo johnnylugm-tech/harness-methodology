@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from core.quality_gate.spec_coverage import _run_spec_coverage_check
@@ -162,6 +163,24 @@ def cmd_install_isolated_tools(args: argparse.Namespace) -> int:
             continue
         print(f"[install-isolated-tools] {spec_str} ready at {bin_path}")
     return 1 if failed else 0
+
+
+def cmd_infra_commit_check(args: argparse.Namespace) -> int:
+    """Exit 0 when the paths on stdin are only the framework's infrastructure.
+
+    Round 115 站3. The git hooks hand over what the commit (or push) changes
+    — they own the git plumbing, including the commit's own index — and this
+    answers from `is_infrastructure_change`, the one definition. A subject
+    line is not consulted. The hooks act only on the printed `INFRA`, so a CLI
+    that did not run — or ran something else — never reads as a yes.
+    """
+    from core.quality_gate.submodule_pin import is_infrastructure_change
+
+    if is_infrastructure_change(sys.stdin.read().splitlines()):
+        print("INFRA")
+        return 0
+    print("NOT-INFRA")
+    return 1
 
 
 def cmd_verify_ci(args: argparse.Namespace) -> int:
@@ -382,6 +401,12 @@ def register(sub) -> None:
     )
     iit.add_argument("--project", default=".", help="Project root (default: .)")
     iit.set_defaults(func=cmd_install_isolated_tools)
+
+    ici = sub.add_parser(
+        "infra-commit-check",
+        help="Exit 0 if the changed paths on stdin are only the harness gitlink / CI workflow",
+    )
+    ici.set_defaults(func=cmd_infra_commit_check)
 
     # verify-ci (Round 37: read back what the push produced)
     vci = sub.add_parser(

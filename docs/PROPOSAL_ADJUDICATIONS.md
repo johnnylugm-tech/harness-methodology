@@ -11330,3 +11330,24 @@ sim floor 179 → 182;run-all 上限 +3911;js_blocks 2478 → 2497(兩個 schema
 
 範圍外發現:taskq-final 同時有 `03-development/tests`(15)與 root `tests/`(18),`active_test_dir`
 默默只取前者,suite / coverage 都沒量到後者(R78 家族,語料唯一一例)—— 另開任務。
+
+### 站3 — infra commit 以內容判定,不以標籤(harness hook + workflow JS)
+
+`prepare-commit-msg` 與 `pre-push` 以 subject 是否以 `chore(harness):` 開頭決定跳過整個 preflight,而
+6 處 workflow prompt 指示「被 hook 擋就把 commit 改成這個前綴(documented bypass)」。實例:taskq-new
+210a275(測試檔、HANDOVER、state)、taskq-redo 4bdbfc0(P7 交付物)、tts-new 646f010(測試檔、setup.cfg)。
+標籤是作者對自身內容的陳述(R87:量名字不是量內容)。
+
+新定義 `submodule_pin.is_infrastructure_change(paths)`:變更只含 `harness` gitlink 與部署的 CI workflow
+(R40 redeploy,f923e98 / tts 53436e0 為實例),空變更不算;`infra-commit-check` 由 stdin 讀路徑。
+hook 擁有 git 管線:prepare-commit-msg 在清除環境變數**之前**讀 staged 路徑(`git commit -- <path>`
+用 GIT_INDEX_FILE 指定的暫時 index,即 submodule_sync 的 bump);pre-push 以
+`git log -m --first-parent --name-only` 取整段範圍。6 處 prompt 改為「hook 的輸出指名問題,修它」。
+
+框架自己的生產者:`submodule_sync` 只 commit gitlink、repair 只 `git add harness` → 仍跳過;
+`ensure_project_init` 的 init commit 不是純 infra,實測(scratch:submodule + init-project)
+`pre-commit-check --phase 1` rc=0,不需要跳過。hook 只認 CLI 印出的 `INFRA`,不認 exit code:
+三個既有 hook 測試的 stub CLI 對任何指令都 exit 0,第一版據 exit code 判定時它們全被讀成「純 infra」而
+跳過 —— 一支沒跑任何東西的 CLI 不能是「是」。`test_pre_push_cannot_pass_by_skipping` 的 R83 斷言改看
+共同尾句「skipping gate check」,以免新措辭讓它空轉。反證:以 HEAD 的兩個 hook 還原,3 個 hook 測試
+轉紅。run-all 上限 -59。

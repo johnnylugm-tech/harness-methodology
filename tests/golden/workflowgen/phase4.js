@@ -793,7 +793,7 @@ for (const frId of deltaTodo) {
       + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P4-mid)" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
       + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-mid --project ' + REPO
       + ' --fr-done ' + gate1Pass.length + ' --fr-total ' + frIds.length + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
-      + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+      + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
       + 'Report: "MILESTONE: PASS|FAIL — <details>".\n\n'
       + 'SCOPE RULES:\n- DO NOT run run-gate / bug-hunt / advance-phase.\n- ONLY push-milestone p4-mid.',
       { label: 'milestone-p4-mid', phase: 'Per-FR Delta', agentType: 'general-purpose' },

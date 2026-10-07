@@ -6302,6 +6302,30 @@
   bug: "Round 115 站2 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: the bug-hunt resolver's own `pass` decided whether confirmed critical/high findings were closed; the loop now ends on bug-hunt-pending (Gate 3's rule), a refutation is judged by two adjudicators and recorded, a rejected one goes back to the resolver and halts as project after two rounds. Counter-proof run 2026-10-07: the three scenarios are red against the workflow generated at 4631c53c"
   fixed_in: "Round 115 站2"
 
+- test: tests/test_an_infra_commit_is_judged_by_its_content.py::test_a_project_file_labelled_chore_harness_is_checked_at_commit
+  bug: "prepare-commit-msg skipped the whole preflight for any subject starting chore(harness): — the author's own word about the content; taskq-new 210a275 committed a test file that way"
+  fixed_in: "Round 115 站3"
+
+- test: tests/test_an_infra_commit_is_judged_by_its_content.py::test_a_push_of_labelled_project_commits_runs_the_preflight
+  bug: "pre-push skipped run-phase when every pushed subject started chore(harness):; taskq-redo 4bdbfc0 pushed its Phase 7 deliverables that way"
+  fixed_in: "Round 115 站3"
+
+- test: tests/test_an_infra_commit_is_judged_by_its_content.py::test_a_push_of_only_infrastructure_skips_it
+  bug: "the positive control: a push changing only the CI workflow (or the harness gitlink) is the circular-block case the skip exists for"
+  fixed_in: "Round 115 站3"
+
+- test: tests/test_an_infra_commit_is_judged_by_its_content.py::test_anything_else_is_not
+  bug: "the infrastructure set is the harness gitlink and the deployed CI workflow, nothing under harness/ and not an empty change"
+  fixed_in: "Round 115 站3"
+
+- test: tests/test_an_infra_commit_is_judged_by_its_content.py::test_no_workflow_prompt_tells_the_agent_to_relabel_a_blocked_commit
+  bug: "six workflow prompts told the agent to reword a hook-blocked commit to chore(harness): ('documented bypass')"
+  fixed_in: "Round 115 站3"
+
+- test: tests/test_an_infra_commit_is_judged_by_its_content.py::test_a_cli_that_exits_zero_without_answering_is_not_a_yes
+  bug: "the first draft judged infra-commit-check by its exit code; three existing hook tests stub harness_cli.py as exit 0 for anything, and all three were read as pure-infrastructure pushes and skipped — a CLI that ran nothing must not read as a yes"
+  fixed_in: "Round 115 站3"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

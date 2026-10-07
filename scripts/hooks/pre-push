@@ -108,15 +108,19 @@ fi
 
 # Infrastructure-only commits (submodule pointer updates) do not change
 # project code — skip the gate check. Check ALL commits being pushed;
-# if every one is chore(harness):, skip. Mixed pushes (code + harness) still
-# run the full check.
-_ALL_HARNESS_CHORE=true
+# if together they change only the harness gitlink / CI workflow, skip.
+# Mixed pushes (code + harness) still run the full check.
+# Round 115 站3: decided by what the commits CHANGE (`infra-commit-check`).
+# It used to be every subject starting `chore(harness):` — the author's own
+# word about its content, which the workflow told agents to write whenever a
+# hook blocked (taskq-redo 4bdbfc0 pushed its Phase 7 deliverables that way).
+_ALL_INFRA=true
 # Round 33 站5: the ranges are collected here because this loop consumes the
 # hook's stdin — there is no second chance to read the refs. `break` became
 # `continue` so a mixed push still records every range; the flag only ever
 # moves true -> false, so the early exit was never load-bearing.
 _PUSH_RANGES=""
-# Round 83 站4: count what the loop actually read. `_ALL_HARNESS_CHORE` starts
+# Round 83 站4: count what the loop actually read. `_ALL_INFRA` starts
 # true and only ever moves to false INSIDE the loop, so zero refs on stdin left
 # it true and the block below exited 0 having run nothing at all — no guard
 # registry, no self_check, no preflight — while printing "All commits are
@@ -145,12 +149,12 @@ while read -r _local_ref _local_sha _remote_ref _remote_sha; do
     _PUSH_RANGES="$_PUSH_RANGES $_RANGE"
     _RANGE_COUNT=$(git rev-list --count "$_RANGE" 2>/dev/null || echo "0")
     if [ "$_RANGE_COUNT" -eq 0 ]; then
-        _ALL_HARNESS_CHORE=false
+        _ALL_INFRA=false
         continue
     fi
-    _NON_CHORE=$(git log "$_RANGE" --format="%s" 2>/dev/null | grep -vE '^chore\(harness\):' | head -1)
-    if [ -n "$_NON_CHORE" ]; then
-        _ALL_HARNESS_CHORE=false
+    if [ "$(git log -m --first-parent --no-renames --name-only --format= "$_RANGE" 2>/dev/null \
+            | "$PYTHON" "$HARNESS_CLI" infra-commit-check 2>/dev/null)" != "INFRA" ]; then
+        _ALL_INFRA=false
     fi
 done
 if [ "$_REFS_READ" -eq 0 ]; then
@@ -162,8 +166,8 @@ are testing the hook, feed it a ref line:
     | bash scripts/hooks/pre-push origin <url>"
     exit 0
 fi
-if [ "$_ALL_HARNESS_CHORE" = true ]; then
-    echo "All commits are infrastructure (harness submodule) — skipping gate check"
+if [ "$_ALL_INFRA" = true ]; then
+    echo "All commits change only the harness gitlink / CI workflow — skipping gate check"
     exit 0
 fi
 

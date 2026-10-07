@@ -2286,7 +2286,7 @@ for (let attempt = 1; attempt <= 5; attempt++) {
     'YOU ARE THE PHASE-2 PUSH ORCHESTRATOR.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Step 1 (Bash): `' + PY + ' ' + REPO + '/harness_cli.py push-checkpoint --phase 2 --project ' + REPO + '`\n'
-    + '  - If blocked by a hook error: reword commit message to start with `chore(harness):` (documented bypass; NOT --no-verify), re-run. Retry until success.\n'
+    + '  - If blocked by a hook error: its output names what is wrong — fix that (NOT --no-verify), re-run. Retry until success.\n'
     + 'Step 2: Read ' + REPO + '/HANDOVER.md and confirm it exists.\n'
     + 'Report: "PUSH: PASS|FAIL — <details>".\n\n'
     + 'SCOPE RULES:\n- DO NOT re-do any P2 deliverable.\n- DO NOT run advance-phase here.\n- DO NOT use --no-verify.\n- ONLY push + verify HANDOVER.md.',
@@ -2629,7 +2629,7 @@ for (const frId of frIds) {
       + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P3-mid)" -1`. If a p3-mid commit already exists, report "MILESTONE: PASS (already pushed)" and stop — do NOT push again.\n'
       + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-mid --project ' + REPO
       + ' --fr-done ' + gate1Pass.length + ' --fr-total ' + frIds.length + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
-      + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+      + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
       + 'Report: "MILESTONE: PASS|FAIL — <details>".\n\n'
       + 'SCOPE RULES:\n- DO NOT run run-gate / advance-phase / implement FRs.\n- ONLY push-milestone p3-mid.',
       { label: 'milestone-p3-mid', phase: 'P3 · Per-FR TDD', agentType: 'general-purpose' },
@@ -2702,7 +2702,7 @@ const preGate2Report = await dispatch(
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P3-pre-gate2)" -1`. If a p3-pre-gate2 commit already exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p3-pre-gate2 --project ' + REPO + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
-  + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+  + '   Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
   + 'SCOPE RULES:\n- DO NOT run run-gate or advance-phase.\n- ONLY push-milestone p3-pre-gate2.',
   { label: 'milestone-pre-gate2', phase: 'P3 · Milestones', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
@@ -3298,7 +3298,7 @@ for (const frId of deltaTodo) {
       + '0. GUARD: `git -C ' + REPO + ' log --oneline --grep="P4-mid)" -1`. If exists, report "MILESTONE: PASS (already pushed)" and stop.\n'
       + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p4-mid --project ' + REPO
       + ' --fr-done ' + gate1Pass.length + ' --fr-total ' + frIds.length + ' --fr-ids ' + gate1Pass.join(',') + '`\n'
-      + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+      + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
       + 'Report: "MILESTONE: PASS|FAIL — <details>".\n\n'
       + 'SCOPE RULES:\n- DO NOT run run-gate / bug-hunt / advance-phase.\n- ONLY push-milestone p4-mid.',
       { label: 'milestone-p4-mid', phase: 'P4 · Per-FR Delta', agentType: 'general-purpose' },
@@ -3996,7 +3996,7 @@ const milestoneReport = await dispatch(
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + '0. GUARD: `jq -r --arg t p5-baseline \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p5-baseline --project ' + REPO + '`\n'
-  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
   + 'SCOPE RULES:\n- DO NOT run advance-phase.\n- ONLY push-milestone p5-baseline.',
   { label: 'milestone-baseline', phase: 'P5 · Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
@@ -4806,7 +4806,7 @@ const milestoneReport = await dispatch(
   + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
   + '0. GUARD: `jq -r --arg t p7 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "MILESTONE: PASS (already pushed)" and stop.\n'
   + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p7 --project ' + REPO + '`\n'
-  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n\n'
+  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
   + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
   + 'SCOPE RULES:\n- DO NOT run advance-phase.\n- ONLY push-milestone p7.',
   { label: 'milestone-p7', phase: 'P7 · Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
@@ -5266,7 +5266,7 @@ for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
     + '0. GUARD: `jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "P8-PUSH: PASS (already pushed)" and stop.\n'
-    + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion checks the `.methodology-archive/` presence + contents (its output tells you exactly what is missing — lint/types/coverage/Phase Truth are advance-phase\'s job, step 2 below, not this step\'s). If it prints "[BLOCKED] ..." or "[ERROR] P8 push blocked ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, reword commit to start with `chore(harness):` (NOT --no-verify), retry.\n'
+    + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion checks the `.methodology-archive/` presence + contents (its output tells you exactly what is missing — lint/types/coverage/Phase Truth are advance-phase\'s job, step 2 below, not this step\'s). If it prints "[BLOCKED] ..." or "[ERROR] P8 push blocked ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n'
     + '2. ADVANCE: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 8 --project ' + REPO + '`. This transitions into Phase 9 (Maintenance — steady-state, CR-driven). advance-phase independently re-verifies EVERYTHING (TDD-PRECHECK, HR-11 Phase Truth, HR-17 submodule guard, etc.) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction. It is safe to re-run repeatedly within this round.\n'
     + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase >= 8.\n\n'
     + 'Report final line: "P8-PUSH: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_9_PLAN: ' + REPO + '/.methodology/phase9_plan.md\n\n'
