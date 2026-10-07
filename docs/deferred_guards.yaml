@@ -2496,3 +2496,75 @@ entries:
     guard: "manual"
     evidence: >-
       2026-10-06: 條件是「有讀者因常數名稱而把 exit 25 當成 infra 處理的實例」。本輪實測未成立。數字的 owner 與訊息已更正;改名牽動既有測試與 12 個引用點,超出本站範圍。
+  - round: 115
+    item: "threat 由 hunter 自判 mitigation 有效即記為 refuted(HM-01b,第一版擬改)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「出現一個 hunter 判為有效的 threat,在非 SPEC 規定的實作上被證實可利用」。本輪實測未成立。taskq-open 13 個 threat 皆由舊版單 agent 路徑(78f79c15)判定;唯一查證的反例 T-07 使用的正是 SPEC L149 規定的機制。
+  - round: 115
+    item: "test identity / alias / critical 契約 100% 見證(HM-07)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「出現 FR 列在 Gate 1 通過、其宣告測試卻未交付的實例」。本輪實測未成立。R114 站5 量得語料 89/89 未交付宣告測試皆為非 FR 列,FR 列為 0。
+  - round: 115
+    item: "runtime matrix:真 PostgreSQL、乾淨安裝、`:app` 入口(HM-08)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「專案宣告支援某 backend,而 verify-system 沒有執行它卻報 PASS」。本輪實測未成立。外部審計 A01/A08 為專案實作錯誤,本輪未量到 verify-system 對宣告 backend 報 PASS 卻未執行的實例。
+  - round: 115
+    item: "情境 / fault injection 測試生成(HM-09)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「老闆另開設計輪」。本輪未成立:老闆本輪只裁定 HM-06 最小 schema 一併設計。
+  - round: 115
+    item: "runtime 架構契約探針(HM-10)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「SAD 宣告了 runtime 架構契約,而框架的架構維度對它報 100」。本輪實測未成立。架構維度量的是 import topology 與 typed constraints,語料 SAD 未有以 runtime 契約形式宣告、由架構維度判定的條目。
+  - round: 115
+    item: "否定詞 / 範圍的語意比對(HM-06)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「出現 B 核准的 SRS 與 SPEC 否定相反的實例」。本輪實測未成立。外部審計的否定反例是人工構造的探針,不是語料實例。
+  - round: 115
+    item: "Bug Hunt 的 git drift 改為阻擋(HM-11)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「Gate 4 加入 adversarial_review」。本輪實測未成立。adversarial_review 只在 gate2_p3_exit.yaml 與 gate3_p4_exit.yaml。
+  - round: 115
+    item: "failure corpus 框架(HM-12)"
+    verdict: NO_CONDITION
+    guard: "manual"
+    evidence: >-
+      2026-10-07: re-open 欄為「—」:ledger 自己陳述此決定沒有再開條件;各站的反例已作為 fixture 並登記為 guard。
+  - round: 115
+    item: "`render_milestone` 的 verdict 改由 harness 讀取(站4 第一版)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「出現某 phase 的 milestone 謊報未被其 advance 擋下的實例」。本輪實測未成立。`_precheck_exit_milestone_landed_green` 對 P3/4/5/7/8 以 exit 51 重判;taskq-open 在 R113 前的紅燈收尾正是這道檢查補上的。
+  - round: 115
+    item: "RELEASE_CHECKLIST 計算 HIGH 風險數(站6 第一版)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「RISK_REGISTER 有了框架定義且有讀者的機器可讀嚴重度欄位」。本輪實測未成立。templates/RISK_REGISTER.md 只有 Likelihood/Impact/Score 文字欄,語料寫法至少五種。
+  - round: 115
+    item: "舊 criteria 核准缺 digest 時寫 degradation 列(站7 計畫)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「有讀者需要知道哪些核准沒有 digest,而無法從核准檔本身讀出」。本輪實測未成立。核准檔的 criteria_review 區塊本身即可看出有無 requirement_digest。
+  - round: 115
+    item: "`active_test_dir` 默默只取 03-development/tests(taskq-final 的 root tests/ 未被量測,本輪發現)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-07: 條件是「老闆核准另開一輪,或第二個專案出現兩個測試根」。本輪實測未成立。語料掃描(git ls-files)只有 taskq-final 同時有 03-development/tests 與 root tests/ 的測試檔。

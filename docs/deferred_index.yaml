@@ -2133,3 +2133,75 @@ entries:
     item: "`EX_FR_STEP_INFRA_ABORT` 常數改名(站4a)"
     reason: "數字的 owner 與訊息已更正;改名牽動既有測試與 12 個引用點,超出本站範圍"
     reopen: "有讀者因常數名稱而把 exit 25 當成 infra 處理的實例"
+  - round: 115
+    line: 11458
+    kind: table_row
+    item: "threat 由 hunter 自判 mitigation 有效即記為 refuted(HM-01b,第一版擬改)"
+    reason: "hunt_bugs.md Phase 1 明定 mitigation 是否有效由 threat hunter 判;Phase 3 驗的是 bug 主張。第一版的反例 T-07(孫進程)經查是 SPEC L149 規定的 `process.kill()` + `await process.wait()` 本身的限制,不能證明 hunter 判錯"
+    reopen: "出現一個 hunter 判為有效的 threat,在非 SPEC 規定的實作上被證實可利用"
+  - round: 115
+    line: 11459
+    kind: table_row
+    item: "test identity / alias / critical 契約 100% 見證(HM-07)"
+    reason: "缺名已由 R114 站5 在 P4 exit 處理(taskq-open 缺的 4 個皆非 FR 列);rich/legacy view 一致由報告自己證實"
+    reopen: "出現 FR 列在 Gate 1 通過、其宣告測試卻未交付的實例"
+  - round: 115
+    line: 11460
+    kind: table_row
+    item: "runtime matrix:真 PostgreSQL、乾淨安裝、`:app` 入口(HM-08)"
+    reason: "A01/A08 是專案實作錯誤;框架沒有判錯的決策點,要求所有專案跑 DB/容器會破壞共通性"
+    reopen: "專案宣告支援某 backend,而 verify-system 沒有執行它卻報 PASS"
+  - round: 115
+    line: 11461
+    kind: table_row
+    item: "情境 / fault injection 測試生成(HM-09)"
+    reason: "新能力,不是缺陷;本輪無可量測的錯誤判定"
+    reopen: "老闆另開設計輪"
+  - round: 115
+    line: 11462
+    kind: table_row
+    item: "runtime 架構契約探針(HM-10)"
+    reason: "import-linter 與 typed parity 已存在;runtime 契約(一請求一 Session 等)是新能力"
+    reopen: "SAD 宣告了 runtime 架構契約,而框架的架構維度對它報 100"
+  - round: 115
+    line: 11463
+    kind: table_row
+    item: "否定詞 / 範圍的語意比對(HM-06)"
+    reason: "canonical_diff 自述是 anti-invention 輔助,不是語意判定;語意由 B 審負責。數字漂移已由站8 的 spec_ref 接住"
+    reopen: "出現 B 核准的 SRS 與 SPEC 否定相反的實例"
+  - round: 115
+    line: 11464
+    kind: table_row
+    item: "Bug Hunt 的 git drift 改為阻擋(HM-11)"
+    reason: "adversarial_review 只在 Gate 2/3;hunt 之後的 drift 正是 resolver 自己的修復 commit"
+    reopen: "Gate 4 加入 adversarial_review"
+  - round: 115
+    line: 11465
+    kind: table_row
+    item: "failure corpus 框架(HM-12)"
+    reason: "各站的反例已作為 fixture 與 guard 登記"
+    reopen: "—"
+  - round: 115
+    line: 11466
+    kind: table_row
+    item: "`render_milestone` 的 verdict 改由 harness 讀取(站4 第一版)"
+    reason: "advance-phase 以 exit 51 對 P3/4/5/7/8 重判 milestone;agent 謊報會在 advance 被擋並由迴圈補推"
+    reopen: "出現某 phase 的 milestone 謊報未被其 advance 擋下的實例"
+  - round: 115
+    line: 11467
+    kind: table_row
+    item: "RELEASE_CHECKLIST 計算 HIGH 風險數(站6 第一版)"
+    reason: "語料 RISK_REGISTER 至少五種嚴重度寫法(HIGH、高、emoji、數值、Very Low 量表),計數是框架代填(R105)"
+    reopen: "RISK_REGISTER 有了框架定義且有讀者的機器可讀嚴重度欄位"
+  - round: 115
+    line: 11468
+    kind: table_row
+    item: "舊 criteria 核准缺 digest 時寫 degradation 列(站7 計畫)"
+    reason: "`approval_defects` 是純函式且每次 advance 都被呼叫,會重複寫同一列且不改變任何判定"
+    reopen: "有讀者需要知道哪些核准沒有 digest,而無法從核准檔本身讀出"
+  - round: 115
+    line: 11469
+    kind: table_row
+    item: "`active_test_dir` 默默只取 03-development/tests(taskq-final 的 root tests/ 未被量測,本輪發現)"
+    reason: "超出外部審計範圍;語料唯一一例,需要獨立設計(兩個測試根的量測與交付語意)"
+    reopen: "老闆核准另開一輪,或第二個專案出現兩個測試根"

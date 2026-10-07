@@ -11450,3 +11450,20 @@ unmeasured 即 FAIL 會讓這些專案永遠失敗(破壞共通性);未交付的
 把 AC-N1.1 改成 80 → 「SPEC.md:180 does not state 80ms」。
 次序註記:本站的模組先於其測試寫成(違反「先寫紅測試」);反證以 HEAD 的三個接線檔
 (srs_nfr_validate、harness_bridge、toolchain registry)還原,4 個接線測試轉紅。run-all 上限 +476(實測 449314,headroom 100)。
+
+### §不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| threat 由 hunter 自判 mitigation 有效即記為 refuted(HM-01b,第一版擬改) | hunt_bugs.md Phase 1 明定 mitigation 是否有效由 threat hunter 判;Phase 3 驗的是 bug 主張。第一版的反例 T-07(孫進程)經查是 SPEC L149 規定的 `process.kill()` + `await process.wait()` 本身的限制,不能證明 hunter 判錯 | 出現一個 hunter 判為有效的 threat,在非 SPEC 規定的實作上被證實可利用 |
+| test identity / alias / critical 契約 100% 見證(HM-07) | 缺名已由 R114 站5 在 P4 exit 處理(taskq-open 缺的 4 個皆非 FR 列);rich/legacy view 一致由報告自己證實 | 出現 FR 列在 Gate 1 通過、其宣告測試卻未交付的實例 |
+| runtime matrix:真 PostgreSQL、乾淨安裝、`:app` 入口(HM-08) | A01/A08 是專案實作錯誤;框架沒有判錯的決策點,要求所有專案跑 DB/容器會破壞共通性 | 專案宣告支援某 backend,而 verify-system 沒有執行它卻報 PASS |
+| 情境 / fault injection 測試生成(HM-09) | 新能力,不是缺陷;本輪無可量測的錯誤判定 | 老闆另開設計輪 |
+| runtime 架構契約探針(HM-10) | import-linter 與 typed parity 已存在;runtime 契約(一請求一 Session 等)是新能力 | SAD 宣告了 runtime 架構契約,而框架的架構維度對它報 100 |
+| 否定詞 / 範圍的語意比對(HM-06) | canonical_diff 自述是 anti-invention 輔助,不是語意判定;語意由 B 審負責。數字漂移已由站8 的 spec_ref 接住 | 出現 B 核准的 SRS 與 SPEC 否定相反的實例 |
+| Bug Hunt 的 git drift 改為阻擋(HM-11) | adversarial_review 只在 Gate 2/3;hunt 之後的 drift 正是 resolver 自己的修復 commit | Gate 4 加入 adversarial_review |
+| failure corpus 框架(HM-12) | 各站的反例已作為 fixture 與 guard 登記 | — |
+| `render_milestone` 的 verdict 改由 harness 讀取(站4 第一版) | advance-phase 以 exit 51 對 P3/4/5/7/8 重判 milestone;agent 謊報會在 advance 被擋並由迴圈補推 | 出現某 phase 的 milestone 謊報未被其 advance 擋下的實例 |
+| RELEASE_CHECKLIST 計算 HIGH 風險數(站6 第一版) | 語料 RISK_REGISTER 至少五種嚴重度寫法(HIGH、高、emoji、數值、Very Low 量表),計數是框架代填(R105) | RISK_REGISTER 有了框架定義且有讀者的機器可讀嚴重度欄位 |
+| 舊 criteria 核准缺 digest 時寫 degradation 列(站7 計畫) | `approval_defects` 是純函式且每次 advance 都被呼叫,會重複寫同一列且不改變任何判定 | 有讀者需要知道哪些核准沒有 digest,而無法從核准檔本身讀出 |
+| `active_test_dir` 默默只取 03-development/tests(taskq-final 的 root tests/ 未被量測,本輪發現) | 超出外部審計範圍;語料唯一一例,需要獨立設計(兩個測試根的量測與交付語意) | 老闆核准另開一輪,或第二個專案出現兩個測試根 |
