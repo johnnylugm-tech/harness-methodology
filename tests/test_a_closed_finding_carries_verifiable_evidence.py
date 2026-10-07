@@ -163,6 +163,9 @@ def test_a_repro_symlinked_out_of_the_test_directory_is_refused(tmp_path):
 def test_a_repro_the_frameworks_suite_does_not_run_is_refused(tmp_path):
     """taskq-final: `tests/` at the root while 03-development/tests exists."""
     proj = _project(tmp_path)
+    # Round 116 站1: with a test already in 03-development/tests that is the
+    # root the suite runs; the root `tests/` copy is the one it never runs.
+    (proj / "03-development" / "tests" / "test_existing.py").write_text("x = 1\n", encoding="utf-8")
     (proj / "tests").mkdir()
     (proj / SRC).write_text("def check(key):\n    return key == 'k'\n", encoding="utf-8")
     (proj / "tests" / "test_repro.py").write_text("def test_x():\n    assert True\n", encoding="utf-8")

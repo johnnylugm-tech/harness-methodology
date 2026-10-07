@@ -116,8 +116,12 @@ def test_auto_fix_applies_annotation_and_passes_verify(fixture_repo):
     ok, msg, score = fix_missing_traceability(context, fixture_repo)
     assert ok is True
     assert score == 90.0
-    # Source tree was modified: a new test file should exist
-    assert (fixture_repo / "tests" / "test_fr_99.py").exists()
+    # Source tree was modified: a new test file should exist — in the test
+    # root the framework measures (Round 116 站1: this phase-layout fixture
+    # has no test file yet, so that is 03-development/tests, not the empty
+    # root `tests/` it creates).
+    from core.utils.project_layout import ProjectLayout
+    assert (ProjectLayout(fixture_repo).active_test_dir / "test_fr_99.py").exists()
 
 
 def test_auto_fix_escalates_on_max_rounds(fixture_repo):

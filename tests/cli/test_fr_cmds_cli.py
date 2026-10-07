@@ -645,7 +645,7 @@ class TestRunFrStep:
         assert "ADD ALL of them as real" in prompt
         assert "Deleting existing tests" in prompt
         assert "Skipping or xfail-marking" in prompt
-        assert "git add tests/test_fr01.py" in prompt
+        assert "git add 03-development/tests/test_fr01.py" in prompt
 
     def test_prompt_code_fix_source_only(self, tmp_path):
         """CODE-FIX with ruff only → no test section, FORBIDDEN blocks test files."""
@@ -680,7 +680,7 @@ class TestRunFrStep:
         assert "Fix source code" in prompt
         assert "Resolve test_coverage failures" in prompt
         assert "ADD any missing" in prompt
-        assert "git add 03-development/src/ tests/test_fr01.py" in prompt
+        assert "git add 03-development/src/ 03-development/tests/test_fr01.py" in prompt
         assert "Deleting existing tests" in prompt
         assert "Skipping or xfail-marking" in prompt
 
@@ -725,13 +725,13 @@ class TestRunFrStep:
         # -q && coverage report --include=...` never passed `--cov=` to
         # pytest, so it never hit the conflict Round 94 measured.
         scoped_cmd = (
-            "python3 -m pytest tests/test_fr01.py --cov=03-development/src "
+            "python3 -m pytest 03-development/tests/test_fr01.py --cov=03-development/src "
             "--cov-report= -q "
             '&& python3 -m coverage report '
             '--include="03-development/src/taskq/storage/store.py" -m'
         )
         assert scoped_cmd in prompt
-        assert "coverage run -m pytest tests/test_fr01.py" not in prompt
+        assert "coverage run -m pytest 03-development/tests/test_fr01.py" not in prompt
         # The scope must reach the agent, not only the command: Round 94's
         # comment claimed "the `_cf_include` list is in this prompt's context
         # already" and it was not — measured, `"store.py" in prompt` was False.
@@ -740,7 +740,7 @@ class TestRunFrStep:
         # asserts the same substring and the two can never disagree, which is
         # what Round 94 left behind.
         assert (
-            "python3 -m pytest tests/test_fr01.py --cov=03-development/src "
+            "python3 -m pytest 03-development/tests/test_fr01.py --cov=03-development/src "
             "--cov-report=term-missing -q"
         ) not in prompt
 

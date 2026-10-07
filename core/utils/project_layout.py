@@ -243,26 +243,53 @@ class ProjectLayout:
     # 5. 動態解析與輔助方法 (Dynamic Resolution)
     # ==========================================
     @property
+    def uses_phase_layout(self) -> bool:
+        """True when the project is laid out in phase directories (any of
+        `core.phase_topology.PHASES`' dirs exists) — tracked content, unlike
+        the empty `03-development/{tests,src}` init-project creates."""
+        from core.phase_topology import PHASES
+
+        return any((self.root / spec.dir).is_dir() for spec in PHASES.values())
+
+    @staticmethod
+    def _holds_files(directory: Path) -> bool:
+        """At least one file under *directory*, caches and dot-paths aside."""
+        try:
+            return directory.is_dir() and any(
+                p.is_file() and "__pycache__" not in p.parts
+                and not any(part.startswith(".") for part in p.relative_to(directory).parts)
+                for p in directory.rglob("*"))
+        except OSError:
+            return False
+
+    def _active_root(self, phase_dir: Path, root_dir: Path) -> Path:
+        """Round 116 站1: the root that holds files; neither → the layout's default.
+
+        This used to ask whether `phase_dir` EXISTED. init-project creates it
+        empty and git does not track empty directories, so every fresh checkout
+        of an initialised project answered "root" until the first test was
+        committed — taskq-final's FR-01 RED was told to write
+        `tests/test_fr01.py`, and the framework's own golden prompts pair that
+        path with `--cov=03-development/src`. Files are tracked; the answer no
+        longer changes between a clone and the tree it was cloned from. A
+        project that keeps its code at the root (supported by the JS
+        toolchain templates) keeps it.
+        """
+        if self._holds_files(phase_dir):
+            return phase_dir
+        if self._holds_files(root_dir):
+            return root_dir
+        return phase_dir if self.uses_phase_layout else root_dir
+
+    @property
     def active_test_dir(self) -> Path:
-        """
-        解析當前有效的測試目錄。
-        優先回傳 03-development/tests，若不存在則退回根目錄下的 tests。
-        """
-        dev_tests = self.phase3_development_dir / "tests"
-        if dev_tests.is_dir():
-            return dev_tests
-        return self.root_tests_dir
+        """The test root the framework's suite runs (see `_active_root`)."""
+        return self._active_root(self.phase3_development_dir / "tests", self.root_tests_dir)
 
     @property
     def active_src_dir(self) -> Path:
-        """
-        解析當前有效的原始碼目錄。
-        優先回傳 03-development/src，若不存在則退回根目錄下的 src。
-        """
-        dev_src = self.phase3_development_dir / "src"
-        if dev_src.is_dir():
-            return dev_src
-        return self.root / "src"
+        """The source root the framework measures (see `_active_root`)."""
+        return self._active_root(self.phase3_development_dir / "src", self.root / "src")
 
     def get_relative_str(self, target_path: Path) -> str:
         """回傳相對於專案根目錄的相對路徑字串"""

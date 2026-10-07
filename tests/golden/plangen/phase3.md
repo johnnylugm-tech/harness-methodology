@@ -87,7 +87,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   → GitHub push: ✅ auto-done by run-fr-step
 
   → **NFR annotation (4c gate dim — F-2.3)**: the new test file
-    `tests/test_fr01.py` MUST include `# NFR-XX` annotations
+    `03-development/tests/test_fr01.py` MUST include `# NFR-XX` annotations
     for every NFR associated with FR-01 in `01-requirements/SRS.md §2`
     `NFR Association` column. Example:
     ```python
@@ -103,7 +103,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
 - **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md (P3 only implements — correctness was locked in P2; on FAIL fix the TEST, not TEST_SPEC):
   ```bash
   python3 harness_cli.py check-test-mirrors-spec --project . --fr-id FR-01 \
-    --test-file tests/test_fr01.py
+    --test-file 03-development/tests/test_fr01.py
   ```
   → trigger_mismatch / assertion_missing / param drift = test diverged from spec.
 
@@ -112,7 +112,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   python3 harness_cli.py run-fr-step --phase 3 --fr-id FR-01 --step TDD-GREEN \
     --project . --srs 01-requirements/SRS.md
   ```
-  → Verify: `pytest tests/test_fr01.py -q` all pass
+  → Verify: `pytest 03-development/tests/test_fr01.py -q` all pass
   → GitHub push: ✅ auto-done by run-fr-step
 
 - **[ORCH-IMPROVE]** Dispatch TDD-IMPROVE sub-agent for FR-01:
@@ -120,7 +120,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   python3 harness_cli.py run-fr-step --phase 3 --fr-id FR-01 --step TDD-IMPROVE \
     --project .
   ```
-  → Verify: `pytest tests/test_fr01.py -q` still pass
+  → Verify: `pytest 03-development/tests/test_fr01.py -q` still pass
   → GitHub push: ✅ auto-done by run-fr-step
 
 - **[ORCH-GATE1]** Dispatch GATE1 evaluator sub-agent for FR-01:
@@ -162,7 +162,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   → GitHub push: ✅ auto-done by run-fr-step
 
   → **NFR annotation (4c gate dim — F-2.3)**: the new test file
-    `tests/test_fr02.py` MUST include `# NFR-XX` annotations
+    `03-development/tests/test_fr02.py` MUST include `# NFR-XX` annotations
     for every NFR associated with FR-02 in `01-requirements/SRS.md §2`
     `NFR Association` column. Example:
     ```python
@@ -178,7 +178,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
 - **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md (P3 only implements — correctness was locked in P2; on FAIL fix the TEST, not TEST_SPEC):
   ```bash
   python3 harness_cli.py check-test-mirrors-spec --project . --fr-id FR-02 \
-    --test-file tests/test_fr02.py
+    --test-file 03-development/tests/test_fr02.py
   ```
   → trigger_mismatch / assertion_missing / param drift = test diverged from spec.
 
@@ -187,7 +187,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   python3 harness_cli.py run-fr-step --phase 3 --fr-id FR-02 --step TDD-GREEN \
     --project . --srs 01-requirements/SRS.md
   ```
-  → Verify: `pytest tests/test_fr02.py -q` all pass
+  → Verify: `pytest 03-development/tests/test_fr02.py -q` all pass
   → GitHub push: ✅ auto-done by run-fr-step
 
 - **[ORCH-IMPROVE]** Dispatch TDD-IMPROVE sub-agent for FR-02:
@@ -195,7 +195,7 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   python3 harness_cli.py run-fr-step --phase 3 --fr-id FR-02 --step TDD-IMPROVE \
     --project .
   ```
-  → Verify: `pytest tests/test_fr02.py -q` still pass
+  → Verify: `pytest 03-development/tests/test_fr02.py -q` still pass
   → GitHub push: ✅ auto-done by run-fr-step
 
 - **[ORCH-GATE1]** Dispatch GATE1 evaluator sub-agent for FR-02:

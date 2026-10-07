@@ -11467,3 +11467,37 @@ unmeasured 即 FAIL 會讓這些專案永遠失敗(破壞共通性);未交付的
 | RELEASE_CHECKLIST 計算 HIGH 風險數(站6 第一版) | 語料 RISK_REGISTER 至少五種嚴重度寫法(HIGH、高、emoji、數值、Very Low 量表),計數是框架代填(R105) | RISK_REGISTER 有了框架定義且有讀者的機器可讀嚴重度欄位 |
 | 舊 criteria 核准缺 digest 時寫 degradation 列(站7 計畫) | `approval_defects` 是純函式且每次 advance 都被呼叫,會重複寫同一列且不改變任何判定 | 有讀者需要知道哪些核准沒有 digest,而無法從核准檔本身讀出 |
 | `active_test_dir` 默默只取 03-development/tests(taskq-final 的 root tests/ 未被量測,本輪發現) | 超出外部審計範圍;語料唯一一例,需要獨立設計(兩個測試根的量測與交付語意) | 老闆核准另開一輪,或第二個專案出現兩個測試根 |
+
+## Round 116 — 一個專案只有一個測試根(taskq-final 兩個測試根)(2026-10-08)
+
+老闆令:處理 R115 發現的 taskq-final 兩個測試根;再令:方案要驗證是正解且無副作用。
+
+**更正 R115**:R115 站2 與 §不做 寫「root `tests/`(18 支)沒被量到」—— 不對。taskq-final 的
+`03-development/tests` 有 16 個 symlink 指回 root `tests/`,那些測試其實有跑;真正不在量測根(解析後)內的是
+7 個被追蹤的檔案:4 個 bug-hunt repro、`bench/test_bench_task_repo.py`、`bench/conftest.py`、root `conftest.py`。
+
+**根源(實測)**:
+- `active_test_dir` / `active_src_dir` 以「`03-development/{tests,src}` 目錄存在與否」決定;init-project 建的是
+  空目錄,git 不追蹤空目錄。以 `git archive` 取出 taskq-final 的 init commit(992bf37),解析為 `tests`、`src`;
+  它的 FR-01 RED(0295497)因此被指示寫 `tests/test_fr01.py`。框架自己的 golden(`tdd_red.txt` 等、plangen
+  phase3)就是這個矛盾:`tests/test_fr01.py` 配 `--cov=03-development/src`。
+- `pytest-cov-integration` 寫死 `03-development/tests/integration`(同維度的 JS 工具用 `{test_target}`),
+  taskq-final 為它建了 symlink mirror;mirror 出現後量測根翻到 `03-development/tests`,P4 才寫到 root 的 repro
+  無人量也無人說(R46)。
+- 三個專案各自用 symlink 補兩個根(omnibot、tts-new:root → canonical;taskq-final:反向)。
+- 為何 taskq-final 當時沒有那個空目錄:Unknown(clone / worktree / CI 皆可);機制已重現。
+
+### 站1 — 測試根 / 原始碼根依檔案所在決定,不看空目錄
+
+規則(tests、src 同):`03-development/<x>` 有檔案 → 它;否則 root `<x>` 有檔案 → root;都沒有 → phase 版面
+(`core.phase_topology.PHASES` 任一目錄存在)用 `03-development/<x>`,否則 root。`__pycache__` 與 `.*` 不算檔案。
+
+第一版「有 phase 目錄就一律 `03-development`」被驗證推翻:scratch clone 套用後全套 35 個非環境失敗,其中
+TS pilot fixture 的 root 版面(phase 文件 + root `src/`、`tests/`)是 JS 工具鏈模板刻意支援的合法版面。
+第二版在 scratch 全套:8836 passed,23 failed —— 4 個是 scratch 環境(讀 repo 兄弟目錄當語料,舊規則同樣
+失敗),19 個全是釘住舊 fallback 輸出者:fr_prompts golden 12、plangen phase3 golden 2(53 行 diff 全部只是
+`tests/test_fr` → `03-development/tests/test_fr`,逐行比對 0 個非路徑差異)、`test_fr_cmds_cli` 3、
+`test_traceability_auto_fix` 1、R115 的 repro fixture 1(新規則下空的 `03-development/tests` 不再是量測根,
+fixture 補一支既有測試使情境回到「兩個根都有檔案」)。回放:taskq-final init 快照 → `03-development`;
+taskq-final / omnibot / tts-new / taskq-open 現況與舊規則相同;框架 repo 與 TS pilot 仍是 root。
+反證:HEAD 的 project_layout 讓 4/6 新測試轉紅。

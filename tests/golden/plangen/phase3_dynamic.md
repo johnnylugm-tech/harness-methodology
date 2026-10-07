@@ -100,7 +100,7 @@ python3 harness_cli.py load-context --phase 3 --project . --json \
 
 - **[ORCH-RED]**     `run-fr-step --phase 3 --fr-id {FR-ID} --step TDD-RED --project . --srs 01-requirements/SRS.md`
 > **NFR annotation (4c gate dim — F-2.3)**: the new test file MUST include `# NFR-XX` annotations for every NFR associated with {FR-ID} in `01-requirements/SRS.md §2` `NFR Association` column (e.g. `# NFR-01 perf: submit+status p95 < 50ms`). Without these, compute_trace_dimension 4c = 0% and Gate 2 blocks. NFR-99 placeholder is excluded.
-- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --fr-id {FR-ID} --test-file tests/test_*.py --project .`
+- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --fr-id {FR-ID} --test-file 03-development/tests/test_*.py --project .`
 - **[ORCH-GREEN]**   `run-fr-step --phase 3 --fr-id {FR-ID} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`
 - **[ORCH-IMPROVE]** `run-fr-step --phase 3 --fr-id {FR-ID} --step TDD-IMPROVE --project .`
 - **[ORCH-GATE1]**   `run-fr-step --phase 3 --fr-id {FR-ID} --step GATE1 --project .`

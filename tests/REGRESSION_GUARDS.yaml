@@ -6438,6 +6438,26 @@
   bug: "pytest-benchmark reports no p95; the framework run keeps raw rounds (--benchmark-save-data) so one can be computed"
   fixed_in: "Round 115 站8"
 
+- test: tests/test_one_project_has_one_test_root.py::test_a_fresh_checkout_of_a_phase_project_points_at_03_development
+  bug: "active_test_dir/active_src_dir asked whether 03-development/{tests,src} EXISTED; init-project creates them empty and git does not track empty directories, so a checkout of taskq-final's init commit resolved to root tests/ and src/ and its FR-01 RED was told to write tests/test_fr01.py — the framework's own golden prompts paired that path with --cov=03-development/src"
+  fixed_in: "Round 116 站1"
+
+- test: tests/test_one_project_has_one_test_root.py::test_the_answer_does_not_depend_on_an_empty_directory
+  bug: "the resolution must be the same in a clone and in the tree it was cloned from"
+  fixed_in: "Round 116 站1"
+
+- test: tests/test_one_project_has_one_test_root.py::test_a_root_layout_with_phase_docs_keeps_its_root
+  bug: "the JS toolchain templates support src/ and tests/ at the root; the first draft (phase directories always mean 03-development) broke the TS pilot fixture"
+  fixed_in: "Round 116 站1"
+
+- test: tests/test_one_project_has_one_test_root.py::test_a_project_without_phase_directories_keeps_the_root
+  bug: "the framework repository itself keeps tests/ at the root"
+  fixed_in: "Round 116 站1"
+
+- test: tests/test_one_project_has_one_test_root.py::test_caches_and_hidden_files_are_not_files_of_a_root
+  bug: "a __pycache__, .pytest_cache or .gitkeep is not a test"
+  fixed_in: "Round 116 站1"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

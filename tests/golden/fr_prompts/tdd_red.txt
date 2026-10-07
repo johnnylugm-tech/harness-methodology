@@ -119,11 +119,11 @@ The system MUST accept a widget submission command and return an
 - AC2: an empty command returns a validation error, exit 1.
 
 [TASK]
-1. Create/edit `tests/test_fr01.py` with failing tests covering the acceptance criteria above. If the file already exists (e.g. from a prior interrupted run), verify its test names match the TEST SPEC exactly, fix any mismatch, but do NOT skip step 5 — an existing-but-uncommitted file is exactly the state this step must resolve, not something to leave as-is.
+1. Create/edit `03-development/tests/test_fr01.py` with failing tests covering the acceptance criteria above. If the file already exists (e.g. from a prior interrupted run), verify its test names match the TEST SPEC exactly, fix any mismatch, but do NOT skip step 5 — an existing-but-uncommitted file is exactly the state this step must resolve, not something to leave as-is.
 2. Every test function name MUST match the TEST SPEC names listed above exactly.
 3. The tests MUST FAIL — do NOT implement the feature yet.
-4. Run `python3 -m pytest tests/test_fr01.py -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.
-5. Commit: `git add tests/test_fr01.py && git commit -m 'test(RED): failing test for FR-01'`
+4. Run `python3 -m pytest 03-development/tests/test_fr01.py -q`. Tests failing or raising Collection Error (ModuleNotFoundError) means SUCCESS for this RED step.
+5. Commit: `git add 03-development/tests/test_fr01.py && git commit -m 'test(RED): failing test for FR-01'`
 
 [OUTPUT FORMAT]
-Return JSON: {"status": "DONE", "test_file": "tests/test_fr01.py", "commit": "<hash>", "summary": "<under 50 chars>"}
+Return JSON: {"status": "DONE", "test_file": "03-development/tests/test_fr01.py", "commit": "<hash>", "summary": "<under 50 chars>"}

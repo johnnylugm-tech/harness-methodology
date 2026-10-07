@@ -24,13 +24,13 @@ test_coverage
 [TEST COVERAGE FIX — required for test_coverage dimension]
 SPEC COVERAGE: 2/3 (67%) — 1 missing
 
-MISSING (1 tests) — these required tests are NOT in `tests/test_fr01.py`:
+MISSING (1 tests) — these required tests are NOT in `03-development/tests/test_fr01.py`:
   - test_fr01_03_toolong
   → ADD ALL of them as real, passing tests in THIS session.
   IMPORTANT: write ALL missing tests in one go — do not stop after 1-2.
   The agent has enough max_turns (70) to add all remaining tests in one session.
 
-PRESENT but failing (2 tests) — these tests exist in `tests/test_fr01.py`:
+PRESENT but failing (2 tests) — these tests exist in `03-development/tests/test_fr01.py`:
   - test_fr01_01_happy
   - test_fr01_02_empty
   → Run `python3 -m pytest {test_file} -v` and fix each failing test.
@@ -45,10 +45,10 @@ PYTEST: 2 failed, 8 passed
 1. Read `harness/ssi/prompts/evaluate_dimension.md` for each failing dimension's criteria.
 2. Fix source code in `03-development/src/` to address non-test-coverage failing dimensions.
 3. Resolve test_coverage failures (see TEST COVERAGE FIX above):
-   a. ADD any missing required test functions to `tests/test_fr01.py`.
+   a. ADD any missing required test functions to `03-development/tests/test_fr01.py`.
    b. For tests that exist but FAIL: fix source code or the failing assertion.
-4. Run `python3 -m pytest tests/test_fr01.py -q` to confirm tests pass.
-5. Commit: `git add 03-development/src/ tests/test_fr01.py && git commit -m 'fix(FR-01): address Gate1 failing dims'`
+4. Run `python3 -m pytest 03-development/tests/test_fr01.py -q` to confirm tests pass.
+5. Commit: `git add 03-development/src/ 03-development/tests/test_fr01.py && git commit -m 'fix(FR-01): address Gate1 failing dims'`
 
 [OUTPUT FORMAT]
 Return JSON: {"status": "DONE", "dims_fixed": [...], "commit": "<hash>", "summary": "<under 50 chars>"}

@@ -18,7 +18,7 @@ PYTEST: 2 failed, 8 passed
    - Update ALL references to each renamed symbol (use `grep -rn '<old_name>'` to find them, then rename systematically).
 3. For E/W-series violations: fix in-place per ruff's suggestion.
 4. Re-run `python3 -m ruff check 03-development/src/ --extend-ignore RUF001,RUF002,RUF003` — it MUST exit 0 before you commit.
-5. Run `python3 -m pytest tests/test_fr01.py -q` to confirm no tests broken by renames.
+5. Run `python3 -m pytest 03-development/tests/test_fr01.py -q` to confirm no tests broken by renames.
 6. Commit: `git add 03-development/src/ && git commit -m 'fix(FR-01): resolve ruff linting violations'`
 
 [NOTE] If BOTH linting AND test_coverage were failing, this session fixes linting ONLY. The meta-loop will address coverage in the next round.

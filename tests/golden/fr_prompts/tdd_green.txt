@@ -14,7 +14,7 @@ which records the amendment in 02-architecture/ADR.md. An architecture changed w
 - app/infrastructure/ paths
 
 [IMPLEMENTATION CONTRACT]
-Before writing any code, scan `tests/test_fr01.py` for:
+Before writing any code, scan `03-development/tests/test_fr01.py` for:
   1. patch.object(obj, 'method_name', ...) — every patched method_name MUST
      exist in your implementation (even as a stub returning {}). Missing
      attributes cause AttributeError before the test even runs.
@@ -32,7 +32,7 @@ Before writing any code, scan `tests/test_fr01.py` for:
      `if __name__ == "__main__":` guard elsewhere. Write only what the
      failing test demands.
 
-[FAILING TEST — tests/test_fr01.py]
+[FAILING TEST — 03-development/tests/test_fr01.py]
 def test_fr01_01_happy():
     assert True
 
@@ -52,8 +52,8 @@ The system MUST accept a widget submission command and return an
 
 [TASK]
 1. Scan test file per [IMPLEMENTATION CONTRACT] above before writing any code.
-2. Create/edit source files in `03-development/src/` to make `tests/test_fr01.py` pass.
-3. Run `python3 -m pytest tests/test_fr01.py -q` — all tests must pass.
+2. Create/edit source files in `03-development/src/` to make `03-development/tests/test_fr01.py` pass.
+3. Run `python3 -m pytest 03-development/tests/test_fr01.py -q` — all tests must pass.
 4. Docstrings must include `[FR-01]` tag + `Citations:` with line numbers (HR-15).
 5. Commit: `git add 03-development/src/ && git commit -m 'feat(FR-01): GREEN'`
 

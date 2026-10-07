@@ -6,7 +6,7 @@ You are a coverage fixer for FR-01.
 
 
 [SUBPROCESS COVERAGE CEILING — READ THIS FIRST]
-Your test file `tests/test_fr01.py` drives the CLI via `subprocess.run`.
+Your test file `03-development/tests/test_fr01.py` drives the CLI via `subprocess.run`.
 pytest-cov CANNOT measure coverage inside subprocesses — the CLI
 entry-point modules (e.g. cli.py, __main__.py, config.py) will stay
 at 0% no matter how many subprocess tests you add.
@@ -30,21 +30,21 @@ point; in-process tests provide measurable coverage for the internal logic.
 All Gate 1 tests currently PASS, but the test_coverage dimension is FAILING.
 Coverage is below the 80% threshold. Two possible root causes:
   A. Existing tests don't cover enough source lines (code coverage < 80%).
-  B. Required test functions from TEST_SPEC.md are absent from `tests/test_fr01.py`.
+  B. Required test functions from TEST_SPEC.md are absent from `03-development/tests/test_fr01.py`.
 
 [ACTUAL TOOL OUTPUT — from pre-run]
 RUFF: E501 line too long (3 occurrences)
 PYTEST: 2 failed, 8 passed
 
 [TASK]
-1. Run `python3 -m pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q` to identify which source lines are not covered (Miss column).
-2. Read `02-architecture/TEST_SPEC.md` section for FR-01 to identify required test function names. For each function missing from `tests/test_fr01.py` — add it.
+1. Run `python3 -m pytest 03-development/tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q` to identify which source lines are not covered (Miss column).
+2. Read `02-architecture/TEST_SPEC.md` section for FR-01 to identify required test function names. For each function missing from `03-development/tests/test_fr01.py` — add it.
 3. For each uncovered line: decide which approach applies:
    a. Line CAN be reached by a test → add a targeted unit test.
    b. Line is genuinely untestable → apply ESCAPE HATCH (see below).
-4. Re-run until coverage reaches ≥ 80%: `python3 -m pytest tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q`
-5. Commit both `tests/test_fr01.py` and any source changes from ESCAPE HATCH:
-   `git add 03-development/src/ tests/test_fr01.py && git commit -m 'test(FR-01): add coverage tests and pragma exclusions'`
+4. Re-run until coverage reaches ≥ 80%: `python3 -m pytest 03-development/tests/test_fr01.py --cov=03-development/src --cov-report=term-missing -q`
+5. Commit both `03-development/tests/test_fr01.py` and any source changes from ESCAPE HATCH:
+   `git add 03-development/src/ 03-development/tests/test_fr01.py && git commit -m 'test(FR-01): add coverage tests and pragma exclusions'`
 
 [ESCAPE HATCH — pragma: no cover]
 Only `except BaseException` (atomic-write cleanup) may be exempted with `# pragma: no cover`. For any other unreachable line: if it is genuinely dead code (a branch a library guarantee makes impossible, or a duplicate of an existing entry-point module), DELETE it. If it is reachable, write a unit test for it instead of excluding it.
