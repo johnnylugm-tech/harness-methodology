@@ -11261,3 +11261,17 @@ REJECT 時直接 halt(owner project),不把 gaps 交給 advance 的修復 agent:
 拿掉 phase_cmds 呼叫、拿掉 advance 迴圈呼叫 → 各自轉紅;`cp` 還原一致。run-all 441116 → 445263,上限 445363;
 sim floor 174 → 177。ratchet:advance_prechecks 1335 → 1359、phase_cmds 2303 → 2309、js_blocks 2427 → 2478、
 `_advance_prechecks` 292 → 297;split golden 重生。
+
+### §不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| halt 帶 exit code、刪掉 gate 回合耗盡時寫死的 owner(站4b) | taskq-open 的 10 個 harness 缺陷都經由被歸為 project 的 exit code(48、5、25)或無碼路徑出現,把 rc 帶到 halt 也路由不到 harness;R79、R96 已裁定 owner 由 producer 陳述。事後證據由站4c 的 harness_changed 提供 | 出現一個 halt,其 exit code 能把它判給 harness,卻因為沒有傳到 record-block 而沒被判定的實例 |
+| degradation ledger 同一列重複寫入(taskq-open 的 `gate:arch-constraints` 91 次) | 根套件不在任何 contract 內是已裁決的「只記錄、不阻擋」;ledger 有讀者(report_cmds、step_failure_memory),重複不改變任何判定 | 有讀者因重複列而做出錯誤判定或計數的實測 |
+| `.methodology/.state.lock` 被 commit 進專案(語料 16 個專案) | 0 bytes、從未變動、沒有讀者受影響;加進 gitignore 會讓已追蹤的檔案變成需要清理的狀態 | 該檔內容開始變動,或出現因它而產生的 diff / 判定差異 |
+| S4 performance 讀不到 pytest-benchmark 分數(taskq-open 1 次) | 只出現 1 次,當時以 infra_fail 阻擋,之後同一 gate 通過;原因 Unknown,沒有可重現的輸入 | 同一訊息再出現一次,且留有可重放的 audit 檔 |
+| P7/P8 在同一棵樹、同一 enforcer 上重跑每個 FR 的 Gate 1 | 屬效率問題,不是判定錯誤;delivery_fingerprint 已記錄 tree 與 enforcer,跳過需要另一個「判定可延續」的設計決定 | 老闆把 P7/P8 執行時間列為目標,或出現重跑結果與前一次不同而無人察覺的實例 |
+| `bug-hunt-crg.js` 仍是手工維護(站1 範圍外) | 它沒有壞;站1 的旗標守衛已涵蓋它對 harness_cli 的每個呼叫 | 站1 的旗標守衛或子命令守衛在它身上轉紅,或它需要新功能 |
+| resolution_ref 同檔另有 `unresolved` 行時判矛盾(站3 第一版) | 會把歷史敘述行判成矛盾;taskq-sol 的原案例在新規則下因沒有 `<id>: resolved` 紀錄而照樣不過 | 出現一份檔案同時有 `<id>: resolved` 與 `<id>: unresolved` 兩筆紀錄格式行的實例 |
+| TRACEABILITY_MATRIX 的「Planned tests」欄(站7 第一版) | 那是 TEST_INVENTORY 的第二份陳述(R33),也會改變專案測試讀取的表格欄位 | 有讀者需要在 matrix 內看到規劃測試、而 TEST_INVENTORY 無法提供 |
+| `EX_FR_STEP_INFRA_ABORT` 常數改名(站4a) | 數字的 owner 與訊息已更正;改名牽動既有測試與 12 個引用點,超出本站範圍 | 有讀者因常數名稱而把 exit 25 當成 infra 處理的實例 |
