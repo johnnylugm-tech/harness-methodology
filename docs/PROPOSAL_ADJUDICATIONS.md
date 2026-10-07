@@ -11410,3 +11410,13 @@ Very Low 量表),從中計數是框架代填(R105);表格只指向檔案。`phas
 
 回放:taskq-new 副本顯示「3 unresolved: … (refuted, not upheld by adjudication)」;taskq-open「0 unresolved」。
 反證:以 HEAD 的模板 / phase8_doc_gen / phase_auditor 還原,4/5 新測試轉紅。run-all 上限 +146。
+
+### 站7 — criteria review 的核准綁定需求原文(harness)
+
+`review-fr-tests` 把 FR 的需求 excerpt 嵌入 reviewer prompt,核准卻只以 path 綁定需求(assertions 以 AST
+digest、宣告測試以清單綁定)。實測:SPEC 的「MUST drop」改「MUST keep」、30 改 80,`approval_defects` 皆無
+回報。`review_sources` 新增 `requirement_digest`(空白正規化的 excerpt sha256),writer 記錄、
+`approval_defects` 比對;重新換行不算改動。沒有 digest 的舊核准不追溯失效。計畫原寫「記一列
+degradation」,不做:`approval_defects` 是純函式且每次 advance 被呼叫,在此寫 ledger 會重複產生同一列
+(R114 §不做 記載過 91 次重複),不改變任何判定。語料 SPEC.md 幾乎不變(多數 1 個 commit),屬潛伏缺陷。
+反證:HEAD 的 criteria_review / approvals 讓 4/5 新測試轉紅。

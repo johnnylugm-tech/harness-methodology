@@ -494,12 +494,7 @@ def cmd_review_fr_tests(args: argparse.Namespace) -> int:
 
     # The harness's own measurements, not the reviewer's. A number a reviewer
     # reports about the tree is a claim; this block is a reading.
-    review[criteria_review.REVIEW_BLOCK_KEY] = {
-        "requirement_path": sources["requirement_path"],
-        "declared_tests": sources["declared_tests"],
-        "assertion_digests": sources["assertion_digests"],
-        "test_files": sources["test_files"],
-    }
+    review[criteria_review.REVIEW_BLOCK_KEY] = criteria_review.review_block(sources)
     try:
         approval_path = _write_approval_file(project, fr_id, review)
     except OSError as exc:

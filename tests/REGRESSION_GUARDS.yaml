@@ -6390,6 +6390,22 @@
   bug: "the P8 prompt told the agent to KEEP a framework-generated Gate 4 PASS proof, composite score, FR coverage and git hash that the template never contained"
   fixed_in: "Round 115 站6"
 
+- test: tests/test_a_criteria_review_is_bound_to_the_requirement_text.py::test_a_reversed_requirement_invalidates_the_approval
+  bug: "a criteria review approval was bound to the requirement only by its path; 'MUST drop every table' -> 'MUST keep every table' left approval_defects empty"
+  fixed_in: "Round 115 站7"
+
+- test: tests/test_a_criteria_review_is_bound_to_the_requirement_text.py::test_a_changed_number_invalidates_the_approval
+  bug: "a budget changed from 30ms to 80ms left the approval standing"
+  fixed_in: "Round 115 站7"
+
+- test: tests/test_a_criteria_review_is_bound_to_the_requirement_text.py::test_rewrapping_the_requirement_is_not_a_change
+  bug: "the digest is whitespace-normalised so a re-wrapped line does not force a re-review"
+  fixed_in: "Round 115 站7"
+
+- test: tests/test_a_criteria_review_is_bound_to_the_requirement_text.py::test_an_approval_from_before_the_digest_is_not_failed_for_lacking_it
+  bug: "approvals written before the digest existed are not failed retroactively"
+  fixed_in: "Round 115 站7"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

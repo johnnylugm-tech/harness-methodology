@@ -169,6 +169,17 @@ def _assertion_digests(project: Path, test_files: list[str],
     return dict(sorted(digests.items()))
 
 
+def requirement_digest(excerpt: str) -> str:
+    """What a criteria approval is bound to on the requirement side.
+
+    Round 115 站7. The approval was bound to the assertions (AST digests) and
+    to the requirement only by its path, so "MUST drop" -> "MUST keep" or
+    30 -> 80 left it standing. Whitespace is normalised: re-wrapping a line
+    does not change what the requirement says.
+    """
+    return hashlib.sha256(" ".join(excerpt.split()).encode("utf-8")).hexdigest()
+
+
 def review_sources(project: "str | Path", fr_id: str) -> dict:
     """Everything the criteria review is about, measured by the harness.
 
@@ -185,9 +196,26 @@ def review_sources(project: "str | Path", fr_id: str) -> dict:
         "fr_id": fr_id,
         "requirement_path": req_rel,
         "requirement_excerpt": excerpt,
+        "requirement_digest": requirement_digest(excerpt),
         "test_files": files,
         "declared_tests": declared,
         "assertion_digests": _assertion_digests(root, files, declared),
+    }
+
+
+def review_block(sources: dict) -> dict:
+    """The harness's own reading an approval is bound to (`REVIEW_BLOCK_KEY`).
+
+    One definition for the writer (`review-fr-tests`) and for what
+    `approval_defects` compares — Round 115 站7 added the requirement digest,
+    and a field list kept in two places is how one of them misses it.
+    """
+    return {
+        "requirement_path": sources["requirement_path"],
+        "requirement_digest": sources["requirement_digest"],
+        "declared_tests": sources["declared_tests"],
+        "assertion_digests": sources["assertion_digests"],
+        "test_files": sources["test_files"],
     }
 
 
@@ -302,6 +330,15 @@ def approval_defects(project: "str | Path", fr_id: str,
             "is nothing for a criteria review to be about — put this FR's "
             f"tests in a file named test_fr<NN>.py, or annotate them [{fr_id}] "
             "(NFR-05), and re-run the review"
+        )
+
+    # Round 115 站7: an approval written before the digest existed records no
+    # requirement text to compare against; it is not failed for lacking one.
+    recorded_text = block.get("requirement_digest")
+    if recorded_text is not None and recorded_text != s["requirement_digest"]:
+        defects.append(
+            f"the requirement text changed after the review approved it "
+            f"({s['requirement_path']}, {fr_id}) — re-run the review against what it says now"
         )
 
     recorded_declared = list(block.get("declared_tests") or [])
