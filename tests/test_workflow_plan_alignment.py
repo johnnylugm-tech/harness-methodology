@@ -48,10 +48,11 @@ workflows. Its stated justification was that a human running the plan by
 hand has no equivalent step — which was true, and was the problem: the
 check existed only on the workflow path. It now runs inside advance-phase
 (cli/phase_cmds.py::_advance_prechecks, exit 27), so plan and workflow have
-the same guarantee and neither needs a special-case entry. The two
-remaining call sites advance-phase does not cover — phase3's Gate-2 round
-loop and phase8's Final Push — call the helper without a phase() box of
-their own, so they are invisible to this registry by construction.
+the same guarantee and neither needs a special-case entry. The remaining
+call site advance-phase does not cover — phase3's Gate-2 round loop — calls
+the helper without a phase() box of its own, so it is invisible to this
+registry by construction. (phase8's Final Push was the second until Round 115
+站4 moved the check into push-milestone.)
 """
 from __future__ import annotations
 

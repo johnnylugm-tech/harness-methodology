@@ -115,8 +115,6 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "(GATE_VERIFY_SCHEMA)"),
     (r"^advance-verify-r$", "carrier", "schema",
      "state.json current_phase printed as JSON, transcribed (PHASE_SCHEMA)"),
-    (r"^p8-verify-r$", "carrier", "schema",
-     "git log --grep=P8 presence transcribed (VERDICT_SCHEMA)"),
     (r"^aci-verify$", "carrier", "schema",
      "check-artifact-consistency rc transcription"),
     (r"^aci-post-sab$", "carrier", "text-token",
@@ -240,9 +238,9 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
     (r"^(advance|advance-r)$", "mixed", "text-token",
      "advance-phase + fix-on-BLOCKED; advance-verify-r carrier is the "
      "authoritative gate — prose token is narrative"),
-    (r"^(push-|final-push-r)$", "mixed", "text-token",
-     "push-milestone/checkpoint + fix-on-BLOCKED; p8-verify/git-log "
-     "carriers authoritative where present"),
+    (r"^push-$", "mixed", "text-token",
+     "push-milestone/checkpoint + fix-on-BLOCKED; advance-phase's own "
+     "milestone check (exit 51) is authoritative where present"),
     (r"^milestone-", "mixed", "text-token",
      "push-milestone variants; GUARD step makes re-runs idempotent"),
     (r"^(sync-|sync|sync-push|sync-handover-note)$", "mixed", "text-token",

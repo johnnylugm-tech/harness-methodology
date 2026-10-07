@@ -676,7 +676,9 @@ for (const name of FR_LOOP_PHASES) {
 // which also covers the callers a workflow loop never could: a human running
 // advance-phase by hand, a resumed session, CI. Two call sites remain because
 // advance-phase does not cover them — phase3's Gate-2 round loop and phase8's
-// Final Push (push-milestone, not advance-phase).
+// Final Push (push-milestone, not advance-phase). Round 115 站4 moved the
+// second into push-milestone itself, for the reason Round 22 gave: P5 and P7
+// push milestones too, and their loops never had it.
 test('manifest-integrity dispatches survive only where advance-phase cannot cover them', async () => {
   const expected = {
     'phase3-implementation.js': false, // Gate 2 precheck PASSes -> round loop skipped
@@ -684,7 +686,7 @@ test('manifest-integrity dispatches survive only where advance-phase cannot cove
     'phase5-verification.js': false,
     'phase6-quality.js': false,
     'phase7-risk.js': false,
-    'phase8-config.js': true, // Final Push
+    'phase8-config.js': false, // push-milestone checks it itself (Round 115 站4)
   }
   for (const [name, wantIntegrity] of Object.entries(expected)) {
     const { result, events } = await runWorkflow(WF(name), makeHappyResponder(happyOverrides()))
@@ -697,6 +699,31 @@ test('manifest-integrity dispatches survive only where advance-phase cannot cove
     assert.ok(!events.agents.some((a) => /^advance-integrity-r/.test(a.label)),
       `${name} still spends a dispatch on what advance-phase now enforces itself`)
   }
+})
+
+// Round 115 站4: P8 used a hand-rolled Final Push whose step 0 stopped at "already
+// pushed" and whose PASS read only the milestone, so a landed push plus a failed
+// advance-phase was reported as a complete pipeline at current_phase 8.
+test('phase8: a landed p8 push whose advance failed is followed by another advance round, not a PASS', async () => {
+  const cursor = (n) => ({ current_phase: n })
+  const { result, events } = await runWorkflow(WF('phase8-config.js'), makeHappyResponder([
+    { match: /^advance-verify-r1$/, respond: cursor(8) },
+    { match: /^advance-verify-r2$/, respond: cursor(9) },
+    ...happyOverrides(),
+  ]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 300))
+  const ls = events.agents.map((a) => a.label)
+  assert.ok(ls.includes('milestone-p8'))
+  assert.ok(ls.includes('advance-r2'), 'the second round re-runs advance-phase')
+  assert.ok(ls.indexOf('milestone-p8') < ls.indexOf('advance-r1'))
+})
+
+test('phase8: an advance that never reaches Phase 9 halts instead of reporting the pipeline complete', async () => {
+  const { result } = await runWorkflow(WF('phase8-config.js'), makeHappyResponder([
+    { match: /^advance-verify-r\d$/, respond: { current_phase: 8 } },
+    ...happyOverrides(),
+  ]))
+  assert.equal(result.halt_step, 'advance')
 })
 
 test('phase3 Gate 2 round loop still re-checks integrity every round', async () => {

@@ -313,7 +313,10 @@ _CEILINGS: dict[str, int] = {
     # each records what the branch used to return and why that was wrong.
     "core/quality_gate/mutation_enforcer.py::_compute_mutation_score": 310,
     "core/auto_fix/__init__.py::AutoFixEngine.fix": 248,
-    "cli/push_cmds.py::cmd_push_milestone": 241,
+    # 243 at Round 115 站4, from 241: the two-line call that refuses a
+    # corrupted manifest before any write (the check itself is
+    # `_manifest_is_corrupt`, moved out of the P8 workflow loop).
+    "cli/push_cmds.py::cmd_push_milestone": 243,
     # Moved to harness/gate_crg.py by Round 81 站3, byte-identical — the number
     # is unchanged because the function is. Round 80 could not move it: its
     # closure pulled in `_atomic_write_gate_result`, and 站2 moved that first.

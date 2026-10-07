@@ -100,7 +100,8 @@ export const meta = {
     { title: 'P8 · Artifacts Commit' },
     { title: 'P8 · Archive' },
     { title: 'P8 · Preview Next-Phase' },
-    { title: 'P8 · Final Push' },
+    { title: 'P8 · Milestone' },
+    { title: 'P8 · Advance' },
     { title: 'P8 · Sync' },
   ],
 }
@@ -4936,6 +4937,7 @@ log('REPO = ' + REPO + ' | PY = ' + PY)
 
 
 
+
 phase('P8 · Entry & Preflight')
 log('ENTRY-CHECK Gate4 + run-phase 8 (reliability/config/attestation fixes) + handoff + CI')
 const preflightReport = await dispatch(
@@ -4993,19 +4995,6 @@ const envReport = await dispatch(
 if (!(envReport && envReport.rc === 0 && envReport.ready === true)) {
   const _envCheckResult = `${REPO}/.sessi-work/env_check_result.json`
   return halt('env-check', { error: 'Phase 8 env-check did not PASS', rc: envReport ? envReport.rc : null, ready: envReport ? envReport.ready : null, note: envReport ? ('run-env-check/finalize-env-check rc=' + envReport.rc + ' ready=' + envReport.ready + ' — read ' + _envCheckResult) : 'agent returned null (skipped or terminal API error)' })
-}
-
-const integrityCmd = PY + ' ' + REPO + '/harness_cli.py check-manifest-integrity --project ' + REPO + ' --phase 8'
-async function checkManifestIntegrity(phaseLabel, agentLabel) {
-  const verdict = await dispatch(
-    'Run EXACTLY this command via the Bash tool:\n`' + integrityCmd + '; echo RC=$?`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if the output ends with `RC=0`; reason = the JSON the command printed (verbatim, excluding the RC= line).',
-    { label: agentLabel, phase: 'P8 · ' + phaseLabel, agentType: 'general-purpose', schema: VERDICT_SCHEMA },
-  )
-  const ok = !!(verdict && verdict.pass === true)
-  const raw = verdict ? String(verdict.reason ?? '').trim() : 'agent returned null'
-  if (!ok) log('  manifest integrity FAIL [' + agentLabel + ']: ' + raw)
-  return { ok, raw }
 }
 
 
@@ -5188,15 +5177,14 @@ await dispatch(
 
 
 phase('P8 · Archive')
-log('Create .methodology-archive/ + verify HANDOVER.md has no Phase 9 refs')
+log('Create .methodology-archive/')
 const archiveReport = await dispatch(
   'YOU ARE THE P8 ARCHIVE ORCHESTRATOR. Prepare the archive (REQUIRED before p8 push).\n'
   + 'REPO: ' + REPO + '\n\n'
   + 'Steps (Bash):\n'
-  + '1. P8-ARCHIVE: `mkdir -p ' + REPO + '/.methodology-archive && cp -r ' + REPO + '/.methodology/ ' + REPO + '/.methodology-archive/`. (push-milestone _validate_p8_completion + CI p8-archive-check both verify this dir. Source MUST be `.methodology/` — NOT `.sessi-work/` per harness commit 3f1fd73 which fixed the wrong-source silent bug.)\n'
-  + '2. P8-HANDOVER-CHECK: `grep -qi "phase 9\\|phase9\\|phase9_plan" ' + REPO + '/HANDOVER.md && echo "HAS_P9" || echo "NO_P9"`. Phase 8 is final — if HAS_P9, remove the Phase 9 references from HANDOVER.md (Edit).\n\n'
-  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if the archive dir was created AND HANDOVER.md has no Phase 9 refs; reason = one-line summary.\n\n'
-  + 'SCOPE RULES:\n- DO NOT run push-milestone yet.\n- DO NOT modify harness/.\n- ONLY create .methodology-archive/ + clean HANDOVER.md Phase 9 refs.',
+  + '1. P8-ARCHIVE: `mkdir -p ' + REPO + '/.methodology-archive && cp -r ' + REPO + '/.methodology/ ' + REPO + '/.methodology-archive/`. (push-milestone _validate_p8_completion + CI p8-archive-check both verify this dir. Source MUST be `.methodology/` — NOT `.sessi-work/` per harness commit 3f1fd73 which fixed the wrong-source silent bug.)\n\n'
+  + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if the archive dir was created; reason = one-line summary.\n\n'
+  + 'SCOPE RULES:\n- DO NOT run push-milestone yet.\n- DO NOT modify harness/.\n- ONLY create .methodology-archive/.',
   { label: 'archive', phase: 'P8 · Archive', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
 )
 if (!(archiveReport && archiveReport.pass === true)) {
@@ -5250,46 +5238,64 @@ if (!previewClean) {
 
 
 
-phase('P8 · Final Push')
-log('push-milestone p8 (final — pipeline complete)')
-let p8Ok = false, pushReport = ''
+phase('P8 · Milestone')
+log('push-milestone p8 (config records + archive complete)')
+const milestoneReport = await dispatch(
+  'YOU ARE THE P8 MILESTONE PUSHER.\n'
+  + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+  + '0. GUARD: `jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "MILESTONE: PASS (already pushed)" and stop.\n'
+  + '1. Command: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`\n'
+  + 'Writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n\n'
+  + 'Verdict: report via the StructuredOutput tool — pass=true if the milestone commit exists or was pushed; reason = one-line detail.\n\n'
+  + 'SCOPE RULES:\n- DO NOT run advance-phase.\n- ONLY push-milestone p8.',
+  { label: 'milestone-p8', phase: 'P8 · Milestone', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+)
+if (!(milestoneReport && milestoneReport.pass === true)) {
+  return halt('milestone', { error: 'Phase 8 p8 milestone did not PASS', reason: milestoneReport ? String(milestoneReport.reason ?? '').slice(-500) : 'agent returned null' })
+}
+
+
+
+phase('P8 · Advance')
+log('advance-phase --completed 8 → Phase 9 (Maintenance, CR-driven)')
+let advancePass = false, advanceReport = ''
 const ADVANCE_MAX_ROUNDS = 5
 for (let round = 1; round <= ADVANCE_MAX_ROUNDS; round++) {
-  log('  Final Push round ' + round + '/' + ADVANCE_MAX_ROUNDS)
-  { const cr = await reviewChangedDeliverables(8, { phase: 'P8 · Final Push' }); if (cr && cr.halt_step) return cr }
-  const pushIntegrity = await checkManifestIntegrity('Final Push', 'finalpush-integrity-r' + round)
-  if (!pushIntegrity.ok) {
-    return halt('final-push', { error: 'Final Push round ' + round + ': quality_manifest.json corrupted — refusing to commit it', detail: pushIntegrity.raw, recovery: 'git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy first), merge the latest gate result back into gate_results, then resume', note: 'Blocking prevents the corruption from being committed by the p8 final push.' })
-  }
-  pushReport = await dispatch(
-    'YOU ARE THE P8 FINAL PUSHER. This is the LAST step of the 8-phase pipeline. ROUND ' + round + '.\n'
+  log('  Advance round ' + round + '/' + ADVANCE_MAX_ROUNDS)
+  { const cr = await reviewChangedDeliverables(8, { phase: 'P8 · Advance' }); if (cr && cr.halt_step) return cr }
+  advanceReport = await dispatch(
+    'YOU ARE THE PHASE-8 EXIT ORCHESTRATOR. Advance to Phase 9. ROUND ' + round + '.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
     + 'Steps:\n'
-    + '0. GUARD: `jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json`. If it prints a sha, report "P8-PUSH: PASS (already pushed)" and stop.\n'
-    + '1. PUSH ⑩: `' + PY + ' ' + REPO + '/harness_cli.py push-milestone --type p8 --project ' + REPO + '`. _validate_p8_completion checks the `.methodology-archive/` presence + contents (its output tells you exactly what is missing — lint/types/coverage/Phase Truth are advance-phase\'s job, step 2 below, not this step\'s). If it prints "[BLOCKED] ..." or "[ERROR] P8 push blocked ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same push-milestone command. Do NOT guess what might be wrong — trust only what push-milestone itself reports. It is safe to re-run repeatedly within this round. On success it writes HANDOVER.md + commits + pushes. If a hook blocks, its output names what is wrong: fix that (NOT --no-verify), retry.\n'
-    + '2. ADVANCE: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 8 --project ' + REPO + '`. This transitions into Phase 9 (Maintenance — steady-state, CR-driven). advance-phase independently re-verifies EVERYTHING (TDD-PRECHECK, HR-11 Phase Truth, HR-17 submodule guard, etc.) — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction. It is safe to re-run repeatedly within this round.\n'
-    + '3. Read ' + REPO + '/.methodology/state.json; confirm current_phase >= 8.\n\n'
-    + 'Report final line: "P8-PUSH: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_9_PLAN: ' + REPO + '/.methodology/phase9_plan.md\n\n'
-    + 'SCOPE RULES:\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY push-milestone p8 + advance-phase --completed 8 + the specific fixes their own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
-    { label: 'final-push-r' + round, phase: 'P8 · Final Push', agentType: 'general-purpose' },
+    + '0. GUARD — already advanced? `PHASE=$(jq -r .current_phase ' + REPO + '/.methodology/state.json 2>/dev/null); echo "current_phase=$PHASE"; [ "$PHASE" -ge 9 ]`. If Phase 9 is confirmed, report "ADVANCE: PASS (already advanced)" and stop.\n'
+    + '1. advance-phase: `' + PY + ' ' + REPO + '/harness_cli.py advance-phase --completed 8 --project ' + REPO + '`\n'
+    + '   advance-phase independently re-verifies EVERYTHING before it will advance — its own output tells you exactly what is missing. If it prints "[BLOCKED] ...", that message IS the fix instruction: read it verbatim and do exactly what it says, then re-run this same advance-phase command. Do NOT guess what might be wrong — trust only what advance-phase itself reports. It is safe to re-run repeatedly within this round.\n'
+    + '2. Read ' + REPO + '/.methodology/state.json; confirm current_phase = 9 (advance-phase atomically writes state.json when complete).\n\n'
+    + 'Report final line: "ADVANCE: PASS|FAIL — <details>". If still FAIL after exhausting this round\'s turn, report the LAST [BLOCKED] message verbatim so the next round starts from where this one left off. PHASE_9_PLAN: ' + REPO + '/.methodology/phase9_plan.md\n\n'
+    + 'SCOPE RULES:\n- DO NOT re-do P8 config docs or the archive.\n- DO NOT use --no-verify.\n- DO NOT modify harness/ (HR-17).\n- ONLY advance-phase + verify HANDOVER.md + the specific fixes advance-phase\'s own output asked for.\n- Any diagnostic/debug script MUST be written under .sessi-work/tmp/ (never repo root or source dirs) and self-cleaned before you exit.',
+    { label: 'advance-r' + round, phase: 'P8 · Advance', agentType: 'general-purpose' },
   )
-if (pushReport === null || pushReport === undefined || pushReport === '' || typeof pushReport !== 'string') {
-  log('  final-push agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
-  return { session_limit_blocked: true, phase: 8, step: 'final-push', message: 'Agent hit session/rate limit during Final Push. Resume after quota reset — the GUARD step skips if already pushed.' }
-}
-  const p8VerifyCmd = 'jq -r --arg t p8 \'.last_milestone_head[$t] // empty\' ' + REPO + '/.methodology/state.json'
-  const p8v = await dispatch(
-    'Run EXACTLY this command via the Bash tool:\n`' + p8VerifyCmd + '`\n'
-    + 'Then report via the StructuredOutput tool: pass = true ONLY if stdout is a sha (non-empty); reason = the verbatim stdout (or "empty").',
-    { label: 'p8-verify-r' + round, phase: 'P8 · Final Push', agentType: 'general-purpose', schema: VERDICT_SCHEMA },
+  if (advanceReport === null || advanceReport === undefined || advanceReport === '' || typeof advanceReport !== 'string') {
+    log('  advance agent blocked (session limit / rate limit) — aborting retries, resume after quota reset')
+    return { session_limit_blocked: true, phase: 8, step: 'advance', message: 'Agent hit session/rate limit during Advance. Resume after quota reset — the GUARD step skips if already advanced.' }
+  }
+  const advVerifyCmd = PY + ' -c "import json; print(json.dumps({\'current_phase\': int(json.load(open(\'' + REPO + '/.methodology/state.json\')).get(\'current_phase\') or 0)}))"'
+  const advV = await dispatch(
+    'Run EXACTLY this command via the Bash tool (stdout is a single JSON line):\n`' + advVerifyCmd + '`\n'
+    + 'Then report via the StructuredOutput tool: current_phase = the exact integer from that JSON.',
+    { label: 'advance-verify-r' + round, phase: 'P8 · Advance', agentType: 'general-purpose', schema: PHASE_SCHEMA },
   )
-  p8Ok = !!(p8v && p8v.pass === true)
-  if (p8Ok) { log('  Final Push PASS [recorded: ' + String(p8v.reason ?? '').slice(0, 80) + ']'); break }
-  log('  Final Push not yet PASS [' + (p8v ? String(p8v.reason ?? '').slice(0, 80) : 'verify agent null') + '] — retry round ' + (round + 1))
+  advancePass = !!(advV && advV.current_phase >= 9)
+  if (advancePass) {
+    log('  Advance PASS [harness-verified: state.json current_phase=' + advV.current_phase + ']')
+    break
+  }
+  log('  Advance not yet PASS [state.json current_phase=' + (advV ? advV.current_phase : '?') + '] — retry round ' + (round + 1))
 }
-if (!p8Ok) return halt('p8-push', { error: 'Phase 8 p8 push did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check the last [BLOCKED] message below', raw: String(pushReport ?? '').slice(-600) })
 
-log('Phase 8 push-milestone + advance-phase complete. 🎉 Pipeline complete — Phase 9 (Maintenance) begins.')
+if (!advancePass) {
+  return halt('advance', { error: 'Advance did not PASS in ' + ADVANCE_MAX_ROUNDS + ' rounds — check HANDOVER.md + state.json + the last [BLOCKED] message below. If Phase 9 is confirmed, resume workflow to verify.', raw: String(advanceReport ?? '').slice(-600) })
+}
 
 phase('P8 · Sync')
 log('git push origin main (publish advance handover commit)')
@@ -5323,7 +5329,7 @@ return {
   phase: 8,
   fr_count: frIds.length,
   gate1_pass: gate1Pass,
-  p8_push_status: p8Ok ? 'PASS' : 'unknown',
+  advance_status: 'PASS',
   artifacts: ['08-config/CONFIG_RECORDS.md', '08-config/RELEASE_CHECKLIST.md', '.methodology-archive/', 'HANDOVER.md'],
   notes: 'Phase 8 complete per phase8_plan.md v2.12.0. Full P1→P8 pipeline complete → Phase 9 (Maintenance, CR-driven steady state).',
 }
@@ -5436,4 +5442,4 @@ for (let n = startPhase; n <= 8; n++) {
 }
 
 log('run-all complete — Phase ' + startPhase + ' through Phase 8.')
-return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 80, notes: 'All phases from the state.json cursor through Phase 8 completed.' }
+return { workflow: 'run-all', start_phase: startPhase, phases_run: phasesRun, phase_boxes: 81, notes: 'All phases from the state.json cursor through Phase 8 completed.' }

@@ -181,6 +181,8 @@ def test_the_workflow_guards_read_the_milestone_record() -> None:
     text = (REPO / ".claude" / "workflows" / "run-all.js").read_text(encoding="utf-8")
     for milestone in ("p3-post-gate2", "p4-pre-gate3", "p5-baseline", "p7", "p8"):
         assert f"--arg t {milestone} \\'.last_milestone_head[$t] // empty\\'" in text, milestone
-    p8 = next(ln for ln in text.splitlines() if "const p8VerifyCmd" in ln)
-    assert "last_milestone_head" in p8
+    # Round 115 站4: P8's own p8VerifyCmd went with its hand-rolled Final
+    # Push; the milestone is judged where every other phase's is — by
+    # advance-phase (exit 51), which P8 now reaches through the shared loop.
+    assert "advance-phase --completed 8" in text
     assert "log --oneline --grep=\\\"P8\\\" -1`. If exists" not in text

@@ -173,4 +173,7 @@ def test_sim_testbed_passes():
     # 179 -> 182 (2026-10-07): Round 115 站2 — the resolver loop ends on
     # bug-hunt-pending, not its own pass; an upheld refutation is recorded and
     # the hunt proceeds; a rejected one goes back to the resolver, then halts.
-    assert int(m.group(1)) >= 182, f"sim suite shrank: only {m.group(1)} passing tests (floor 182)"
+    # 182 -> 184 (2026-10-07): Round 115 站4 — P8 runs the shared milestone +
+    # advance blocks: a landed push whose advance failed gets another advance
+    # round, and an advance that never reaches Phase 9 halts.
+    assert int(m.group(1)) >= 184, f"sim suite shrank: only {m.group(1)} passing tests (floor 184)"

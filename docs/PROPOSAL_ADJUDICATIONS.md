@@ -11351,3 +11351,23 @@ hook 擁有 git 管線:prepare-commit-msg 在清除環境變數**之前**讀 sta
 跳過 —— 一支沒跑任何東西的 CLI 不能是「是」。`test_pre_push_cannot_pass_by_skipping` 的 R83 斷言改看
 共同尾句「skipping gate check」,以免新措辭讓它空轉。反證:以 HEAD 的兩個 hook 還原,3 個 hook 測試
 轉紅。run-all 上限 -59。
+
+### 站4 — P8 完成 = milestone 已落地且 phase 已前進(workflow JS + push-milestone)
+
+P8 的 Final Push 是手刻迴圈:step 0 見 `last_milestone_head.p8` 有值就停,step 2 的 advance 被跳過;
+`p8Ok` 只讀 milestone。push 成功而 advance 失敗的下一輪即回報「pipeline complete」,current_phase 仍是 8。
+這是 R95 從 P6 抽走的同形兄弟(「完成」的 guard 屬於前一步卻短路了下一步)。改為 P7 的
+`render_milestone` + `render_advance_loop`(guard 為 `current_phase >= 9`)。
+
+第一版另想把 `render_milestone` 的 verdict 改由 harness 讀取;複核後不做:advance-phase 自己以
+`_precheck_exit_milestone_landed_green`(exit 51,P3/4/5/7/8)重判 milestone,agent 謊報 pass 會在
+advance 被擋並由 advance 迴圈補推,決策點已在 harness。
+
+Final Push 迴圈帶著 milestone push 前唯一的 manifest integrity 檢查,而 push-milestone 對每種 milestone
+都整包 commit `.methodology/`(P5/P7 沒有檢查)。檢查移入 `push-milestone` 本身、在任何寫入之前(含
+`ensure_gitignore`)—— R22 把同一檢查移進 advance-phase 的同一理由。P8 archive 步驟「Phase 8 is final,
+刪除 HANDOVER 的 Phase 9 引用」刪除:Phase 9 是拓撲中的 phase,taskq-open 23f41e0 曾據此刪掉
+phase9_plan 的引用。
+
+反證:以 9a8fd191 的 spec_phase8 生成 phase8,兩個新 sim 情境與 run-all/phase8 parity 轉紅;以 HEAD 的
+push_cmds 還原,損壞 manifest 測試轉紅。run-all 上限 -954;sim floor 184。

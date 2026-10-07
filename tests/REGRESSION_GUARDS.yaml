@@ -6326,6 +6326,22 @@
   bug: "the first draft judged infra-commit-check by its exit code; three existing hook tests stub harness_cli.py as exit 0 for anything, and all three were read as pure-infrastructure pushes and skipped — a CLI that ran nothing must not read as a yes"
   fixed_in: "Round 115 站3"
 
+- test: tests/test_p8_is_complete_when_it_has_advanced.py::test_p8_ends_with_the_shared_milestone_and_advance_blocks
+  bug: "P8's hand-rolled Final Push stopped at 'p8 already pushed' before its advance step and read the milestone alone as PASS, so a landed push with a failed advance-phase was reported as a complete pipeline at current_phase 8 — Round 95's P6 shape, unswept"
+  fixed_in: "Round 115 站4"
+
+- test: tests/test_p8_is_complete_when_it_has_advanced.py::test_p8_no_longer_deletes_phase_9_from_the_handover
+  bug: "the P8 archive step told the agent 'Phase 8 is final' and to delete Phase 9 references from HANDOVER.md; Phase 9 is a phase of the topology and taskq-open 23f41e0 removed phase9_plan.md from it"
+  fixed_in: "Round 115 站4"
+
+- test: tests/test_p8_is_complete_when_it_has_advanced.py::test_push_milestone_refuses_a_corrupted_manifest_before_any_side_effect
+  bug: "push-milestone commits .methodology/ wholesale for every milestone type; the only manifest-integrity check in front of it lived in P8's workflow loop, so P5 and P7 milestones could commit a corrupted manifest"
+  fixed_in: "Round 115 站4"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "Round 115 站4 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: a landed p8 push whose advance failed gets another advance round instead of a PASS, and an advance that never reaches Phase 9 halts. Counter-proof run 2026-10-07: the phase8 workflow generated from 9a8fd191 turns both red"
+  fixed_in: "Round 115 站4"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

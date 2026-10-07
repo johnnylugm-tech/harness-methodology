@@ -95,7 +95,7 @@ class TestPreviewNextPhase:
         # commits/advances, not after.
         advance_titles = {
             1: "Advance", 2: "Advance", 3: "Advance", 4: "Advance",
-            5: "Advance", 6: "Tag & Advance", 7: "Advance", 8: "Final Push",
+            5: "Advance", 6: "Tag & Advance", 7: "Advance", 8: "Advance",
         }
         for phase, advance_title in advance_titles.items():
             text = generate(phase)
@@ -122,12 +122,13 @@ class TestManifestIntegrity:
         assert "phase('Manifest Integrity')" not in text
 
     def test_only_the_two_phases_with_an_uncovered_call_site_define_it(self):
-        # phase3's Gate-2 round loop and phase8's Final Push are the two call
-        # sites advance-phase does not cover (a mid-loop fix can reintroduce
-        # corruption before finalize-gate commits; Final Push is
-        # push-milestone, not advance-phase). Everyone else dropped the helper.
+        # phase3's Gate-2 round loop is the call site advance-phase does not
+        # cover (a mid-loop fix can reintroduce corruption before
+        # finalize-gate commits). phase8's Final Push was the other until
+        # Round 115 站4 moved the check into push-milestone itself, which P5
+        # and P7 also call. Everyone else dropped the helper.
         defines = {p for p in range(3, 9) if "checkManifestIntegrity" in generate(p)}
-        assert defines == {3, 8}, f"unexpected set of phases defining the helper: {defines}"
+        assert defines == {3}, f"unexpected set of phases defining the helper: {defines}"
 
 
 class TestArtifactsCommit:
@@ -182,13 +183,12 @@ class TestPhase8Generation:
         titles = re.findall(r"title:\s*'([^']*)'", m.group(1))
         # Round 22 站2 removed the "Manifest Integrity" box: its entry call
         # duplicated PREFLIGHT_CHECKS[0], which run-phase had just executed in
-        # the previous box. P8 still defines the helper (its Final Push, a
-        # push-milestone path advance-phase does not cover, calls it) but the
-        # helper is no longer a phase() of its own.
+        # the previous box. Round 115 站4: the hand-rolled Final Push became
+        # P7's Milestone + Advance.
         assert titles == [
             "Entry & Preflight", "Env Check", "Load FRs",
             "Per-FR Delta", "Config Docs", "Artifacts Commit", "Archive",
-            "Preview Next-Phase", "Final Push", "Sync",
+            "Preview Next-Phase", "Milestone", "Advance", "Sync",
         ]
 
     def test_no_forbidden_runtime_apis(self):

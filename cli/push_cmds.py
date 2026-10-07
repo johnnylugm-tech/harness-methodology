@@ -255,6 +255,31 @@ def _validate_gate1_sweep(project: Path, phase: int, fr_ids: list) -> str:
     )
 
 
+def _manifest_is_corrupt(project: Path, milestone_type: str) -> bool:
+    """Refuse a milestone whose quality_manifest.json is corrupted.
+
+    Round 115 站4: every milestone commits `.methodology/` wholesale, so the
+    check runs before anything is written. P8's workflow loop carried the only
+    such check and P5/P7 had none; Round 22 moved the same check into
+    advance-phase for the same reason — the command, not one of its callers,
+    is what every caller shares.
+    """
+    from core.phase_hooks import PhaseHooks
+    from core.harness_config import get_value
+
+    report = PhaseHooks(str(project), enable_kill_switch=False,
+                        drift_threshold=get_value(project, "drift_threshold")).manifest_integrity()
+    if report.get("passed", False):
+        return False
+    issues = "; ".join(report.get("issues", ())) or "quality_manifest.json failed its integrity check"
+    recovery = report.get("recovery") or (
+        "git checkout HEAD -- .methodology/quality_manifest.json (verify HEAD is healthy "
+        "first), merge the latest gate result back into gate_results")
+    print(f"[BLOCKED] push-milestone --type {milestone_type}: {issues}\n"
+          f"  → fix: {recovery}, then re-run push-milestone --type {milestone_type}")
+    return True
+
+
 def cmd_push_milestone(args: argparse.Namespace) -> int:
     """Push milestone checkpoint with HANDOVER.md generation.
 
@@ -276,6 +301,8 @@ def cmd_push_milestone(args: argparse.Namespace) -> int:
       python harness_cli.py push-milestone --type p5-baseline --project .
     """
     project = Path(args.project).resolve()
+    if _manifest_is_corrupt(project, args.type):
+        return 1
     git = _shared._make_git(args, project)
     git.ensure_gitignore()
     if getattr(args, "dry_run", False):
