@@ -198,9 +198,18 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "record-bug-hunt --assemble rc + totals, compared with the dispatched hunt"),
     (r"^hunt-report-md$", "judgment", "none",
      "human-readable markdown from bug_hunt_report.json; nothing reads it"),
-    (r"^hunt-resolve$", "judgment", "schema",
-     "fixes or refutes confirmed critical/high findings; Gate 3's framework-owned "
-     "adversarial_review re-reads the report, VERDICT_SCHEMA is narrative"),
+    (r"^hunt-resolve-r$", "judgment", "none",
+     "fixes or refutes confirmed critical/high findings, at most two rounds; "
+     "Round 115 站2: whether it is done is hunt-pending-'s, never its own word"),
+    (r"^hunt-pending-$", "carrier", "schema",
+     "bug-hunt-pending --json transcribed into HUNT_PENDING_SCHEMA; JS checks "
+     "rc agrees with the list (Gate 3's own rule decides what still blocks)"),
+    (r"^hunt-adj-$", "judgment", "schema",
+     "two read-only adjudicators per refutation of a confirmed finding "
+     "(ADJUDICATE_SCHEMA); upheld only if both uphold with a cited line"),
+    (r"^hunt-adj-record-$", "carrier", "schema",
+     "writes the JS-decided verdict and transcribes adjudicate-bug-hunt's rc; "
+     "the binding to the refutation's text is computed by the CLI"),
     (r"^gate4-da-$", "judgment", "schema",
      "Gate 4 A3: one read-only Devil's Advocate challenger per Tier 3 dim, "
      "dispatched by the workflow (an orchestrator agent has no Agent tool). "

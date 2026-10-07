@@ -6254,6 +6254,54 @@
   bug: "Round 115 站1 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: huntJudge dropped a verifier that returned nothing with `.filter(Boolean)`, so a finding no verifier judged was recorded as refuted ('no verifier confirmed') — the one state Gate 3 never blocks on. The silent verifier is now re-dispatched once and a finding still missing a verdict halts the hunt as infra. Counter-proof run 2026-10-07: restoring spec_phase4.py at 4326dfdb turns both scenarios red"
   fixed_in: "Round 115 站1"
 
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_sha_that_is_not_a_commit_does_not_close_it
+  bug: "bug_hunt_verifier accepted any non-empty fix_commit as the evidence that closed a confirmed finding; the unit test pinned 'abc123def456' as a passing fix"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_commit_off_heads_history_does_not_close_it
+  bug: "a fix_commit that exists but is not on HEAD's history is a fix the delivered tree does not contain"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_commit_that_did_not_touch_the_finding_does_not_close_it
+  bug: "any real commit closed any finding; 28 of 28 resolved blocking findings in the corpus were closed by a commit whose own diff changes the finding's file"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_repro_the_fix_commit_did_not_write_does_not_close_it
+  bug: "an existing test file named as repro_test closed a finding although nothing tied it to the fix"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_blocking_finding_needs_both_the_fix_and_the_repro
+  bug: "the resolver is told to commit a RED repro with the fix and record both; the verifier accepted either one"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_repro_outside_the_project_is_refused
+  bug: "repro_test was checked as `(root / repro).is_file()`, so ../outside.py passed; the old traversal test said traversal 'has no effect' and passed only because ../../etc/passwd did not exist from a tmp dir"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_repro_symlinked_out_of_the_test_directory_is_refused
+  bug: "a repro symlinked out of the test directory resolves elsewhere; resolve() before the containment check"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_repro_the_frameworks_suite_does_not_run_is_refused
+  bug: "taskq-final keeps all four bug-hunt repros in a root tests/ while 03-development/tests exists; the framework suite runs only ProjectLayout.active_test_dir, so the gate never executed the repro it accepted"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_resolvers_refutation_of_a_confirmed_finding_needs_an_adjudication
+  bug: "taskq-new's resolver turned a confirmed CRITICAL (api.middleware#1, conceding 'AC-5.3 is unmet') and two confirmed HIGH findings into refuted with prose, and Gate 3 passed: the party that wrote the code overruled two independent verifiers"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_a_refutation_rewritten_after_its_adjudication_is_not_covered_by_it
+  bug: "an adjudication must be about the refutation as it now reads; it is bound to its sha256"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_a_closed_finding_carries_verifiable_evidence.py::test_adjudicate_binds_the_refutation_as_it_now_reads
+  bug: "the binding of a verdict to the refutation is computed by the CLI from the report, never taken from the caller"
+  fixed_in: "Round 115 站2"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "Round 115 站2 scenarios in scripts/workflowgen/js_src/sim_runner.test.mjs: the bug-hunt resolver's own `pass` decided whether confirmed critical/high findings were closed; the loop now ends on bug-hunt-pending (Gate 3's rule), a refutation is judged by two adjudicators and recorded, a rejected one goes back to the resolver and halts as project after two rounds. Counter-proof run 2026-10-07: the three scenarios are red against the workflow generated at 4631c53c"
+  fixed_in: "Round 115 站2"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

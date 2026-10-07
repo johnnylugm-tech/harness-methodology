@@ -110,8 +110,8 @@ assert 的行為」。Scout 必須把 survivor 對應的函式標注為 PRIORITY
 | status | 要求 |
 |---|---|
 | `open` | confirmed critical/high → **Gate 3 BLOCKED**,必須轉為 resolved 或 refuted |
-| `resolved` | 需 `fix_commit`(修復 commit sha)**或** `repro_test`(專案內真實存在的測試檔,先 RED 重現再修到 GREEN — anti-fabrication) |
-| `refuted` | 需 `refute_evidence`(反例引用或文件化例外) |
+| `resolved` | 需 `fix_commit`(修復 commit sha)**或** `repro_test`(專案內真實存在的測試檔,先 RED 重現再修到 GREEN — anti-fabrication)。confirmed critical/high(Round 115 站2):**兩者都要**,`fix_commit` 是 HEAD 歷史上的真實 commit,且其 diff 同時改到 finding 的檔案與 repro;repro 位於框架 suite 執行的測試目錄 |
+| `refuted` | 需 `refute_evidence`(反例引用或文件化例外)。confirmed critical/high:另需兩位獨立 verifier 裁決反駁成立(`adjudicate-bug-hunt`,綁定反駁全文);修復者不能以文字推翻已確認的 finding |
 
 medium/low 與 unconfirmed findings 不擋 gate(留檔追蹤)。報告 `git_sha`
 與 HEAD 不符只警告不擋 — 大幅改動後建議重跑 hunt。

@@ -170,4 +170,7 @@ def test_sim_testbed_passes():
     # 177 -> 179 (2026-10-07): Round 115 站1 — a bug-hunt verifier that
     # returned nothing is re-dispatched once, and a finding no verifier
     # judged halts as infra instead of being recorded as refuted.
-    assert int(m.group(1)) >= 179, f"sim suite shrank: only {m.group(1)} passing tests (floor 179)"
+    # 179 -> 182 (2026-10-07): Round 115 站2 — the resolver loop ends on
+    # bug-hunt-pending, not its own pass; an upheld refutation is recorded and
+    # the hunt proceeds; a rejected one goes back to the resolver, then halts.
+    assert int(m.group(1)) >= 182, f"sim suite shrank: only {m.group(1)} passing tests (floor 182)"

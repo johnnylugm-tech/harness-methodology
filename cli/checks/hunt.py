@@ -358,6 +358,74 @@ def cmd_record_bug_hunt(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bug_hunt_pending(args: argparse.Namespace) -> int:
+    """List the confirmed critical/high findings Gate 3 would still block on.
+
+    Round 115 站2. The workflow's resolver loop asks this instead of the
+    resolver's own `pass` (Round 24's lesson: a verdict the judged party
+    reports is not a verdict). Exit 1 while anything is pending. The last
+    line is the JSON the workflow reads; `test_dir` is named so the resolver
+    is told where the framework's suite looks, not a guess at the layout.
+    """
+    from core.quality_gate.bug_hunt_verifier import pending_findings
+    from core.utils.project_layout import ProjectLayout
+
+    project = Path(args.project).resolve()
+    pending = pending_findings(project)
+    layout = ProjectLayout(project)
+    if args.json:
+        print(json.dumps({"test_dir": layout.get_relative_str(layout.active_test_dir),
+                          "pending": pending}, ensure_ascii=False))
+    else:
+        for p in pending:
+            print(f"  {p['id']}  [{p['severity']}] {p['status']}: {p['title']}")
+        print(f"[bug-hunt-pending] {len(pending)} pending")
+    return 1 if pending else 0
+
+
+def cmd_adjudicate_bug_hunt(args: argparse.Namespace) -> int:
+    """Record two independent verifiers' verdict on a resolver's refutation.
+
+    Round 115 站2 (老闆裁定). The input file (written by the workflow's
+    recording agent, like `record-bug-hunt --part`) names the finding, the
+    verdict and both verifiers' evidence; the binding — which refutation the
+    verdict is about — is computed here from the report as it now reads,
+    never taken from the caller.
+    """
+    from core.quality_gate.bug_hunt_verifier import REPORT_RELPATH, refutation_sha
+
+    project = Path(args.project).resolve()
+    try:
+        entry = json.loads(Path(args.source).read_text(encoding="utf-8"))
+        report = json.loads((project / REPORT_RELPATH).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"[adjudicate-bug-hunt] BLOCKED: {exc}")
+        return 1
+    verdict = entry.get("verdict") if isinstance(entry, dict) else None
+    evidence = entry.get("evidence") if isinstance(entry, dict) else None
+    if verdict not in ("upheld", "rejected") or not (
+            isinstance(evidence, list) and len(evidence) == 2):
+        print("[adjudicate-bug-hunt] BLOCKED: needs {id, verdict: upheld|rejected, evidence: [a, b]}")
+        return 1
+    target = next((f for f in report.get("findings") or []
+                   if isinstance(f, dict) and f.get("id") == entry.get("id")), None)
+    resolution = target.get("resolution") if isinstance(target, dict) else None
+    if not (target and target.get("confirmed") and isinstance(resolution, dict)
+            and resolution.get("status") == "refuted"):
+        print(f"[adjudicate-bug-hunt] BLOCKED: {entry.get('id')!r} is not a confirmed finding "
+              f"the resolver refuted")
+        return 1
+    resolution["adjudication"] = {
+        "verdict": verdict,
+        "evidence": [str(e) for e in evidence],
+        "refutation_sha": refutation_sha(str(resolution.get("refute_evidence", ""))),
+    }
+    (project / REPORT_RELPATH).write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print(f"[adjudicate-bug-hunt] ADJUDICATED id={entry['id']} verdict={verdict}")
+    return 0
+
+
 def cmd_run_gap_analysis(args: argparse.Namespace) -> int:
     """Run M3 gap analysis: detect gaps between SPEC.md and codebase."""
     project = Path(args.project).resolve()
@@ -469,6 +537,23 @@ def register(sub) -> None:
                       help="write the report from parts 1..N")
     rbh.add_argument("--lenses", default="", help="comma-separated lenses applied (with --assemble)")
     rbh.set_defaults(func=cmd_record_bug_hunt)
+
+    bhp = sub.add_parser(
+        "bug-hunt-pending",
+        help="List confirmed critical/high findings Gate 3 would still block on (exit 1 if any)",
+    )
+    bhp.add_argument("--project", default=".", help="Project root (default: .)")
+    bhp.add_argument("--json", action="store_true", help="print one JSON line for the workflow")
+    bhp.set_defaults(func=cmd_bug_hunt_pending)
+
+    abh = sub.add_parser(
+        "adjudicate-bug-hunt",
+        help="Record two verifiers' verdict on a resolver's refutation of a confirmed finding",
+    )
+    abh.add_argument("--project", default=".", help="Project root (default: .)")
+    abh.add_argument("--from", dest="source", required=True,
+                     help="JSON file {id, verdict: upheld|rejected, evidence: [a, b]}")
+    abh.set_defaults(func=cmd_adjudicate_bug_hunt)
 
     # run-gap-analysis (M3)
     ga = sub.add_parser(

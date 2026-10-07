@@ -619,8 +619,11 @@ Before finalizing Gate 3, run the adversarial bug hunt (protocol:
 python harness_cli.py bug-hunt-targets --project .   # CRG hubs + mutation survivors + integration gaps
 # run the hunt with a DIFFERENT model → writes .methodology/bug_hunt_report.json
 ```
-Then resolve every confirmed **critical/high** finding — `resolved` (with `fix_commit`
-or an existing `repro_test`) or `refuted` (with `refute_evidence`). Score is **100**
+Then resolve every confirmed **critical/high** finding — `resolved` (a `fix_commit` on
+HEAD's history whose own diff changes the finding's file AND its `repro_test`, the repro
+under the test directory the framework's suite runs) or `refuted` (with `refute_evidence`
+that two independent verifiers upheld, recorded by `adjudicate-bug-hunt`;
+`bug-hunt-pending` lists what still blocks). Score is **100**
 only when none remain open; otherwise **0 / BLOCK**. Medium/low and unconfirmed
 findings never block. Statically-determinable bugs are already caught by the
 preflight battery and `error_handling` — hunters target semantic/concurrency bugs.

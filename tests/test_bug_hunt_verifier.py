@@ -5,7 +5,11 @@ Coverage:
   - report missing / unreadable / structurally invalid → block
   - confirmed critical/high OPEN → block; medium/low OPEN → no block
   - resolved: needs fix_commit or existing repro_test → else block
-  - refuted: needs refute_evidence → else block
+    (Round 115 站2: a fix_commit must be a real commit on HEAD's history; a
+    confirmed critical/high needs both, checked in
+    tests/test_a_closed_finding_carries_verifiable_evidence.py)
+  - refuted: needs refute_evidence → else block (critical/high: an
+    adjudication, same file)
   - unconfirmed findings → never block (adversarial verify already rejected)
   - stale git_sha → warning only (passes, stale=True)
   - schema ↔ verifier field contract alignment
@@ -51,6 +55,24 @@ def _minimal_report(**overrides) -> dict:
         "findings": [],
         **overrides,
     }
+
+
+def _git_fix(root: Path, file: str = "core/foo.py",
+             repro: str = "tests/test_repro.py") -> str:
+    """A real fix commit changing the finding's file and its repro (Round 115 站2)."""
+    def git(*a: str) -> str:
+        return subprocess.run(["git", "-C", str(root), *a], capture_output=True,
+                              text=True, check=True).stdout.strip()
+    if not (root / ".git").exists():
+        git("init", "-q")
+        git("config", "user.email", "t@example.com")
+        git("config", "user.name", "t")
+    for rel in (file, repro):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("def test_x():\n    assert True\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "fix(foo): x")
+    return git("rev-parse", "HEAD")
 
 
 def _finding(**overrides) -> dict:
@@ -218,11 +240,12 @@ class TestOpenSeverityBlocking:
 
 class TestResolvedEvidence:
     def test_resolved_with_fix_commit_passes(self, tmp_path: Path):
-        """Resolved with fix_commit → gate passes."""
+        """A non-blocking finding resolved with a real fix_commit → passes.
+        (Round 115 站2: this used to pass a critical with "abc123def456".)"""
         f = _finding(
-            severity="critical",
+            severity="medium",
             resolution={"status": "resolved",
-                        "fix_commit": "abc123def456"},
+                        "fix_commit": _git_fix(tmp_path)},
         )
         _write_report(tmp_path, _minimal_report(findings=[f]))
         v = verify_bug_hunt_report(str(tmp_path))
@@ -234,7 +257,7 @@ class TestResolvedEvidence:
         repro.parent.mkdir(parents=True, exist_ok=True)
         repro.write_text("def test_repro(): pass", encoding="utf-8")
         f = _finding(
-            severity="critical",
+            severity="medium",
             resolution={"status": "resolved",
                         "repro_test": "tests/test_repro.py"},
         )
@@ -245,7 +268,7 @@ class TestResolvedEvidence:
     def test_resolved_with_nonexistent_repro_test_blocks(self, tmp_path: Path):
         """Resolved with repro_test path that does NOT exist → block."""
         f = _finding(
-            severity="critical",
+            severity="medium",
             resolution={"status": "resolved",
                         "repro_test": "tests/ghost_file.py"},
         )
@@ -257,7 +280,7 @@ class TestResolvedEvidence:
     def test_resolved_without_evidence_blocks(self, tmp_path: Path):
         """Resolved without fix_commit or repro_test → anti-fabrication block."""
         f = _finding(
-            severity="critical",
+            severity="medium",
             resolution={"status": "resolved"},
         )
         _write_report(tmp_path, _minimal_report(findings=[f]))
@@ -267,13 +290,10 @@ class TestResolvedEvidence:
 
     def test_resolved_with_both_evidence_types_passes(self, tmp_path: Path):
         """Resolved with BOTH fix_commit AND repro_test → passes."""
-        repro = tmp_path / "tests" / "test_both.py"
-        repro.parent.mkdir(parents=True, exist_ok=True)
-        repro.write_text("def test(): pass", encoding="utf-8")
         f = _finding(
             severity="high",
             resolution={"status": "resolved",
-                        "fix_commit": "abc123",
+                        "fix_commit": _git_fix(tmp_path, repro="tests/test_both.py"),
                         "repro_test": "tests/test_both.py"},
         )
         _write_report(tmp_path, _minimal_report(findings=[f]))
@@ -285,9 +305,10 @@ class TestResolvedEvidence:
 
 class TestRefutedEvidence:
     def test_refuted_with_evidence_passes(self, tmp_path: Path):
-        """Refuted with refute_evidence → gate passes."""
+        """A non-blocking finding refuted with refute_evidence → passes.
+        (A confirmed critical/high needs an adjudication — Round 115 站2.)"""
         f = _finding(
-            severity="critical",
+            severity="medium",
             resolution={
                 "status": "refuted",
                 "refute_evidence": "The guard at line 50 already checks for None",
@@ -406,14 +427,12 @@ class TestMixedScenarios:
     def test_open_medium_and_resolved_critical_passes(self, tmp_path: Path):
         """One open medium (non-blocking) + one resolved critical (with evidence)
         → gate passes (medium doesn't block, critical is resolved)."""
-        repro = tmp_path / "tests" / "test_fix.py"
-        repro.parent.mkdir(parents=True, exist_ok=True)
-        repro.write_text("def test(): pass", encoding="utf-8")
         findings = [
             _finding(id="mod#1", severity="medium",
                      resolution={"status": "open"}),
             _finding(id="mod#2", severity="critical",
                      resolution={"status": "resolved",
+                                 "fix_commit": _git_fix(tmp_path, repro="tests/test_fix.py"),
                                  "repro_test": "tests/test_fix.py"}),
         ]
         _write_report(tmp_path, _minimal_report(findings=findings))
@@ -460,7 +479,7 @@ class TestMixedScenarios:
                      resolution={"status": "open"}),
             _finding(id="c", severity="medium",
                      resolution={"status": "resolved",
-                                 "fix_commit": "abc"}),
+                                 "fix_commit": _git_fix(tmp_path)}),
         ]
         _write_report(tmp_path, _minimal_report(findings=findings))
         v = verify_bug_hunt_report(str(tmp_path))
@@ -468,17 +487,24 @@ class TestMixedScenarios:
         assert v.open_blocking == 0
 
     def test_repro_test_rejects_path_traversal(self, tmp_path: Path):
-        """repro_test='../../etc/passwd' → does NOT exist under project → block.
-        Path.is_file() is relative to project_root, so traversal has no effect."""
+        """repro_test='../outside.py' that EXISTS outside the project → block.
+
+        Round 115 站2: this test used to say "Path.is_file() is relative to
+        project_root, so traversal has no effect" — false; `root / '../x'`
+        resolves outside, and the old test passed only because
+        `../../etc/passwd` did not exist relative to a tmp dir."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        (tmp_path / "outside.py").write_text("def test_x(): pass", encoding="utf-8")
         f = _finding(
-            severity="high",
+            severity="medium",
             resolution={"status": "resolved",
-                        "repro_test": "../../etc/passwd"},
+                        "repro_test": "../outside.py"},
         )
-        _write_report(tmp_path, _minimal_report(findings=[f]))
-        v = verify_bug_hunt_report(str(tmp_path))
+        _write_report(project, _minimal_report(findings=[f]))
+        v = verify_bug_hunt_report(str(project))
         assert v.ok is False
-        assert any("does not exist" in r for r in v.reasons)
+        assert any("not under" in r for r in v.reasons)
 
 
 # ── BugHuntVerdict dataclass ────────────────────────────────────────────────
@@ -603,7 +629,8 @@ class TestGateOverride:
         """Report with no open critical/high finding → framework scores 100."""
         _write_report(tmp_path, _minimal_report(findings=[
             _finding(severity="critical",
-                     resolution={"status": "resolved", "fix_commit": "abc123"}),
+                     resolution={"status": "resolved", "fix_commit": _git_fix(tmp_path),
+                                 "repro_test": "tests/test_repro.py"}),
         ]))
         new_dims, _ = _override_adversarial_review_dim_score(
             [], str(tmp_path), self.CONFIG_DIMS)

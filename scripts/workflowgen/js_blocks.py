@@ -366,6 +366,25 @@ const HUNT_RECORD_SCHEMA = {
   },
   required: ['rc', 'findings', 'confirmed'],
 }""",
+    "HUNT_PENDING_SCHEMA": """\
+const HUNT_PENDING_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exit code on the RC= line' },
+    test_dir: { type: 'string', description: 'test_dir from the JSON line' },
+    pending: { type: 'array', description: 'pending from the JSON line, every object verbatim', items: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
+  },
+  required: ['rc', 'test_dir', 'pending'],
+}""",
+    "ADJUDICATE_SCHEMA": """\
+const ADJUDICATE_SCHEMA = {
+  type: 'object',
+  properties: {
+    upheld: { type: 'boolean', description: 'true ONLY if the refutation proves the confirmed finding is not a defect in the code as written' },
+    evidence: { type: 'string', description: 'file:line the verdict rests on' },
+  },
+  required: ['upheld', 'evidence'],
+}""",
     "FR_LIST_SCHEMA": """\
 const FR_LIST_SCHEMA = {
   type: 'object',

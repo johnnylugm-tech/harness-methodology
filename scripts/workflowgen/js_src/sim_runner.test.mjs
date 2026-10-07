@@ -1636,7 +1636,7 @@ for (const name of ['phase4-testing.js', 'run-all.js']) {
       ['concurrency', 'correctness', 'general', 'resilience', 'threat-model'])
     assert.ok(ls.indexOf('hunt-scout') < ls.indexOf(hunters[0]))
     assert.ok(!events.agents.some((a) => /you have the Agent tool/.test(a.prompt)))
-    assert.ok(!ls.includes('hunt-resolve'), 'nothing confirmed, nothing to resolve')
+    assert.ok(!ls.includes('hunt-resolve-r1'), 'nothing confirmed, nothing to resolve')
   })
 }
 
@@ -1650,7 +1650,7 @@ test('confirmation rule: 1/2 is_real with a line citation confirms; the resolver
   assert.equal(f.confirmed, true)
   assert.equal(f.resolution.status, 'open')
   assert.equal(f.verify_evidence, 'reached at src/auth.py:12')
-  assert.ok(huntLabels(events).includes('hunt-resolve'))
+  assert.ok(huntLabels(events).includes('hunt-resolve-r1'))
 })
 
 test('confirmation rule: 1/2 is_real WITHOUT a citation is refuted with the refuter\'s words', async () => {
@@ -1662,7 +1662,7 @@ test('confirmation rule: 1/2 is_real WITHOUT a citation is refuted with the refu
   const f = huntRecord(events).findings.find((x) => x.lens === 'correctness')
   assert.equal(f.confirmed, false)
   assert.deepEqual(f.resolution, { status: 'refuted', refute_evidence: 'guarded by the caller' })
-  assert.ok(!huntLabels(events).includes('hunt-resolve'))
+  assert.ok(!huntLabels(events).includes('hunt-resolve-r1'))
 })
 
 test('a threat whose mitigation fails goes through adversarial verify; an effective one does not', async () => {
@@ -1712,6 +1712,58 @@ test('a finding no verifier judged halts as infra; it is never recorded as refut
   assert.match(result.error, /no verdict/)
   assert.ok(!huntLabels(events).some((l) => /^hunt-record/.test(l)))
   assert.ok(!huntLabels(events).some((l) => /^hunt-\d+-correctness-retry$/.test(l)), 'an unjudged finding is not a silent hunter')
+})
+
+// Round 115 站2: the resolver is done when Gate 3's own rule says so (bug-hunt-pending),
+// and a refutation of a confirmed finding is judged by two fresh verifiers.
+const huntConfirmedHigh = [
+  { match: /^hunt-\d+-correctness$/, respond: { findings: [huntFinding()] } },
+  { match: /-(refute|confirm)$/, respond: { is_real: true, refutation_attempt: 'none', evidence: 'src/auth.py:12', severity_agrees: true } },
+]
+const pendingRow = (o = {}) => Object.assign({ id: 'auth#1', severity: 'high', status: 'open', needs_adjudication: false }, o)
+const pendingReply = (rows) => ({ rc: rows.length ? 1 : 0, test_dir: '03-development/tests', pending: rows })
+
+test('the resolver is not asked whether it is done: a finding still pending after two rounds halts as project', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    ...huntConfirmedHigh,
+    { match: /^hunt-pending-0$/, respond: pendingReply([pendingRow()]) },
+    { match: /^hunt-pending-/, respond: pendingReply([pendingRow()]) },
+  ]))
+  const ls = huntLabels(events)
+  assert.ok(ls.includes('hunt-resolve-r1') && ls.includes('hunt-resolve-r2'))
+  assert.equal(result.halt_step, 'bug-hunt')
+  assert.equal(result.owner, 'project')
+  assert.match(result.error, /auth#1 \(open\)/)
+  assert.ok(events.agents.find((a) => a.label === 'hunt-resolve-r1').prompt.includes('03-development/tests/'))
+})
+
+test('a refutation two adjudicators uphold with cited lines is recorded as upheld and the hunt proceeds', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    ...huntConfirmedHigh,
+    { match: /^hunt-pending-1a$/, respond: pendingReply([pendingRow({ status: 'refuted', needs_adjudication: true, refute_evidence: 'guard at src/x.py:3' })]) },
+    { match: /^hunt-adj-1-0-[ab]$/, respond: { upheld: true, evidence: 'src/x.py:3 rejects it first' } },
+  ]))
+  assert.notEqual(result.halt_step, 'bug-hunt')
+  const rec = events.agents.find((a) => a.label === 'hunt-adj-record-1-0')
+  assert.ok(rec && rec.prompt.includes('"verdict":"upheld"') && rec.prompt.includes('adjudicate-bug-hunt'))
+  assert.ok(!huntLabels(events).includes('hunt-resolve-r2'))
+})
+
+test('a refutation one adjudicator rejects is recorded as rejected and goes back to the resolver', async () => {
+  const refuted = pendingRow({ status: 'refuted', needs_adjudication: true, refute_evidence: 'test_fr05 locks it in' })
+  const judged = pendingRow({ status: 'refuted', needs_adjudication: false, adjudication: { verdict: 'rejected' } })
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), huntResponder([
+    ...huntConfirmedHigh,
+    { match: /^hunt-pending-1a$/, respond: pendingReply([refuted]) },
+    { match: /^hunt-pending-/, respond: pendingReply([judged]) },
+    { match: /^hunt-adj-\d+-\d+-a$/, respond: { upheld: true, evidence: 'src/x.py:3' } },
+    { match: /^hunt-adj-\d+-\d+-b$/, respond: { upheld: false, evidence: 'AC-5.3 is unmet at src/mw.py:280' } },
+  ]))
+  assert.ok(events.agents.find((a) => a.label === 'hunt-adj-record-1-0').prompt.includes('"verdict":"rejected"'))
+  assert.ok(events.agents.find((a) => a.label === 'hunt-resolve-r2').prompt.includes('rejected'))
+  assert.ok(!huntLabels(events).includes('hunt-adj-2-0-a'), 'a standing verdict on the same words is not re-judged')
+  assert.equal(result.halt_step, 'bug-hunt')
+  assert.equal(result.owner, 'project')
 })
 
 test('a part that echoes something other than what was written is retried, then halts before assembling', async () => {

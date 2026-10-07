@@ -11302,3 +11302,31 @@ null,以免誤觸 hunter retry);pipeline 結束後有任何 unjudged 即 `halt('
 
 反證:以 4326dfdb 的 spec_phase4.py 重生,兩個新 sim 情境轉紅;`cp` 還原 sha256 一致。
 sim floor 177 → 179;run-all 上限 +531。
+
+### 站2 — 關閉證據可驗證;反駁 confirmed finding 由獨立裁決(harness verifier + workflow JS;老闆裁定)
+
+`bug_hunt_verifier` 對 resolved 只問「有 fix_commit 或存在的 repro 檔」:單元測試把 `"abc123def456"`
+釘為合法修復;`(root / repro).is_file()` 不限制在專案內(舊 traversal 測試的 docstring 說「無效」,
+它通過只因 `../../etc/passwd` 從 tmp 目錄不存在)。refuted 只問非空。**taskq-new 的 resolver 把一個
+兩位 verifier 確認的 CRITICAL(`api.middleware#1`,反駁文自承「AC-5.3 unmet」)與兩個 HIGH 改成
+refuted,Gate 3 通過** —— 寫程式的一方用文字推翻審查者(R27)。workflow 也以 resolver 自報的 `pass`
+放行(R24)。
+
+量測後的規則(confirmed critical/high):resolved 需 fix_commit 與 repro_test 兩者;commit 為真、在
+HEAD 歷史上、其自身 diff 同時改到 finding 的檔案與 repro;repro `resolve()` 後在
+`ProjectLayout.active_test_dir` 之下(框架 suite 實際執行的目錄)。第一版的 `git_sha..fix_commit`
+範圍規則被量測否決:28 筆中 17 筆的 git_sha 不是 fix 的祖先或等於它(resolver 改寫過 git_sha)。
+refuted 需 `adjudicate-bug-hunt` 記錄的 upheld 裁決:兩位 verifier 皆判成立且各引行號,綁定反駁全文的
+sha256。medium/low 保留二擇一,但 fix_commit 仍須是 HEAD 歷史上的真 commit。
+
+workflow:resolver 至多兩輪,何時完成由 `bug-hunt-pending`(Gate 3 自己的規則)決定;每個待裁決的反駁
+派兩位 adjudicator(prompt 明言「測試斷言某行為不是該行為正確的證據」),JS 判定、CLI 綁定;rejected 回到
+下一輪 resolver,兩輪後仍有即 halt(owner project)。
+
+語料回放:24/28 個已關閉的阻擋型 finding 通過;taskq-final 4 筆 repro 位於 root `tests/`(框架 suite
+從未執行)被擋 —— 真陽性;taskq-new 的 3 筆被擋。不追溯:adversarial_review 只在 Gate 2/3。
+反證:以 4326dfdb 的 verifier 還原,新測試 15/18 轉紅;三個 sim 情境對 4631c53c 生成的 workflow 為紅。
+sim floor 179 → 182;run-all 上限 +3911;js_blocks 2478 → 2497(兩個 schema)。
+
+範圍外發現:taskq-final 同時有 `03-development/tests`(15)與 root `tests/`(18),`active_test_dir`
+默默只取前者,suite / coverage 都沒量到後者(R78 家族,語料唯一一例)—— 另開任務。

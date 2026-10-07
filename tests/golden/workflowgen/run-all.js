@@ -2971,6 +2971,8 @@ log('HUNT_MODEL = ' + HUNT_MODEL)
 
 
 
+
+
 function firstLineHasAnchor(text, expectPrefix) {
   if (!expectPrefix) return false
   const nl = text.indexOf('\n')
@@ -3474,20 +3476,55 @@ await dispatch(
   { label: 'hunt-report-md', phase: 'P4 · Bug Hunt', agentType: 'general-purpose' },
 )
 const huntBlocking = huntFindings.filter((f) => f.confirmed && (f.severity === 'critical' || f.severity === 'high'))
+const huntPendingNow = async (tag) => await dispatch(
+  'Run EXACTLY this via the Bash tool:\n`' + PY + ' ' + REPO + '/harness_cli.py bug-hunt-pending --project ' + REPO + ' --json; echo RC=$?`\n'
+  + 'Report via the StructuredOutput tool: rc from the RC= line; test_dir and pending copied verbatim from the JSON line before it.',
+  { label: 'hunt-pending-' + tag, phase: 'P4 · Bug Hunt', agentType: 'general-purpose', schema: HUNT_PENDING_SCHEMA })
+const huntPendingOk = (r) => !!(r && Array.isArray(r.pending) && typeof r.test_dir === 'string' && r.rc === (r.pending.length ? 1 : 0))
+const huntAdjudicate = async (p, r, n, k) => await dispatch(
+  'Two independent verifiers CONFIRMED this bug finding; the resolver, who wrote the code, now says it is NOT a defect. Decide whether that refutation holds against the code as written (hunt_bugs.md Phase 3). upheld=true ONLY if it proves the finding is not a defect — a guard the finding missed, an unreachable path — citing file:line. A refutation that concedes a requirement is unmet, calls the behaviour intended because a test asserts it, or defers the fix is NOT upheld: a test asserting a behaviour is not evidence the behaviour is right; only the requirement (SPEC.md / SRS.md) and the code decide.\n'
+  + 'REPO: ' + REPO + '\nFINDING AND REFUTATION:\n' + JSON.stringify(p) + '\nREAD ONLY.',
+  { label: 'hunt-adj-' + r + '-' + n + '-' + k, phase: 'P4 · Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: ADJUDICATE_SCHEMA })
 if (huntBlocking.length === 0) {
   log('  no confirmed critical/high finding — nothing to resolve before Gate 3')
 } else {
-  const huntReport = await dispatch(
-    'YOU ARE THE BUG-HUNT RESOLVER (Step 4b, before Gate 3). REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-    + 'Gate 3 adversarial_review BLOCKS while any confirmed critical/high finding in .methodology/bug_hunt_report.json is "open". These ' + huntBlocking.length + ' are: ' + huntBlocking.map((f) => f.id).join(', ') + '.\n'
-    + 'For EACH set resolution.status:\n- resolved: write a repro test under 03-development/tests/ that RED-fails on the bug, apply the minimal source fix, confirm GREEN, commit `fix(<module>): <title>`, then record fix_commit (SHA) and repro_test (path).\n- refuted: read the code, find the guard the finding missed, record refute_evidence with exact line numbers.\n'
-    + 'Edit only those findings\' resolution fields in the report; never change confirmed, severity or the verify evidence.\n\n'
-    + 'Verdict: report via the StructuredOutput tool — pass=true ONLY if every one of them is resolved-or-refuted; reason = one-line summary.\n\n'
-    + 'SCOPE RULES:\n- DO NOT run run-gate (Gate 3) / advance-phase / push-milestone.\n- DO NOT modify harness/ (HR-17).\n- ONLY the fixes, repro tests and resolution fields for the findings named above.',
-    { label: 'hunt-resolve', phase: 'P4 · Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL, schema: VERDICT_SCHEMA },
-  )
-  if (!(huntReport && huntReport.pass === true)) {
-    return halt('bug-hunt', { error: 'confirmed critical/high bug-hunt findings are still open (Gate 3 adversarial_review will block)', reason: huntReport ? String(huntReport.reason ?? '').slice(-600) : 'agent returned null' })
+  let huntPending = await huntPendingNow('0')
+  if (!huntPendingOk(huntPending)) return halt('bug-hunt', { error: 'bug-hunt-pending was not relayed intact', owner: 'infra', got: huntPending })
+  const huntTestDir = huntPending.test_dir
+  let huntAsk = huntBlocking.map((f) => ({ id: f.id }))
+  for (let r = 1; r <= 2 && huntAsk.length; r++) {
+    await dispatch(
+      'YOU ARE THE BUG-HUNT RESOLVER (Step 4b, before Gate 3), ROUND ' + r + '. REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
+      + 'Gate 3 adversarial_review BLOCKS on these confirmed critical/high findings in .methodology/bug_hunt_report.json:\n' + JSON.stringify(huntAsk) + '\n'
+      + 'For EACH set resolution.status:\n- resolved: write a repro test under ' + huntTestDir + '/ that RED-fails on the bug, apply the minimal source fix, confirm GREEN, and commit BOTH in ONE commit `fix(<module>): <title>`; record fix_commit (that SHA) and repro_test (its path). Gate 3 checks that this commit changes the finding\'s file and the repro.\n'
+      + '- refuted: only if the finding is not a defect in the code as written; record refute_evidence citing the guard with exact file:line. Two independent verifiers judge it: one that concedes a requirement is unmet, rests on a test asserting the behaviour, or defers the fix is rejected. A finding listed with a rejected adjudication must be resolved, or refuted with new evidence.\n'
+      + 'Edit only those findings\' resolution fields in the report; never change confirmed, severity or the verify evidence.\n\n'
+      + 'SCOPE RULES:\n- DO NOT run run-gate (Gate 3) / advance-phase / push-milestone / adjudicate-bug-hunt.\n- DO NOT modify harness/ (HR-17).\n- ONLY the fixes, repro tests and resolution fields for the findings named above.',
+      { label: 'hunt-resolve-r' + r, phase: 'P4 · Bug Hunt', agentType: 'general-purpose', model: HUNT_MODEL },
+    )
+    huntPending = await huntPendingNow(r + 'a')
+    if (!huntPendingOk(huntPending)) return halt('bug-hunt', { error: 'bug-hunt-pending was not relayed intact', owner: 'infra', got: huntPending })
+    const huntToJudge = huntPending.pending.filter((p) => p.needs_adjudication === true)
+    for (let n = 0; n < huntToJudge.length; n++) {
+      const p = huntToJudge[n]
+      const vs = await parallel(['a', 'b'].map((k) => () => huntAdjudicate(p, r, n, k)))
+      if (!vs[0] || !vs[1]) return halt('bug-hunt', { error: 'an adjudicator returned nothing for ' + p.id, owner: 'infra' })
+      const upheld = vs.every((v) => v.upheld === true && huntCited({ evidence: v.evidence, refutation_attempt: '' }))
+      const entry = { id: p.id, verdict: upheld ? 'upheld' : 'rejected', evidence: vs.map((v) => String(v.evidence)) }
+      const rec = await dispatch(
+        'Write the JSON between the markers to ' + REPO + '/.sessi-work/bug_hunt/adj-' + r + '-' + n + '.json with the Write tool, byte for byte. Then run via Bash: `' + PY + ' ' + REPO + '/harness_cli.py adjudicate-bug-hunt --project ' + REPO + ' --from ' + REPO + '/.sessi-work/bug_hunt/adj-' + r + '-' + n + '.json; echo RC=$?`\n'
+        + 'Report via the StructuredOutput tool: rc = the exact number on the final RC= line.\n<<<JSON\n' + JSON.stringify(entry) + '\nJSON>>>',
+        { label: 'hunt-adj-record-' + r + '-' + n, phase: 'P4 · Bug Hunt', agentType: 'general-purpose', schema: RC_SCHEMA })
+      if (!(rec && rec.rc === 0)) return halt('bug-hunt', { error: 'adjudicate-bug-hunt did not record the verdict on ' + p.id, owner: 'infra', rc: rec ? rec.rc : null })
+    }
+    if (huntToJudge.length) {
+      huntPending = await huntPendingNow(r + 'b')
+      if (!huntPendingOk(huntPending)) return halt('bug-hunt', { error: 'bug-hunt-pending was not relayed intact', owner: 'infra', got: huntPending })
+    }
+    huntAsk = huntPending.pending
+  }
+  if (huntAsk.length) {
+    return halt('bug-hunt', { error: huntAsk.length + ' confirmed critical/high bug-hunt finding(s) still block Gate 3 after two resolver rounds: ' + huntAsk.map((p) => p.id + ' (' + p.status + ')').join(', '), owner: 'project' })
   }
 }
 

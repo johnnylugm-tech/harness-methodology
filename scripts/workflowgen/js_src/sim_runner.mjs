@@ -184,6 +184,10 @@ export function makeHappyResponder(overrides = []) {
         const m = call.label.match(/^gate4-da-([a-z_]+)-r/)
         return { dim: m ? m[1] : '', challenge: 'simulated challenger critique citing src/app.py:1 '.repeat(3) }
       }
+      if (has('pending') && has('test_dir')) {
+        // HUNT_PENDING_SCHEMA (Round 115 站2): nothing left for Gate 3 to block on.
+        return { rc: 0, test_dir: '03-development/tests', pending: [] }
+      }
       if (has('rc') && has('findings') && has('confirmed')) {
         // HUNT_RECORD_SCHEMA: report back what record-bug-hunt would derive.
         // A part echoes its own findings; assemble echoes every part written so far.
