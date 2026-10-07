@@ -89,7 +89,7 @@ def _lint_and_type_verdict(project: Path) -> "int | None":
                 why=(output or "")[-300:], owner="infra" if rc == -3 else "harness")
             if rc >= 0:
                 print((output or "")[-4000:])
-                print(f"[BLOCKED] {label} ({tool}) failure: no valid measurement (rc {rc}).")
+                print(f"[BLOCKED] {label} ({tool}) failure: no valid measurement (rc {rc}) — fix findings above.")
                 return code
             continue
         threshold = float(entry["threshold"])
