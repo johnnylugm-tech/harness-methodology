@@ -129,8 +129,8 @@ def _resolution_defect(project: Path, issue_id: str, row: dict) -> "str | None":
     if ref_file(project, ref) is None:
         return f"{issue_id} resolution_ref does not resolve: {ref} is not a file in this project"
     if record_line(project, ref, issue_id, ("resolved",)) is None:
-        return (f"{issue_id} resolution_ref does not resolve: {ref} has no line reading "
-                f"`{issue_id}: resolved — <decision>`")
+        return (f"{issue_id} resolution_ref does not resolve: {ref} has no unambiguous "
+                f"`{issue_id}: resolved — <decision>` record outside examples/comments")
     return None
 
 
@@ -153,4 +153,3 @@ def _test_spec_dependencies(project: Path) -> "dict[str, list[str]]":
                 for issue_id in {m.upper() for m in _DEFERRED_ID.findall(value)}:
                     deps.setdefault(issue_id, []).append(f"{fr_id}#{case.case_id}")
     return deps
-

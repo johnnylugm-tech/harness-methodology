@@ -217,6 +217,20 @@ class TestStateLockPath:
 # ---------------------------------------------------------------------------
 
 class TestFileSnapshot:
+    def test_incremental_capture_preserves_first_bytes_and_later_state(self, tmp_path):
+        doc, state = tmp_path / "doc.md", tmp_path / "state.json"
+        doc.write_text("reviewed")
+        state.write_text("orphan state")
+        snap = FileSnapshot([doc])
+        doc.write_text("rendered")
+        state.write_text("recovered state")
+        snap.capture([doc, state])
+        doc.write_text("later edit")
+        state.write_text("advanced state")
+        snap.restore()
+        assert doc.read_text() == "reviewed"
+        assert state.read_text() == "recovered state"
+
     def test_restores_content_byte_for_byte(self, tmp_path):
         f = tmp_path / "state.json"
         f.write_bytes(b'{"current_phase": 3}\n')

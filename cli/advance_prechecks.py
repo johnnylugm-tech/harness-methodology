@@ -61,8 +61,8 @@ def _lint_and_type_verdict(project: Path) -> "int | None":
     Now one question with one answer: the tool `resolve_tool_id` gives for the
     project's language, run by `run_tool` on the target Gate 1 measures, scored
     by `compute_tool_score`, against Gate 1's threshold. Exit codes stay 18/19.
-    A tool that produces no score is not a pass and not a block: it is said and
-    recorded (Round 32), as the old "not installed, skipping" was not.
+    An unavailable tool is recorded as a degradation. A tool that ran but
+    failed or produced unreadable results blocks, never supplies a free pass.
     """
     from core.degradation_ledger import record_degradation
     from core.quality_gate.gate_thresholds import load_gate_dimensions
@@ -82,11 +82,15 @@ def _lint_and_type_verdict(project: Path) -> "int | None":
         output, rc = run_tool(tool, str(project))
         score = compute_tool_score(tool, output, rc)
         if score is None:
-            print(f"  [WARN] {label} ({tool}) produced no score (rc {rc}) — not judged here.")
+            print(f"  [WARN] {label} ({tool}) produced no score (rc {rc}).")
             record_degradation(
                 project, f"advance:{dim}",
                 f"'{tool}' produced no score at advance-phase (rc {rc})",
                 why=(output or "")[-300:], owner="infra" if rc == -3 else "harness")
+            if rc >= 0:
+                print((output or "")[-4000:])
+                print(f"[BLOCKED] {label} ({tool}) failure: no valid measurement (rc {rc}).")
+                return code
             continue
         threshold = float(entry["threshold"])
         if score < threshold:

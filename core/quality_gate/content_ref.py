@@ -43,21 +43,37 @@ def ref_file(project: "str | Path", ref: str) -> "Path | None":
 
 def record_line(project: "str | Path", ref: str, ident: str,
                 words: "tuple[str, ...]") -> "str | None":
-    """The first line of *ref*'s file reading `<ident>: <word>`, or None.
+    """A real, unambiguous disposition record, never an example or comment.
 
-    The id must stand alone (`NFR-99.1` is not answered by `NFR-99.10`) and
-    the word must follow the colon — "NFR-99.1 will be resolved later" is a
-    sentence about a decision, not the record of one.
+    Records start with the exact id (optional Markdown list/emphasis), outside
+    code and HTML comments. All records for that id must agree on disposition;
+    a closing record beside an open/reopened/rejected record closes nothing.
     """
     path = ref_file(project, ref)
     if path is None or not ident:
         return None
     pattern = re.compile(
-        r"(?<![\w.-])" + re.escape(ident) + r"(?![\w.-])`?\s*:\s*`?(?:"
-        + "|".join(re.escape(w) for w in words) + r")\b",
-        re.IGNORECASE,
-    )
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        if pattern.search(line):
-            return line
-    return None
+        r"^\s*(?:[-*+]\s+|\d+\.\s+)?[*`]*" + re.escape(ident)
+        + r"(?![\w.-])[*`]*\s*:\s*[*`]*(?P<word>[\w-]+)\b", re.IGNORECASE)
+    text = re.sub(r"<!--.*?(?:-->|\Z)", "", path.read_text(
+        encoding="utf-8", errors="replace"), flags=re.DOTALL)
+    records: list[tuple[str, str]] = []
+    fence = ""
+    for line in text.splitlines():
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) \
+                    and not line[marker.end():].strip():
+                fence = ""
+            continue
+        if marker:
+            fence = marker[1]
+            continue
+        if line.startswith(("    ", "\t")):
+            continue  # Markdown indented code, not a disposition
+        match = pattern.match(line)
+        if match and not re.search(r"<(?:decision|why|reason)>", line, re.IGNORECASE):
+            records.append((match["word"].lower(), line))
+    dispositions = {word for word, _line in records}
+    return records[0][1] if len(dispositions) == 1 and dispositions <= {
+        word.lower() for word in words} else None

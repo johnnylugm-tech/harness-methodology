@@ -34,7 +34,7 @@ def _git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 
 
 @pytest.fixture
-def advance_project(tmp_path, monkeypatch):
+def advance_project(tmp_path, monkeypatch, request):
     """Clean tmp git repo one advance away from Phase 2, prechecks stubbed."""
     proj = tmp_path / "proj"
     proj.mkdir()
@@ -55,15 +55,16 @@ def advance_project(tmp_path, monkeypatch):
 
     # completed_phase=1 keeps the path minimal (no exit gate, no CRG wiki,
     # no P2 manifest regen, no P8 doc gen). Prechecks are not under test.
-    monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *_a, **_k: 0)
+    monkeypatch.setattr(phase_cmds, "_advance_prechecks", lambda *a, **k:
+                        getattr(request.node, "precheck", lambda *a, **k: 0)(*a, **k))
     # Round 39: cmd_advance_phase now calls _verify_entry_gate before
     # _advance_fsm. Stub it the same way so these tests stay scoped to
     # commit-rollback behaviour, not the gate logic. Coverage for the
     # gate wiring lives in tests/test_phase_completed_authority.py.
     monkeypatch.setattr(
         phase_cmds, "_verify_entry_gate",
-        lambda *_a, **_k: {"passed": True, "gate": "stub",
-                           "reason": "test stub (rollback fixture)"},
+        lambda *a, **k: getattr(request.node, "entry_gate", lambda *a, **k:
+            {"passed": True, "gate": "stub", "reason": "test stub (rollback fixture)"})(*a, **k),
     )
     # Round 69 站2: `previous_phase_artifacts` now writes the `blocking` key
     # its consumer filters on, so this tree — which holds no P1 deliverables —
@@ -261,3 +262,115 @@ class TestRollbackLockAndResetDiagnostic:
         assert state["current_phase"] == 1, (
             "a failed git reset must not affect the already-restored state.json"
         )
+
+
+def _prepare_document_binding(proj, scenario):
+    from core.quality_gate.agent_b_approvals import file_sha256
+
+    (proj / ".methodology" / "state.json").write_text(
+        json.dumps({"state": "RUNNING", "current_phase": 5}))
+    # The attestation contract marks its disposable latest-view cache gitignored.
+    (proj / ".gitignore").write_text(".methodology/trace/*.latest.json\n")
+    did = "SPEC_TRACKING.md" if scenario == "render" else "SAD.md"
+    rel = ("01-requirements/SPEC_TRACKING.md" if scenario == "render"
+           else "02-architecture/SAD.md")
+    doc = proj / rel
+    doc.parent.mkdir(parents=True, exist_ok=True)
+    doc.write_text("# Specification Tracking Matrix\n\n| FR ID | Status |\n"
+                   "|---|---|\n| FR-01 | DRAFT |\n" if scenario == "render"
+                   else "# SAD\nAPI > service\n")
+    record = proj / ".methodology" / "agent_b_approvals" / f"{did}.json"
+    record.parent.mkdir(parents=True)
+    record.write_text(json.dumps({"review_status": "APPROVE", "reason": "x" * 60,
+                                 "citations": [f"{rel}:1"], "docs_embedded": ["SRS.md", "SAD.md"],
+                                 "reviewed_sha256": file_sha256(doc)}))
+    assert _git(proj, "add", "-A").returncode == 0
+    assert _git(proj, "commit", "-m", "reviewed document").returncode == 0
+    return doc, record
+
+
+def _prepare_binding_change(proj, scenario, doc, request):
+    if scenario == "render":
+        from types import SimpleNamespace
+        from core.traceability.spec_tracking_render import write_spec_tracking
+        from cli.advance_checks import _regen_and_stage_view
+
+        rt = SimpleNamespace(requirements={"FR-01": SimpleNamespace(status="verified")})
+
+        def render(project, phase):
+            _regen_and_stage_view(project, doc,
+                                 lambda path: write_spec_tracking(project, rt, out_path=path))
+            return 0
+
+        request.node.precheck = render
+    else:
+        from cli.checks.approvals import cmd_review_change_context, cmd_write_approval
+
+        doc.write_text("# SAD\nAPI > service > repository\n")
+        assert _git(proj, "add", str(doc)).returncode == 0
+        assert _git(proj, "commit", "-m", "architecture amendment").returncode == 0
+        assert cmd_review_change_context(argparse.Namespace(project=str(proj), id="SAD.md")) == 0
+        review = {"review_status": "APPROVE", "reason": "Repository separation preserves the requirement and all constraints.",
+                  "citations": ["02-architecture/SAD.md:2"], "gaps": []}
+        assert cmd_write_approval(argparse.Namespace(project=str(proj), fr_id="SAD.md",
+            bind_context=True, json=json.dumps(review), stdin=False)) == 0
+
+
+@pytest.mark.parametrize("scenario", ["render", "change-review"])
+def test_advance_commits_binding_for_a_fresh_clone(advance_project, request, tmp_path, scenario):
+    from core.quality_gate.agent_b_approvals import stale_approvals_before
+
+    proj = advance_project
+    doc, record = _prepare_document_binding(proj, scenario)
+    _prepare_binding_change(proj, scenario, doc, request)
+    unrelated = record.parent / "unrelated.json"
+    unrelated.write_text("{}")
+    assert phase_cmds.cmd_advance_phase(argparse.Namespace(project=str(proj), completed_phase=5)) == 0
+    assert not stale_approvals_before(proj, 6)
+    assert _git(proj, "show", f"HEAD:{record.relative_to(proj)}").stdout.strip() == record.read_text().strip()
+    clone = tmp_path / "clone"
+    assert _git(tmp_path, "clone", str(proj), str(clone)).returncode == 0
+    assert not stale_approvals_before(clone, 6)
+    assert not (clone / unrelated.relative_to(proj)).exists()
+
+
+@pytest.mark.parametrize("scenario", ["render", "change-review"])
+def test_failed_advance_restores_the_document_binding_pair_and_retries(advance_project, request, scenario):
+    from core.quality_gate.agent_b_approvals import stale_approvals_before
+
+    proj = advance_project
+    doc, record = _prepare_document_binding(proj, scenario)
+    _prepare_binding_change(proj, scenario, doc, request)
+    doc_before, record_before = doc.read_bytes(), record.read_bytes()
+    _install_rejecting_hook(proj)
+    args = argparse.Namespace(project=str(proj), completed_phase=5)
+    assert phase_cmds.cmd_advance_phase(args) == 6
+    assert doc.read_bytes() == doc_before and record.read_bytes() == record_before
+    assert not stale_approvals_before(proj, 6)
+    assert _git(proj, "diff", "--cached", "--name-only").stdout.strip() == ""
+    assert json.loads((proj / ".methodology/state.json").read_text())["current_phase"] == 5
+    (proj / ".git/hooks/pre-commit").unlink()
+    assert phase_cmds.cmd_advance_phase(args) == 0
+    assert not stale_approvals_before(proj, 6)
+    assert _git(proj, "show", f"HEAD:{record.relative_to(proj)}").stdout.strip() == record.read_text().strip()
+
+
+def test_binding_rollback_preserves_entry_gate_recovered_state(advance_project, request):
+    proj = advance_project
+    doc, record = _prepare_document_binding(proj, "render")
+    _prepare_binding_change(proj, "render", doc, request)
+
+    def recover(project, phase, **kwargs):
+        path = project / ".methodology/state.json"
+        state = json.loads(path.read_text())
+        state["recovered_from_sha"] = "valid recovered commit"
+        path.write_text(json.dumps(state))
+        return {"passed": True, "gate": "stub", "reason": "recovered"}
+
+    request.node.entry_gate = recover
+    before = record.read_bytes()
+    _install_rejecting_hook(proj)
+    assert phase_cmds.cmd_advance_phase(argparse.Namespace(project=str(proj), completed_phase=5)) == 6
+    state = json.loads((proj / ".methodology/state.json").read_text())
+    assert state["current_phase"] == 5 and state["recovered_from_sha"] == "valid recovered commit"
+    assert record.read_bytes() == before

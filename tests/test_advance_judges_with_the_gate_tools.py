@@ -88,3 +88,36 @@ def test_the_shim_init_project_writes_passes_lint():
 
     src = Path(project_cmds.__file__).read_text(encoding="utf-8")
     assert "import subprocess, sys, pathlib" not in src
+
+
+def test_invalid_ruff_configuration_blocks_instead_of_scoring_100(tmp_path, capsys):
+    proj = _project(tmp_path, "def f() -> int:\n    return 1\n")
+    (proj / "ruff.toml").write_text("not-a-valid-ruff-option = true\n", encoding="utf-8")
+    assert _lint_and_type_verdict(proj) == 18
+    output = capsys.readouterr().out
+    assert "[BLOCKED]" in output and "ruff" in output and "rc 2" in output
+
+
+@pytest.mark.parametrize("tool, failed_code, expected", [
+    ("ruff", 2, 18), ("eslint", 2, 18), ("pyright", 2, 19),
+])
+def test_unmeasured_execution_blocks_for_each_language(tmp_path, monkeypatch, tool, failed_code, expected):
+    from harness import tool_runners
+    from harness.toolchains import registry
+
+    proj = _project(tmp_path, "def f() -> int:\n    return 1\n")
+    monkeypatch.setattr(registry, "resolve_tool_id", lambda dim, *a, **k:
+                        tool if dim == ("type_safety" if tool == "pyright" else "linting") else None)
+    monkeypatch.setattr(tool_runners, "run_tool", lambda *a: ("invalid configuration", failed_code))
+    monkeypatch.setattr(tool_runners, "compute_tool_score", lambda *a: None)
+    assert _lint_and_type_verdict(proj) == expected
+
+
+def test_unavailable_tools_keep_the_existing_explicit_degradation(tmp_path, monkeypatch):
+    from harness import tool_runners
+
+    proj = _project(tmp_path, "def f() -> int:\n    return 1\n")
+    monkeypatch.setattr(tool_runners, "run_tool", lambda *a: ("Tool not found", -3))
+    assert _lint_and_type_verdict(proj) is None
+    ledger = (proj / ".methodology" / "degradations.jsonl").read_text()
+    assert "produced no score" in ledger and '"infra"' in ledger

@@ -1101,7 +1101,10 @@ _LINE_CEILING.update({
     # 2026-10-06: +6 — Round 114 站6: the import and call of
     # `_precheck_reviewed_deliverables_unchanged` (closed-phase reviewed
     # deliverables changed since review) with its comment. Previous: 2303.
-    "cli/phase_cmds.py": 2309,
+    # 2026-10-07: +9 — capture renderer-owned document/approval pairs before
+    # prechecks; extend that snapshot after entry-gate recovery, retaining its
+    # recovered FSM state on rollback. Previous: 2309.
+    "cli/phase_cmds.py": 2318,
     "core/quality_gate/arch_constraints.py": 760,
     "core/quality_gate/import_contracts.py": 313,
     # 2026-10-03: +42 — Round 113 站5: `cases_observing_nothing` (a case whose
@@ -1114,6 +1117,16 @@ _LINE_CEILING.update({
     # checklist rule is "every box ticked" — the framework renders its own items
     # as values now, so only the human boxes remain to count. Previous: 1904.
     "scripts/phase_auditor.py": 1907,
+    # 2026-10-07: +4 — a running lint/type tool with no valid result blocks
+    # instead of falling through; unavailable tools retain their existing
+    # explicit degradation path. Previous: 1359.
+    "cli/advance_prechecks.py": 1363,
+    # 2026-10-07: 893 -> 903, crossing the 900-line threshold deliberately:
+    # lint/type scorers distinguish failed execution from valid findings, and
+    # ToolSpec-declared stdout scoring frames diagnostic stderr without losing
+    # it from audit evidence. This is a behaviour fix, not a concurrent split
+    # (the split safety contract forbids mixing those). No spare growth room.
+    "harness/tool_runners.py": 903,
 })
 
 

@@ -60,6 +60,7 @@ from cli.advance_commit import (  # noqa: F401  re-export after Round 80 站7 sp
     _enforcer_moved_note,
     _git_head_short,
     _porcelain_paths,
+    _reviewed_approval_paths,
     _uncommitted_deliverables,
 )
 
@@ -699,6 +700,14 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
               f"Ready to begin Phase {next_phase}.")
 
     # ── Pre-advance checks ────────────────────────────────────────────
+    # Rendering in the prechecks updates both a document and its binding.
+    # Capture that pair now; capture FSM state only after entry-gate recovery.
+    _layout = ProjectLayout(project)
+    _advance_snap = FileSnapshot([
+        _layout.traceability_matrix_path,
+        *([_layout.spec_tracking_path] if args.completed_phase >= 3 else []),
+        *(project / rel for rel in _reviewed_approval_paths(project, args.completed_phase)),
+    ])
     rc = _advance_prechecks(project, args.completed_phase)
     if rc != 0:
         return rc
@@ -766,7 +775,7 @@ def cmd_advance_phase(args: argparse.Namespace) -> int:
     # absent. .sessi-work cleanup is deliberately NOT restored: it is
     # idempotent hygiene, not phase state, and re-runs on the next attempt.
     _layout = ProjectLayout(project)
-    _advance_snap = FileSnapshot([
+    _advance_snap.capture([
         project / ".methodology" / "state.json",
         project / ".methodology" / "fr_progress.json",
         project / ".methodology" / "gate_timestamps.jsonl",

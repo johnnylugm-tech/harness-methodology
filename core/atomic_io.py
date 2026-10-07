@@ -264,13 +264,21 @@ class FileSnapshot:
 
     def __init__(self, paths: Iterable[Path]):
         self._snapshot: list[tuple[Path, Optional[bytes]]] = []
+        self.capture(paths)
+
+    def capture(self, paths: Iterable[Path]) -> None:
+        """Extend the write-set without replacing any earlier captured bytes."""
+        seen = {path for path, _content in self._snapshot}
         for p in paths:
             p = Path(p)
+            if p in seen:
+                continue
             try:
                 content: Optional[bytes] = p.read_bytes()
             except FileNotFoundError:
                 content = None
             self._snapshot.append((p, content))
+            seen.add(p)
 
     def restore(self) -> None:
         for path, content in self._snapshot:

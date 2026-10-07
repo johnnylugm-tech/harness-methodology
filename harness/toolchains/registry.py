@@ -74,6 +74,9 @@ class ToolSpec:
     skip_inline: bool = False
     in_process: bool = False
     output_artifact: Optional[str] = None
+    # Machine-readable stdout is scored independently of diagnostic stderr.
+    # run_tool still returns both streams for the retained audit evidence.
+    score_stdout: bool = False
     # If set, run_tool checks this file exists in the project root before running.
     # Missing file → exit code 0 (no config = no contracts defined = no violations).
     required_config_file: Optional[str] = None
@@ -94,6 +97,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="ruff",
         install_step="requirements",
         scorer="ruff",
+        score_stdout=True,
     ),
     "mypy": ToolSpec(
         tool_id="mypy",
@@ -113,6 +117,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="pyright",
         install_step="requirements",
         scorer="pyright",
+        score_stdout=True,
     ),
     "pytest-cov": ToolSpec(
         tool_id="pytest-cov",
@@ -343,6 +348,7 @@ TOOL_SPECS: dict[str, ToolSpec] = {
         human_name="eslint",
         install_step="npm",
         scorer="eslint",
+        score_stdout=True,
     ),
     "tsc": ToolSpec(
         tool_id="tsc",

@@ -1820,6 +1820,21 @@ class TestCrgGatekeeperPhases:
 class TestS4ToolUnavailable:
     """S4 must block when a tool is not installed and agent claims passing score."""
 
+    @pytest.mark.parametrize("agent_score", [100, None])
+    def test_ruff_configuration_failure_is_not_a_measurement_or_na(self, tmp_path, monkeypatch, agent_score):
+        from harness.harness_bridge import _run_harness_cross_validation
+
+        ctx = self._make_ctx(tmp_path)
+        self._fake_cfg(tmp_path, monkeypatch, [
+            {"name": "linting", "tool": "ruff", "threshold": 100,
+             "requires_tool_execution": True},
+        ])
+        raw = self._make_result([{"name": "linting", "score": agent_score}])
+        with patch("harness.tool_runners.run_tool", return_value=("ruff failed: invalid configuration", 2)):
+            violations, unverifiable = _run_harness_cross_validation(ctx, raw)
+        assert not violations, "a tool failure is not fabricated findings"
+        assert unverifiable and "ruff" in unverifiable[0]
+
     def _make_result(self, dims: list[dict]) -> dict:
         return {"breakdown": {d["name"]: {"score": d["score"], "tool_output": d.get("tool_output", "")} for d in dims}}
 
@@ -2106,4 +2121,3 @@ class TestPrepareGateSpecScan:
         assert ctx._existing_spec_count == 1, (
             "async def must be detected by the function scanner"
         )
-

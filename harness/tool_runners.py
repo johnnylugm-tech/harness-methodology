@@ -32,6 +32,7 @@ from harness.toolchains import get_tool_spec
 # Separator between subprocess stdout/stderr and an appended output_artifact
 # file (ToolSpec.output_artifact) — scorers split on it to get the report JSON.
 _ARTIFACT_MARKER = "\n=== TOOL_OUTPUT_ARTIFACT ===\n"
+_STDERR_MARKER = "\n=== TOOL_STDERR ===\n"
 
 
 def _resolve_src_targets(root: str, cov_target: str) -> list:
@@ -282,7 +283,8 @@ def run_tool(
     try:
         with _measured:
             proc = run_isolated(cmd, timeout=timeout, cwd=root, env=env)
-        combined = (proc.stdout + proc.stderr).strip()
+        combined = ((proc.stdout + _STDERR_MARKER + proc.stderr).rstrip()
+                    if spec.score_stdout and proc.stderr else (proc.stdout + proc.stderr).strip())
         if artifact and os.path.isfile(artifact):
             try:
                 with open(artifact, encoding="utf-8", errors="replace") as fh:
@@ -316,6 +318,8 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
 
     spec = get_tool_spec(tool)
     fn = _SCORERS.get(spec.scorer) if spec and spec.scorer else None
+    if spec and spec.score_stdout:
+        output = output.partition(_STDERR_MARKER)[0]
     return fn(output, returncode) if fn else None
 
 
@@ -323,28 +327,32 @@ def compute_tool_score(tool: str, output: str, returncode: int) -> Optional[floa
 # Per-tool scoring helpers
 # ---------------------------------------------------------------------------
 
-def _score_ruff(output: str, _returncode: int) -> float:
-    """Score ruff JSON output.  0 violations → 100; each violation costs 2 pts."""
+def _score_ruff(output: str, returncode: int) -> Optional[float]:
+    """Score findings (including --exit-zero), not Ruff execution failures."""
+    if returncode not in (0, 1):
+        return None  # Ruff exit 2 is a configuration/invocation failure.
     import json as _json
     try:
         violations = _json.loads(output)
-        count = len(violations) if isinstance(violations, list) else 0
+        if not isinstance(violations, list) or any(not isinstance(v, dict) for v in violations):
+            return None
+        count = len(violations)
     except (_json.JSONDecodeError, ValueError):
-        # Fall back to counting text-format lines (file:line:col:)
-        count = len(re.findall(r"^\S+\.(py|pyi):\d+:\d+:", output, re.MULTILINE))
-
-    if count == 0:
-        return 100.0
+        count = len(re.findall(r"^\S+\.(?:py|pyi):\d+:\d+:", output, re.MULTILINE))
+        if not count and not (returncode == 0 and output.strip() == "All checks passed!"):
+            return None
     return max(0.0, 100.0 - count * 2.0)
 
 
-def _score_mypy(output: str, _returncode: int) -> float:
+def _score_mypy(output: str, returncode: int) -> Optional[float]:
     """Score mypy text output.  0 errors → 100; each error costs 5 pts."""
+    if returncode not in (0, 1):
+        return None
     if "Success: no issues found" in output:
         return 100.0
     errors = len(re.findall(r":\s*error:", output))
-    if errors == 0:
-        return 100.0
+    if not errors and (returncode != 0 or output.strip() not in ("", "mypy exit=0")):
+        return None
     return max(0.0, 100.0 - errors * 5.0)
 
 
@@ -491,15 +499,21 @@ def scanner_is_alive(project_root: str) -> "str | None":
     )
 
 
-def _score_pyright(output: str, _returncode: int) -> float:
+def _score_pyright(output: str, returncode: int) -> Optional[float]:
     """Score pyright --outputjson.  0 errors → 100; each error costs 5 pts."""
+    if returncode not in (0, 1):
+        return None
     import json as _json
     try:
         data = _json.loads(output)
-        errors = data.get("summary", {}).get("errorCount", 0)
-    except (_json.JSONDecodeError, ValueError):
+        errors = data["summary"]["errorCount"]
+        if not isinstance(errors, int) or errors < 0:
+            return None
+    except (_json.JSONDecodeError, ValueError, KeyError, TypeError):
         # Fall back to counting text-format "error:" lines.
         errors = len(re.findall(r"\berror:", output))
+        if not errors and not re.search(r"\b0 errors,\s*\d+ warnings", output):
+            return None
     return max(0.0, 100.0 - errors * 5.0)
 
 
@@ -726,12 +740,10 @@ def _score_docstring_coverage(output: str, _returncode: int) -> Optional[float]:
     return round(100.0 * with_doc / total, 1)
 
 
-def _score_eslint(output: str, _returncode: int) -> Optional[float]:
-    """Score eslint -f json output.  Each error/warning costs 2 pts (ruff parity).
-
-    eslint JSON is a list of per-file results carrying errorCount/warningCount.
-    Parse failure → None (tool crash — never a silent 100).
-    """
+def _score_eslint(output: str, returncode: int) -> Optional[float]:
+    """Score JSON findings (2 pts each), never execution/configuration errors."""
+    if returncode not in (0, 1):
+        return None
     import json as _json
     try:
         results = _json.loads(output)
@@ -746,14 +758,12 @@ def _score_eslint(output: str, _returncode: int) -> Optional[float]:
     return max(0.0, 100.0 - count * 2.0)
 
 
-def _score_tsc(output: str, _returncode: int) -> float:
-    """Score tsc --noEmit --pretty false output.  Each `error TSxxxx` costs 5 pts.
-
-    Clean compile emits nothing → 100. Config failures (e.g. missing
-    tsconfig.checkjs.json) also print `error TSxxxx` lines and are counted —
-    mypy/pyright parity.
-    """
+def _score_tsc(output: str, returncode: int) -> Optional[float]:
+    """Score TS diagnostics (5 pts each); clean compile emits nothing."""
     errors = len(re.findall(r"\berror TS\d+:", output))
+    if returncode not in (0, 1, 2) or (not errors and
+            (returncode != 0 or output.strip() not in ("", "tsc exit=0", "tsc-checkjs exit=0"))):
+        return None
     return max(0.0, 100.0 - errors * 5.0)
 
 

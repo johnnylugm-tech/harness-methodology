@@ -958,7 +958,7 @@ def _run_harness_cross_validation(
                 _dim_entry["coverage_scope_fr"] = _fr_id
                 harness_score = _record.percent
         if harness_score is None:
-            if agent_score is None:
+            if agent_score is None and dim_name not in ("linting", "type_safety"):
                 # Same reasoning as the exit-5 branch: the framework ran the tool
                 # and it too produced no number, so the dimension really is not
                 # applicable — and now it says so with the framework's own run

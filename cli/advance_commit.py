@@ -37,6 +37,7 @@ def _advance_commit_targets(
     degradation_ledger_exists: bool = False,
     workflow_blocks_exists: bool = False,
     rendered_views: "tuple[str, ...]" = (),
+    approval_records: "tuple[str, ...]" = (),
 ) -> list[str]:
     """Files the advance-phase local commit must stage.
 
@@ -93,6 +94,8 @@ def _advance_commit_targets(
         targets.append(".methodology/workflow_blocks.jsonl")
     # Round 114 站7: the views this advance renders (`_rendered_view_paths`).
     targets.extend(rendered_views)
+    # Hash bindings/change reviews must travel with the documents they approve.
+    targets.extend(approval_records)
     if manifest_regenerated:
         targets.append(".methodology/quality_manifest.json")
     if stage_pass_exists:
@@ -116,6 +119,23 @@ def _git_head_short(project: Path) -> str:
         capture_output=True, text=True,
     )
     return proc.stdout.strip() if proc.returncode == 0 and proc.stdout.strip() else "HEAD"
+
+
+def _reviewed_approval_paths(project: Path, completed_phase: int) -> "tuple[str, ...]":
+    """Existing registered document approvals, not unrelated/per-FR records."""
+    from core.quality_gate.agent_b_approvals import bound_deliverable_path
+    from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
+
+    paths = []
+    for phase, ids in PHASE_DELIVERABLES.items():
+        if phase > completed_phase:
+            continue
+        for did in ids:
+            document = bound_deliverable_path(project, did)
+            rel = f".methodology/agent_b_approvals/{did}.json"
+            if document is not None and document.is_file() and (project / rel).is_file():
+                paths.append(rel)
+    return tuple(paths)
 
 
 def _rendered_view_paths(project: Path, completed_phase: int) -> "tuple[str, ...]":

@@ -6502,6 +6502,66 @@
   bug: "init-project wrote `import subprocess, sys, pathlib` (E401) into the delivered tree; taskq-open's agent hand-edited the 'do not edit' shim to pass advance-phase (f19cd01), and four corpus projects still carry it"
   fixed_in: "Round 114 站2"
 
+- test: tests/test_a_decision_ref_names_its_record.py::test_examples_and_comments_are_not_decision_records
+  bug: "Content-based resolution accepted template examples, fenced code and comments as real closing decisions."
+  fixed_in: "27f354ca..4326dfdb review follow-up: structural disposition records"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_shipped_sad_template_does_not_resolve_an_issue
+  bug: "The shipped SAD template's FR-01-deferred resolved example satisfied the P2 decision gate without a decision."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_conflicting_dispositions_do_not_resolve_an_issue
+  bug: "A historical resolved record hid an explicitly reopened decision in the same evidence file."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_a_decision_ref_names_its_record.py::test_property_examples_and_conflicts_are_not_dispositions
+  bug: "The sibling property review resolver accepted examples and mutually conflicting dispositions."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_tool_runners.py::TestScoreRuffExecution::test_failed_or_unreadable_execution_is_not_a_score
+  bug: "Ruff execution failures or unreadable output were scored as zero violations and 100 points."
+  fixed_in: "27f354ca..4326dfdb review follow-up: shared tool scorer contract"
+
+- test: tests/test_tool_runners.py::TestScoreRuffExecution::test_stdout_results_survive_stderr_diagnostics
+  bug: "Concatenating diagnostic stderr onto machine-readable stdout made successful Python/JS lint/type results unreadable; the audit must preserve both without confusing the score stream."
+  fixed_in: "27f354ca..4326dfdb review follow-up: ToolSpec score_stdout contract"
+
+- test: tests/test_tool_runners.py::TestScoreRuffExecution::test_real_findings_and_exit_zero_are_still_scored
+  bug: "Rejecting tool crashes must not reject valid nonzero finding exits or --exit-zero findings."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_tool_runners.py::TestScoreRuffExecution::test_equivalent_lint_and_type_failures_do_not_score
+  bug: "Equivalent invocation failures in Python/JS/TS lint/type tools must not receive a free 100."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_invalid_ruff_configuration_blocks_instead_of_scoring_100
+  bug: "advance-phase accepted Ruff's invalid configuration exit 2 as a perfect lint score."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_advance_judges_with_the_gate_tools.py::test_unmeasured_execution_blocks_for_each_language
+  bug: "A tool that ran but produced no valid lint/type measurement fell through the advance precheck."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_harness_bridge.py::TestS4ToolUnavailable::test_ruff_configuration_failure_is_not_a_measurement_or_na
+  bug: "A broken lint invocation must block cross-validation even when the agent labels the dimension N/A."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_advance_commit_rollback.py::test_advance_commits_binding_for_a_fresh_clone
+  bug: "Rendered document bindings and change reviews stayed unstaged; the local workspace passed but clones saw stale approvals."
+  fixed_in: "27f354ca..4326dfdb review follow-up: explicit approval commit targets"
+
+- test: tests/test_advance_commit_rollback.py::test_failed_advance_restores_the_document_binding_pair_and_retries
+  bug: "A rejected advance commit must restore the renderer's document/binding pair and leave a retryable index."
+  fixed_in: "27f354ca..4326dfdb review follow-up: incremental FileSnapshot"
+
+- test: tests/test_advance_commit_rollback.py::test_binding_rollback_preserves_entry_gate_recovered_state
+  bug: "Capturing renderer changes before prechecks must not roll back legitimate entry-gate FSM recovery."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
+- test: tests/test_atomic_io.py::TestFileSnapshot::test_incremental_capture_preserves_first_bytes_and_later_state
+  bug: "Adding later snapshot paths must preserve the first captured document bytes while recording recovered FSM state later."
+  fixed_in: "27f354ca..4326dfdb review follow-up"
+
 - test: tests/test_a_decision_ref_names_its_record.py::test_a_record_that_moved_down_still_resolves
   bug: "Round 113 站9 made resolution_ref `path:line`; an edit above the record left the ref pointing at a neighbour, validate-handoff blocked a correct amendment on taskq-open, 55415df re-pinned four refs by hand and 78f79c15 taught one writer (amend_sad) to rebase them while every other edit still broke them"
   fixed_in: "Round 114 站3 (core/quality_gate/content_ref.record_line: the record is found by its `<id>: resolved` content; `path:N` accepted with N ignored; rebase_sad_refs removed)"

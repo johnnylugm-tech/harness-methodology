@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from core.quality_gate.decision_issues import decision_issue_findings
 from core.quality_gate.property_check import _review_disposition_resolves
 
@@ -96,3 +98,55 @@ def test_amend_sab_no_longer_rewrites_line_references():
     import core.quality_gate.sad_sab_edit as edit
 
     assert not hasattr(edit, "rebase_sad_refs")
+
+
+@pytest.mark.parametrize("text", [
+    "  # that reads `NFR-99.1-deferred: resolved — <decision>`.\n",
+    "Example: NFR-99.1-deferred: resolved — <decision>\n",
+    "```markdown\n" + _RECORD + "```\n",
+    "~~~~\n" + _RECORD + "~~~~\n",
+    "<!--\n" + _RECORD + "-->\n",
+    "    " + _RECORD,
+    "NFR-99.1-deferred: resolved — <decision>\n",
+])
+def test_examples_and_comments_are_not_decision_records(tmp_path, text):
+    proj = _project(tmp_path, "# SAD\n" + text)
+    assert decision_issue_findings(proj, _rows("02-architecture/SAD.md"), entering_phase=3)
+
+
+def test_shipped_sad_template_does_not_resolve_an_issue(tmp_path):
+    template = Path(__file__).resolve().parents[1] / "templates" / "SAD.md"
+    proj = _project(tmp_path, template.read_text(encoding="utf-8"))
+    rows = [{"id": "FR-01-deferred", "status": "resolved",
+             "resolution_ref": "02-architecture/SAD.md"}]
+    assert any("FR-01-DEFERRED" in finding.upper() for finding in
+               decision_issue_findings(proj, rows, entering_phase=3))
+
+
+@pytest.mark.parametrize("records", [
+    _RECORD + "NFR-99.1-deferred: unresolved — reopened\n",
+    "NFR-99.1-deferred: open — awaiting confirmation\n" + _RECORD,
+])
+def test_conflicting_dispositions_do_not_resolve_an_issue(tmp_path, records):
+    proj = _project(tmp_path, "# SAD\n" + records)
+    assert decision_issue_findings(proj, _rows("02-architecture/SAD.md:2"), entering_phase=3)
+
+
+@pytest.mark.parametrize("record", [
+    "- NFR-99.1-deferred: resolved — real decision\n",
+    "1. `NFR-99.1-deferred`: resolved — real decision\n",
+    "- **NFR-99.1-deferred**: resolved — real decision\n",
+    "- `NFR-99.1-deferred: resolved` — real decision\n",
+])
+def test_markdown_record_formatting_keeps_content_identity(tmp_path, record):
+    proj = _project(tmp_path, "# SAD\n" + record)
+    assert not decision_issue_findings(proj, _rows("02-architecture/SAD.md:1"), entering_phase=3)
+
+
+def test_property_examples_and_conflicts_are_not_dispositions(tmp_path):
+    adr = tmp_path / "ADR.md"
+    for text in ("Example: P-1: accepted — <why>\n",
+                 "```\nP-1: accepted — total\n```\n",
+                 "P-1: accepted — total\nP-1: rejected — counterexample\n"):
+        adr.write_text(text, encoding="utf-8")
+        assert not _review_disposition_resolves(tmp_path, "ADR.md", "P-1")

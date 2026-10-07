@@ -37,6 +37,58 @@ from harness.tool_runners import (
 # _score_radon_cc
 # ---------------------------------------------------------------------------
 
+class TestScoreRuffExecution:
+    @pytest.mark.parametrize("tool, stdout, rc, expected", [
+        ("ruff", "[]", 0, 100.0),
+        ("ruff", '[{"code":"F401"}]', 0, 98.0),
+        ("ruff", "[]", 2, None),
+        ("pyright", '{"summary":{"errorCount":0}}', 0, 100.0),
+        ("pyright", "", 0, None),
+        ("eslint", "[]", 0, 100.0),
+    ])
+    def test_stdout_results_survive_stderr_diagnostics(self, tmp_path, monkeypatch, tool, stdout, rc, expected):
+        import subprocess
+
+        diagnostic = "warning: no source files found" if stdout else "0 errors, 0 warnings"
+        monkeypatch.setattr("core.utils.subprocess_group.run_isolated", lambda cmd, **kwargs:
+                            subprocess.CompletedProcess(cmd, rc, stdout=stdout, stderr=diagnostic))
+        output, actual_rc = run_tool(tool, str(tmp_path))
+        assert diagnostic in output, "the audit must retain diagnostics"
+        assert compute_tool_score(tool, output, actual_rc) == expected
+
+    @pytest.mark.parametrize("output, rc", [
+        ("ruff failed: invalid configuration", 2),
+        ("[]", 2),
+        ("{}", 0),
+        ("unrecognizable output", 0),
+        ("", 1),
+    ])
+    def test_failed_or_unreadable_execution_is_not_a_score(self, output, rc):
+        assert compute_tool_score("ruff", output, rc) is None
+
+    @pytest.mark.parametrize("output, rc, score", [
+        ("[]", 0, 100.0),
+        ('[{"code":"F401"}]', 0, 98.0),
+        ('[{"code":"F401"}]', 1, 98.0),
+        ("All checks passed!", 0, 100.0),
+        ("src/mod.py:1:1: F401 unused import", 1, 98.0),
+    ])
+    def test_real_findings_and_exit_zero_are_still_scored(self, output, rc, score):
+        assert compute_tool_score("ruff", output, rc) == score
+
+    @pytest.mark.parametrize("tool, output, rc", [
+        ("mypy", "mypy: error: invalid configuration", 2),
+        ("pyright", "invalid configuration", 2),
+        ("pyright", "{}", 0),
+        ("eslint", "[]", 2),
+        ("tsc", "fatal runtime failure", 2),
+        ("tsc", "unrecognizable output", 0),
+        ("tsc-checkjs", "fatal runtime failure", 127),
+    ])
+    def test_equivalent_lint_and_type_failures_do_not_score(self, tool, output, rc):
+        assert compute_tool_score(tool, output, rc) is None
+
+
 class TestScoreRadonCc:
     """radon cc -j: {"file.py": [{"complexity": N, ...}, ...]}"""
 
