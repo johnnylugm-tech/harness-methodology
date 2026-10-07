@@ -6370,6 +6370,26 @@
   bug: "the defect section had no verifier at all"
   fixed_in: "Round 115 站5"
 
+- test: tests/test_the_release_checklist_states_what_was_measured.py::test_the_framework_items_carry_values_not_checkboxes
+  bug: "all 11 corpus RELEASE_CHECKLIST.md files are the template's five unchecked boxes: phase8_doc_gen rendered a template with no placeholder, so the framework's own records (phases, Gate 4, open findings) never reached the release document"
+  fixed_in: "Round 115 站6"
+
+- test: tests/test_the_release_checklist_states_what_was_measured.py::test_the_human_items_are_pending_and_unticked
+  bug: "Phase 8 is a release candidate (老闆裁定): sign-off, provisioning and rollback are PENDING-HUMAN, never ticked by the framework"
+  fixed_in: "Round 115 站6"
+
+- test: tests/test_the_release_checklist_states_what_was_measured.py::test_a_missing_phase_and_a_missing_hunt_are_said
+  bug: "an absent record is said, never defaulted"
+  fixed_in: "Round 115 站6"
+
+- test: tests/test_the_release_checklist_states_what_was_measured.py::test_the_auditor_passes_a_checklist_whose_human_items_are_ticked
+  bug: "phase_auditor demanded at least five ticked boxes, a count taken from the old template"
+  fixed_in: "Round 115 站6"
+
+- test: tests/test_the_release_checklist_states_what_was_measured.py::test_the_p8_reviewer_is_not_told_to_keep_content_that_does_not_exist
+  bug: "the P8 prompt told the agent to KEEP a framework-generated Gate 4 PASS proof, composite score, FR coverage and git hash that the template never contained"
+  fixed_in: "Round 115 站6"
+
 - test: tests/test_isolated_tools.py::test_a_poisoned_pysemgrep_first_on_path_cannot_reach_the_lint
   bug: "semgrep shared the project's interpreter; fastapi>=0.142 needs opentelemetry-api>=1.44 while semgrep pins ~=1.37, so semgrep crashed on import and reliability_lint failed with 'Expecting value' in CI (taskq-open P7). The launcher resolves pysemgrep via PATH, so the isolated bin/ must lead PATH"
   fixed_in: "semgrep runs from its own venv (isolated install provenance)"

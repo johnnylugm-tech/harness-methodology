@@ -1110,7 +1110,10 @@ _LINE_CEILING.update({
     # and five pure conversion builtins, absent which `float(x)` read as a
     # production output. Previous: 1064.
     "core/quality_gate/red_assertion_check.py": 1106,
-    "scripts/phase_auditor.py": 1904,
+    # 2026-10-07: +3 — Round 115 站6: the comment recording why the release
+    # checklist rule is "every box ticked" — the framework renders its own items
+    # as values now, so only the human boxes remain to count. Previous: 1904.
+    "scripts/phase_auditor.py": 1907,
 })
 
 

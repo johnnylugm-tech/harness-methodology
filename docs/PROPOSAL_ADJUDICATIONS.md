@@ -11391,3 +11391,22 @@ High 2(refuted 2)。不追溯:QUALITY_REPORT 只在 finalize 時 render。
 反證:以 HEAD 的 renderer / verifier / gate_stages 還原,7 個新測試全紅。三個既有測試的 fixture 補上
 `passed`(它們斷言的是「無 waiver 逃逸」,意圖不變);smoke 測試的 0/1/1/1 斷言出自那個死讀者,改為
 「Not measured」。
+
+### 站6 — RELEASE_CHECKLIST 由框架記錄 render;P8 是交付候選(harness + 模板 + workflow JS;老闆裁定)
+
+語料 11/11 份 RELEASE_CHECKLIST.md 是模板的 5 個未勾選框原樣:`phase8_doc_gen` 渲染的模板沒有任何
+placeholder,P8 prompt 卻要 agent「KEEP the framework-generated Gate 4 PASS proof, composite_score, FR
+coverage, git tag/hash」—— 不存在的內容(R30 半座機制 + R17 prompt↔產出漂移)。
+
+模板改為:框架表(P1–P7 是否記錄、Gate 4 verdict 與 composite、站2 `pending_findings` 的未解 confirmed
+critical/high、release commit)與三個 PENDING-HUMAN 框(sign-off、provisioning、rollback 演練),
+明言「不宣稱已核准或已部署」。不阻擋 P8→P9。
+
+第二輪驗證改寫兩點:(1) CI 不渲染數值 —— P7→P8 render 時 p8 milestone 還沒發生,而 advance-phase 以
+exit 51 在 P8 exit 強制它;表格指向那個執行點,不在 P8 exit 重新 render(重 render 會覆蓋 agent 追加的
+Human Context)。(2) 不計 HIGH 風險數 —— 語料 RISK_REGISTER 至少五種嚴重度寫法(HIGH、高、emoji、數值、
+Very Low 量表),從中計數是框架代填(R105);表格只指向檔案。`phase_auditor` 的「≥5 框且全勾」改為「全勾」
+(框只剩人工項)。P8 結語改為 release candidate。
+
+回放:taskq-new 副本顯示「3 unresolved: … (refuted, not upheld by adjudication)」;taskq-open「0 unresolved」。
+反證:以 HEAD 的模板 / phase8_doc_gen / phase_auditor 還原,4/5 新測試轉紅。run-all 上限 +146。

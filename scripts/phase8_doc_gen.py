@@ -86,6 +86,38 @@ def _collect(project: Path) -> dict:
         "frs": frs,
         "fr_summary": ", ".join(f["id"] for f in frs) or "(none)",
         "min_coverage": _declared_min_coverage(project, manifest),
+        **_release_facts(project, state),
+    }
+
+
+def _release_facts(project: Path, state: dict) -> dict:
+    """What RELEASE_CHECKLIST.md states as measured (Round 115 站6).
+
+    The template used to have no placeholder at all, so all eleven corpus
+    checklists were five unchecked boxes. Each value here is read from the
+    record that already holds it; an absent record is said, never defaulted.
+    """
+    from core.quality_gate.bug_hunt_verifier import defect_summary, pending_findings
+
+    recorded = state.get("phase_completed")
+    done: dict = recorded if isinstance(recorded, dict) else {}
+    missing = [f"P{n}" for n in range(1, 8) if str(n) not in done]
+    gate4 = _read_json(project / ".methodology" / "gate4_result.json")
+    if gate4:
+        gate4_verdict = (f"{gate4.get('verdict') or ('PASS' if gate4.get('passed') else 'FAIL')}"
+                         f" (composite {gate4.get('composite_score', '—')})")
+    else:
+        gate4_verdict = "no Gate 4 result"
+    if defect_summary(project) is None:
+        open_blocking = "not measured — no bug hunt report"
+    else:
+        rows = [f"{p['id']} ({'open' if p['status'] == 'open' else 'refuted, not upheld by adjudication'})"
+                for p in pending_findings(project)]
+        open_blocking = f"{len(rows)} unresolved" + (": " + ", ".join(rows) if rows else "")
+    return {
+        "phases_completed": "P1–P7 recorded" if not missing else "missing " + ", ".join(missing),
+        "gate4_verdict": gate4_verdict,
+        "open_blocking": open_blocking,
     }
 
 

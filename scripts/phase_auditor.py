@@ -1188,7 +1188,10 @@ class PhaseAuditor:
         checked = len(re.findall(r"^\s*- \[x\]", content, re.MULTILINE | re.IGNORECASE))
         unchecked = len(re.findall(r"^\s*- \[ \]", content, re.MULTILINE))
         total = checked + unchecked
-        sev = "PASS" if total >= 5 and unchecked == 0 else "WARNING"
+        # Round 115 站6: the framework renders its own items as values, not
+        # boxes; the boxes left are the human ones, so all of them ticked is
+        # the whole condition (there used to be five template boxes to count).
+        sev = "PASS" if total > 0 and unchecked == 0 else "WARNING"
         self.result.add(Finding(
             check_id="C5", dimension="Document Content Depth", severity=sev,
             title=f"RELEASE_CHECKLIST.md: {checked}/{total} items checked",
