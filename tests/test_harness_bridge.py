@@ -919,12 +919,10 @@ class TestSabClosureGaps:
         method_dir.mkdir()
         manifest = {
             "nfr_traceability": {"NFR-01": {"type": "performance", "target": "p95<3s", "module": "app.pipeline"}},
-            "nfr_fr_mapping": {"NFR-01": ["FR-19"]},
         }
         (method_dir / "quality_manifest.json").write_text(json.dumps(manifest))
         sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
         assert sab["nfr_traceability"] == manifest["nfr_traceability"]
-        assert sab["nfr_fr_mapping"] == {"NFR-01": ["FR-19"]}
 
     def test_load_manifest_sab_returns_quality_targets(self, tmp_path):
         method_dir = tmp_path / ".methodology"
@@ -957,7 +955,6 @@ class TestSabClosureGaps:
         (method_dir / "quality_manifest.json").write_text('{"fr_ids": ["FR-01"]}')
         sab = HarnessBridge()._load_manifest_sab(str(tmp_path))
         assert sab["nfr_traceability"] == {}
-        assert sab["nfr_fr_mapping"] == {}
         assert sab["quality_targets"] == {}
         assert sab["fr_module_traceability"] == {}
         assert sab["gate_score_overrides"] == {}
@@ -981,9 +978,8 @@ class TestSabClosureGaps:
             return tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
-                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
-                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
+                with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
+                    p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
         assert p is not None
         data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {
@@ -992,6 +988,26 @@ class TestSabClosureGaps:
         # p95_latency_ms (ms) must NOT become performance's floor — it is not a 0-100 score
         assert "performance" not in data["gate_score_overrides"]
         assert data["quality_targets"]["min_coverage"] == 85
+
+    def test_generate_quality_manifest_carries_no_nfr_fr_mapping(self, tmp_path):
+        """Round 117: `nfr_fr_mapping` was read from an SRS §2 `NFR Association`
+        column no template defines and no corpus SRS has (15/15 manifests held
+        `{}`); the gate prompt it fed never received an entry. Retired."""
+        bridge = HarnessBridge()
+        (tmp_path / "01-requirements").mkdir()
+        (tmp_path / "01-requirements" / "SRS.md").write_text(
+            "| FR | Description | NFR Association |\n|---|---|---|\n| FR-01 | x | NFR-01 |\n",
+            encoding="utf-8")
+        sab_return = {"quality_targets": {}, "constraints": [], "high_risk": [], "nfr_dim_map": {},
+                      "nfr_traceability": {}, "fr_module_traceability": {}}
+        def _path_redirect(*a):
+            return tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
+        with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
+            with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
+                with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
+                    p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
+        assert "nfr_fr_mapping" not in json.loads(p.read_text())
+        assert not hasattr(bridge, "_parse_nfr_fr_xref")
 
     def test_generate_quality_manifest_no_override_when_no_mapping(self, tmp_path):
         """quality_targets without mapped keys → gate_score_overrides stays empty."""
@@ -1006,9 +1022,8 @@ class TestSabClosureGaps:
             return tmp_path / Path(*a) if ".methodology" in str(a) else Path(*a)
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
-                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
-                        p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
+                with patch("harness.harness_bridge.Path", side_effect=_path_redirect):
+                    p = bridge.generate_quality_manifest(["FR-01"], "SAD.md", project_root=str(tmp_path), force=True)
         assert p is not None
         data = json.loads(p.read_text())
         assert data["gate_score_overrides"] == {}
@@ -1047,11 +1062,10 @@ class TestSabClosureGaps:
         })
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
-                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    p = bridge.generate_quality_manifest(
-                        ["FR-01", "FR-02"], "SAD.md",
-                        project_root=str(tmp_path), force=True,
-                    )
+                p = bridge.generate_quality_manifest(
+                    ["FR-01", "FR-02"], "SAD.md",
+                    project_root=str(tmp_path), force=True,
+                )
         assert p is not None
         data = json.loads(p.read_text())
         # Authoritative values from SAB.json must be present
@@ -1077,11 +1091,10 @@ class TestSabClosureGaps:
         # No SAB.json written → reconciliation must not change values.
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
-                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    p = bridge.generate_quality_manifest(
-                        ["FR-01"], "SAD.md",
-                        project_root=str(tmp_path), force=True,
-                    )
+                p = bridge.generate_quality_manifest(
+                    ["FR-01"], "SAD.md",
+                    project_root=str(tmp_path), force=True,
+                )
         assert p is not None
         data = json.loads(p.read_text())
         # §5 value preserved when SAB.json is absent
@@ -1111,11 +1124,10 @@ class TestSabClosureGaps:
         })
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
-                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    p = bridge.generate_quality_manifest(
-                        ["FR-01", "FR-02", "FR-03"], "SAD.md",
-                        project_root=str(tmp_path), force=True,
-                    )
+                p = bridge.generate_quality_manifest(
+                    ["FR-01", "FR-02", "FR-03"], "SAD.md",
+                    project_root=str(tmp_path), force=True,
+                )
         assert p is not None
         data = json.loads(p.read_text())
         # All values match what was already in §5
@@ -1145,11 +1157,10 @@ class TestSabClosureGaps:
         })
         with patch("scripts.generate_sab.parse_sad", return_value=sab_return):
             with patch.object(bridge, "_parse_nfr_from_srs", return_value={}):
-                with patch.object(bridge, "_parse_nfr_fr_xref", return_value={}):
-                    p = bridge.generate_quality_manifest(
-                        ["FR-01", "FR-02"], "SAD.md",
-                        project_root=str(tmp_path), force=True,
-                    )
+                p = bridge.generate_quality_manifest(
+                    ["FR-01", "FR-02"], "SAD.md",
+                    project_root=str(tmp_path), force=True,
+                )
         assert p is not None
         err = capsys.readouterr().err
         # Dict-ordering difference must NOT be flagged as a disagreement
@@ -1196,34 +1207,6 @@ class TestSabClosureGaps:
         assert "    p95_latency_ms: 3000" in prompt
         # Must NOT use Python dict repr
         assert "{'min_coverage'" not in prompt
-
-    # ── Gap B: evaluation_prompt injects nfr_fr_mapping ───────────────────────
-
-    def test_evaluation_prompt_injects_nfr_fr_mapping(self):
-        """nfr_fr_mapping from sab_data is injected into the prompt."""
-        ctx = GateContext(
-            gate_num=2, config={"dimensions": [], "score_gate": 80},
-            project_root="/t", phase=4, fr_id=None,
-            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
-            work_dir="/t/.sessi-work",
-            sab_data={"nfr_fr_mapping": {"NFR-02": ["FR-04", "FR-05"], "NFR-03": ["FR-08"]}},
-        )
-        prompt = ctx.evaluation_prompt()
-        assert "nfr_fr_mapping" in prompt
-        assert "NFR-02" in prompt
-        assert "FR-04" in prompt
-
-    def test_evaluation_prompt_skips_nfr_fr_mapping_when_empty(self):
-        """Empty nfr_fr_mapping does not add noise to the prompt."""
-        ctx = GateContext(
-            gate_num=2, config={"dimensions": [], "score_gate": 80},
-            project_root="/t", phase=4, fr_id=None,
-            ssi_scripts_dir="/t", ssi_prompts_dir="/t", ssi_schemas_dir="/t",
-            work_dir="/t/.sessi-work",
-            sab_data={"nfr_fr_mapping": {}},
-        )
-        prompt = ctx.evaluation_prompt()
-        assert "nfr_fr_mapping" not in prompt
 
     # ── Gap 5: finalize_gate applies gate_score_overrides as threshold floor ──
 

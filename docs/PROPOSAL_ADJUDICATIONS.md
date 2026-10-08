@@ -11619,3 +11619,21 @@ matrix 有這一列,已更正。三態渲染規則不變。`scan_test_nfr_covera
 
 反證:HEAD 的五個來源檔讓 5 個測試轉紅。run-all 449380 → 448905(上限 449005,−475);`_render_per_fr_tdd` 237 → 236。
 R116 §不做「P3 workflow 的 §5」改判 MET。
+
+### 站5 — 同形兄弟:`nfr_fr_mapping` 退役
+
+`harness_bridge._parse_nfr_fr_xref` 讀同一個不存在的 SRS §2 `NFR Association` 欄,寫進 `quality_manifest.nfr_fr_mapping`,
+再由 `evaluation_prompt` 注入 gate 評估 —— 語料 15/15 manifest 為 `{}`,注入一次也沒發生過。刪除讀取、寫入、載入、注入、
+parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` 沒有讀者。
+
+反證:HEAD 的 harness_bridge 讓新測試轉紅。
+
+### §不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| 進行中專案(taskq-sn)的遷移機制 | 老闆裁決一律套用;done、sol、wow 已全數綁定 | 出現第二個受影響的進行中專案 |
+| 採信散文或另一張 AC 對照表(taskq-cc 以「FR-01 #1」指 case 的那張表) | 不是 case 級綁定,框架沒有宣告它的格式 | 框架宣告對照表的格式 |
+| 4c 門檻改為 100% | 不在本輪範圍 | 門檻政策檢討 |
+| matrix 在零交付時顯示 PARTIAL 而非 PENDING | 現行渲染規則未改動,列內已具名 absent | matrix 狀態詞彙檢討 |
+| 對 Derivation / rule_id 的 AC 引用做語意比對 | 綁定是 P2 作者的陳述,由 Agent B 審查;沒有機械訊號,照實記錄 | 出現把 AC 綁到無關列的實例 |

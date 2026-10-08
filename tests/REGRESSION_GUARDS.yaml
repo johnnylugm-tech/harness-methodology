@@ -6829,3 +6829,7 @@
 - test: tests/test_generate_full_plan.py::TestNfrAnnotationInstruction::test_hr16_says_4c_is_not_due_at_gate2
   bug: "the HR-16 reminder said 4c is judged at 60/80/90% at G2/G3/G4"
   fixed_in: "Round 117 站4"
+
+- test: tests/test_harness_bridge.py::TestSabClosureGaps::test_generate_quality_manifest_carries_no_nfr_fr_mapping
+  bug: "quality_manifest.nfr_fr_mapping was read from an SRS §2 NFR Association column no template defines (15/15 corpus manifests held {}); the gate prompt it fed never received an entry"
+  fixed_in: "Round 117 站5"

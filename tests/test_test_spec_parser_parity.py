@@ -228,8 +228,6 @@ _TABLE_CELL_SPLITTERS = {
         "rows it locates attach AC ids to cases `_parse_test_spec` already read",
     ("core/quality_gate/property_check.py", "_parse_invariant_table"):
         "SAD property tables (invariant / applies_to / fulfill_phase)",
-    ("harness/harness_bridge.py", "_parse_nfr_fr_xref"):
-        "SRS NFR→FR cross-reference rows",
     ("harness/git_strategy.py", "_gap_register_summary"):
         "the gap register, not a spec",
     ("harness/ssi/scripts/verify.py", "count_diff_lines"):

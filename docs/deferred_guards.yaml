@@ -2602,3 +2602,33 @@ entries:
     resolved_in: "Round 117 站1-站4"
     evidence: >-
       2026-10-08: 條件是「下一輪 prompt↔產出漂移盤點」。成立:老闆令處理。實測 §5 與 SRS §2 `NFR Association` 欄皆不存在(語料 0/6),4c 採信的是實作者寫進測試的 NFR-XX 字串;改為讀 TEST_SPEC case 綁定與其交付,陳述全數移除。
+  - round: 117
+    item: "進行中專案(taskq-sn)的遷移機制"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「出現第二個受影響的進行中專案」。本輪實測未成立:進行中的 done、sol、wow 的 AC 已全數綁在 case 上(P2 error 0 → 0),只有 sn(0 → 67)。老闆裁決一律套用。
+  - round: 117
+    item: "採信散文或另一張 AC 對照表(taskq-cc 以「FR-01 #1」指 case 的那張表)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「框架宣告對照表的格式」。本輪實測未成立:模板與 derive_test_cases.md 都沒有對照表格式;採信它要猜「FR-01 #1」的文法(R55)。
+  - round: 117
+    item: "4c 門檻改為 100%"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「門檻政策檢討」。本輪未進行;R114 站5 已讓 P4 出口在建構上是全交付,門檻差距只在 Gate 4 重驗時有意義。
+  - round: 117
+    item: "matrix 在零交付時顯示 PARTIAL 而非 PENDING"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「matrix 狀態詞彙檢討」。本輪未進行;三態渲染規則未改動,列內已具名 absent 的見證。
+  - round: 117
+    item: "對 Derivation / rule_id 的 AC 引用做語意比對"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「出現把 AC 綁到無關列的實例」。本輪未搜尋;綁定是 P2 作者的陳述,由 Agent B 依 Step 1d 審查,replay note 的 discriminating_signal 照實寫「沒有機械訊號」。

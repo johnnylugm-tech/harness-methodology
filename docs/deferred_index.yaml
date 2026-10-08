@@ -2235,3 +2235,33 @@ entries:
     item: "P3 workflow 的「TRACEABILITY_MATRIX.md §5 is the canonical listing」"
     reason: "R114 站7 起 matrix 由框架 render;是否仍有 §5 屬另一個陳述漂移,不在測試根範圍"
     reopen: "下一輪 prompt↔產出漂移盤點"
+  - round: 117
+    line: 11635
+    kind: table_row
+    item: "進行中專案(taskq-sn)的遷移機制"
+    reason: "老闆裁決一律套用;done、sol、wow 已全數綁定"
+    reopen: "出現第二個受影響的進行中專案"
+  - round: 117
+    line: 11636
+    kind: table_row
+    item: "採信散文或另一張 AC 對照表(taskq-cc 以「FR-01 #1」指 case 的那張表)"
+    reason: "不是 case 級綁定,框架沒有宣告它的格式"
+    reopen: "框架宣告對照表的格式"
+  - round: 117
+    line: 11637
+    kind: table_row
+    item: "4c 門檻改為 100%"
+    reason: "不在本輪範圍"
+    reopen: "門檻政策檢討"
+  - round: 117
+    line: 11638
+    kind: table_row
+    item: "matrix 在零交付時顯示 PARTIAL 而非 PENDING"
+    reason: "現行渲染規則未改動,列內已具名 absent"
+    reopen: "matrix 狀態詞彙檢討"
+  - round: 117
+    line: 11639
+    kind: table_row
+    item: "對 Derivation / rule_id 的 AC 引用做語意比對"
+    reason: "綁定是 P2 作者的陳述,由 Agent B 審查;沒有機械訊號,照實記錄"
+    reopen: "出現把 AC 綁到無關列的實例"

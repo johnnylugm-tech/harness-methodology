@@ -1282,15 +1282,6 @@ class GateContext:
                     "  > When evaluating NFR-related dimensions, "
                     "refer to the module and target above for concrete scope.\n"
                 )
-            nfr_fr_map = self.sab_data.get("nfr_fr_mapping", {})
-            if nfr_fr_map:
-                sab_lines += "  nfr_fr_mapping (NFR → FR scope):\n"
-                for nfr_id, fr_list in nfr_fr_map.items():
-                    sab_lines += f"    {nfr_id}: {fr_list}\n"
-                sab_lines += (
-                    "  > When evaluating NFR-related dimensions, "
-                    "these FRs are in scope for each NFR.\n"
-                )
             sab_lines += (
                 "  > When evaluating the `architecture` dimension, validate code "
                 "against these constraints.\n"
@@ -1626,7 +1617,6 @@ class HarnessBridge(_FinalizeStages):
             return {
                 "nfr_dimension_mapping":    manifest.get("nfr_dimension_mapping", {}),
                 "nfr_traceability":         manifest.get("nfr_traceability", {}),
-                "nfr_fr_mapping":           manifest.get("nfr_fr_mapping", {}),
                 "quality_targets":          manifest.get("quality_targets", {}),
                 "fr_module_traceability":   manifest.get("fr_module_traceability", {}),
                 "gate_score_overrides":     manifest.get("gate_score_overrides", {}),
@@ -3161,62 +3151,6 @@ class HarnessBridge(_FinalizeStages):
             print(f"[WARN] NFR-dimension map parse failed: {exc}")
             return {}
 
-    def _parse_nfr_fr_xref(self, project_root: Path) -> dict[str, list[str]]:
-        """Extract NFR→[FR, ...] mapping from the §2 FR Cross-Reference table in SRS.md.
-
-        Looks for a pipe-table whose header contains 'NFR Association'.
-        Returns {nfr_id: [fr_id, ...]} reverse mapping.
-        """
-        srs_path = ProjectLayout(project_root).srs_path
-        if not srs_path.exists():
-            return {}
-        try:
-            text = srs_path.read_text(encoding="utf-8")
-            # Find table header with 'NFR Association' column
-            header_re = re.compile(
-                r'^(?:\|[^|\n]*)+\|\s*NFR\s*Association\s*\|', re.IGNORECASE | re.MULTILINE
-            )
-            header_match = header_re.search(text)
-            if not header_match:
-                return {}
-            cols = [c.strip() for c in header_match.group(0).split('|') if c.strip()]
-            nfr_col = next(
-                (i for i, c in enumerate(cols) if 'nfr' in c.lower() and 'assoc' in c.lower()),
-                -1,
-            )
-            if nfr_col == -1:
-                return {}
-            # Build FR→[NFR] map from table rows, then reverse it
-            fr_nfr: dict[str, list[str]] = {}
-            for line in text[header_match.end():].splitlines():
-                line = line.strip()
-                if not line.startswith('|'):
-                    if line:
-                        break
-                    continue
-                if re.match(r'^\|[\s\-|]+\|$', line):
-                    continue
-                cells = [c.strip() for c in line.split('|') if c.strip()]
-                if not cells:
-                    continue
-                fr_match = re.match(r'^(FR-\d+)$', cells[0])
-                if not fr_match:
-                    continue
-                fr_id = f"FR-{fr_match.group(1).split('-')[1].zfill(2)}"
-                if nfr_col < len(cells):
-                    nfr_ids = [f"NFR-{n.zfill(2)}" for n in re.findall(r'NFR-(\d+)', cells[nfr_col])]
-                    if nfr_ids:
-                        fr_nfr[fr_id] = nfr_ids
-            # Reverse: NFR → [FR, ...]
-            nfr_fr: dict[str, list[str]] = {}
-            for fr_id, nfr_ids in fr_nfr.items():
-                for nfr_id in nfr_ids:
-                    nfr_fr.setdefault(nfr_id, []).append(fr_id)
-            return nfr_fr
-        except Exception as exc:
-            print(f"[WARN] NFR→FR cross-reference parse failed: {exc}")
-            return {}
-
     def _reconcile_with_sab_json(
         self, parsed: dict, sab_json: dict, source_label: str = "SAD §5"
     ) -> dict:
@@ -3253,8 +3187,6 @@ class HarnessBridge(_FinalizeStages):
             values.
         """
         # (parsed_key, sab_key) pairs. SAB.json is canonical for all of these.
-        # nfr_fr_mapping is intentionally excluded — it is SAD-derived prose
-        # data (parsed from §2 cross-reference), never written to SAB.json.
         field_pairs = [
             ("fr_module_traceability", "fr_module_traceability"),
             ("high_risk", "high_risk_modules"),
@@ -3400,9 +3332,6 @@ class HarnessBridge(_FinalizeStages):
             srs_nfr = self._parse_nfr_from_srs(_project_root)
             nfr_map = srs_nfr or nfr_map
 
-        # NFR→[FR] reverse mapping from §2 cross-reference table
-        nfr_fr_map = self._parse_nfr_fr_xref(_project_root)
-
         qt = sab.get("quality_targets", {})
         # (7) Start from NFR-backed dimension floors (sab_parser.derive_gate_score_overrides):
         # an NFR mapped to a gate dimension forces that dimension to clear its standard
@@ -3446,7 +3375,6 @@ class HarnessBridge(_FinalizeStages):
             "generated_at_phase": 2,
             "fr_ids": fr_ids,
             "nfr_dimension_mapping": nfr_map,
-            "nfr_fr_mapping": nfr_fr_map,
             "nfr_traceability": sab.get("nfr_traceability", {}),
             "quality_targets": qt,
             "fr_module_traceability": sab.get("fr_module_traceability", {}),
