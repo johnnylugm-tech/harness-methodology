@@ -6809,3 +6809,11 @@
 - test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_typescript_project_delivers_by_test_title
   bug: "4c delivery for a js/ts project reads it('test_...') titles through the same spec_coverage_report as 4b"
   fixed_in: "Round 117 站2"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_the_matrix_and_4c_read_one_join
+  bug: "the rendered NFR section and 4c each scanned test bodies for NFR-XX; both now read nfr_case_coverage, and every SRS NFR (NFR-99 included) keeps its matrix row"
+  fixed_in: "Round 117 站3"
+
+- test: tests/test_traceability_pipeline.py::TestBuildTraceability::test_build_traceability_nfr_markdown_verified
+  bug: "an NFR whose bound case was never written renders PARTIAL with the case named, not VERIFIED"
+  fixed_in: "Round 117 站3"

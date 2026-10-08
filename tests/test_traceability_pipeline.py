@@ -66,82 +66,42 @@ class TestBuildTraceability:
 
     # ------------------------------------------------------------------ Round 25
     def test_build_traceability_nfr_uses_active_test_dir(self, tmp_path):
-        """Regression (Round 25): NFR scan must use ProjectLayout.active_test_dir,
-        not the hardcoded <project>/tests/ path. Bug: projects with tests under
-        03-development/tests/ (taskq layout) silently produced empty
-        nfr_test_coverage, rendering all NFR rows as PENDING in
-        TRACEABILITY_MATRIX.md even when tests legitimately reference the NFR.
-        """
+        """Regression (Round 25): the NFR section must find tests under
+        03-development/tests/, not only <project>/tests/. Round 117: the
+        witness is the TEST_SPEC case bound to the criterion, delivered."""
         from scripts.build_traceability import build_traceability
+        from tests.support.nfr_project import make_nfr_project
 
-        # SRS.md declares NFR-01 (the harness derives srs_path from here)
-        (tmp_path / "01-requirements").mkdir(parents=True)
-        (tmp_path / "01-requirements" / "SRS.md").write_text(
-            "### NFR-01: performance\n", encoding="utf-8",
-        )
-        # Tests live ONLY under 03-development/tests (taskq layout)
-        tests_dir = tmp_path / "03-development" / "tests"
-        tests_dir.mkdir(parents=True)
-        (tests_dir / "test_nfr01.py").write_text(
-            '"""[NFR-01] p95 latency under threshold."""\n'
-            "def test_latency():\n    assert True\n",
-            encoding="utf-8",
-        )
-        # Sanity: <project>/tests does NOT exist (the trap that caught the bug)
+        make_nfr_project(tmp_path, {"NFR-01": ["AC-N1.1"]},
+                         [("test_nfr01_latency", "AC-N1.1")], delivered=["test_nfr01_latency"])
         assert not (tmp_path / "tests").exists()
-        # Seed 02-architecture/SAD.md so build_traceability has a sad_path
-        (tmp_path / "02-architecture").mkdir(parents=True)
-        (tmp_path / "02-architecture" / "SAD.md").write_text(
-            "FR-01: stub\n", encoding="utf-8",
-        )
+        (tmp_path / "02-architecture" / "SAD.md").write_text("FR-01: stub\n", encoding="utf-8")
 
         rt = build_traceability(tmp_path)
         nfr_data = getattr(rt, "nfr_data", {})
-        assert "NFR-01" in nfr_data.get("nfr_ids", []), (
-            f"SRS.md NFR-01 not extracted; got nfr_ids={nfr_data.get('nfr_ids')!r}"
-        )
-        cov = nfr_data["nfr_test_coverage"]
-        assert "NFR-01" in cov, (
-            f"NFR-01 has no coverage — bug at build_traceability.py:135 "
-            f"still present (scanned wrong path); got cov={cov!r}"
-        )
-        assert len(cov["NFR-01"]) >= 1
-        assert any("test_nfr01.py" in t for t in cov["NFR-01"])
+        assert "NFR-01" in nfr_data.get("nfr_ids", [])
+        assert nfr_data["nfr_test_coverage"]["NFR-01"] == ["test_nfr01_latency"]
 
     def test_build_traceability_nfr_markdown_verified(self, tmp_path):
-        """Round 25: After the fix, NFR rows in TRACEABILITY_MATRIX.md show
-        VERIFIED (not PENDING) when tests reference the NFR — even when the
-        tests live under 03-development/tests/ instead of <project>/tests/.
-        """
+        """Round 25: NFR rows show VERIFIED when their witness was delivered
+        under 03-development/tests/ — and PENDING when it was not written."""
         from scripts.build_traceability import (
             build_traceability,
             generate_markdown_matrix,
         )
+        from tests.support.nfr_project import make_nfr_project
 
-        (tmp_path / "01-requirements").mkdir(parents=True)
-        (tmp_path / "01-requirements" / "SRS.md").write_text(
-            "### NFR-01: performance\n", encoding="utf-8",
-        )
-        tests_dir = tmp_path / "03-development" / "tests"
-        tests_dir.mkdir(parents=True)
-        (tests_dir / "test_nfr.py").write_text(
-            '"""tests for NFR-01 latency."""\n', encoding="utf-8",
-        )
-        (tmp_path / "02-architecture").mkdir(parents=True)
-        (tmp_path / "02-architecture" / "SAD.md").write_text(
-            "FR-01\n", encoding="utf-8",
-        )
+        make_nfr_project(tmp_path, {"NFR-01": ["AC-N1.1"], "NFR-02": ["AC-N2.1"]},
+                         [("test_nfr01_latency", "AC-N1.1"), ("test_nfr02_sql", "AC-N2.1")],
+                         delivered=["test_nfr01_latency"])
+        (tmp_path / "02-architecture" / "SAD.md").write_text("FR-01\n", encoding="utf-8")
 
         rt = build_traceability(tmp_path)
         matrix_path = tmp_path / "TRACEABILITY_MATRIX.md"
         generate_markdown_matrix(rt, matrix_path)
         body = matrix_path.read_text(encoding="utf-8")
-        assert "| NFR-01 | test_nfr.py | VERIFIED |" in body, (
-            f"NFR-01 should be VERIFIED after Round 25 fix; matrix body:\n{body}"
-        )
-        assert "| NFR-01 | — | PENDING |" not in body, (
-            f"NFR-01 should NOT be PENDING; matrix body:\n{body}"
-        )
+        assert "| NFR-01 | test_nfr01_latency | VERIFIED |" in body, body
+        assert "| NFR-02 | — — absent: AC-N2.1 ← test_nfr02_sql (absent) | PARTIAL |" in body, body
 
     def test_extract_fr_ids_from_sad_missing(self, tmp_path):
         from scripts.build_traceability import extract_fr_ids_from_sad

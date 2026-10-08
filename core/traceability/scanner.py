@@ -235,22 +235,6 @@ def scan_test_fr_absent_witnesses(
         tests_dir, project_root, language, test_outcomes, _ids)
 
 
-def scan_test_nfr_absent_witnesses(
-    tests_dir: Path,
-    test_outcomes: Dict[str, str],
-    project_root: Path,
-) -> Dict[str, List[str]]:
-    """NFR-side companion to `scan_test_nfr_coverage` — the functions it drops."""
-    def _ids(_rel: str, _filename: str, segment: str) -> Set[str]:
-        return {
-            normalize_nfr_id(f"NFR-{m.group(1)}") or ""
-            for m in NFR_PATTERN.finditer(segment)
-        } - {""}
-
-    return _absent_witnesses(
-        tests_dir, project_root, None, test_outcomes, _ids)
-
-
 def _find_sad(project: Path) -> Optional[Path]:
     """Locate SAD.md in canonical locations; returns None if absent."""
     layout = ProjectLayout(project)
@@ -458,73 +442,6 @@ def extract_nfr_ids_from_srs(srs_path: Optional[Path]) -> Set[str]:
     text = srs_path.read_text(encoding="utf-8", errors="replace")
     ids = (normalize_nfr_id(f"NFR-{m.group(1)}") for m in NFR_PATTERN.finditer(text))
     return {i for i in ids if i}
-
-
-def scan_test_nfr_coverage(
-    tests_dir: Path,
-    test_outcomes: Optional[Dict[str, str]] = None,
-    project_root: Optional[Path] = None,
-) -> Dict[str, List[str]]:
-    """Return {NFR-XX: [relative_test_file, ...]} for NFR mentions in test files.
-
-    Project root defaults to tests_dir.parent (correct for a flat
-    `<root>/tests` layout, WRONG for a nested layout like
-    `<root>/03-development/tests`). Pass `project_root` explicitly whenever
-    `test_outcomes` is also passed — see `scan_test_fr_coverage`'s docstring
-    for why a mismatch here silently empties every result.
-
-    `test_outcomes` (from `core.quality_gate.test_suite_run.run_suite(...)
-    .test_outcomes`) makes this outcome-aware: an NFR mentioned only inside
-    a test function that was skipped/failed does NOT count as coverage —
-    only a mention inside a function whose own outcome is "passed" does.
-    This is the direct fix for the bug NFR-09 itself describes: a
-    `pytest.skip()` stub whose docstring cites "NFR-08" used to count as
-    full coverage regardless of whether it ever ran. `None` (no outcome
-    data) preserves the previous presence-only behavior.
-
-    Raises ValueError if `test_outcomes` is given without `project_root` —
-    see `scan_test_fr_coverage`'s docstring for why.
-    """
-    if test_outcomes is not None and project_root is None:
-        raise ValueError(
-            "scan_test_nfr_coverage: project_root is required when test_outcomes "
-            "is provided (tests_dir.parent is only correct for a flat <root>/tests "
-            "layout; a nested layout needs the true root to compute matching keys)."
-        )
-    nfr_to_tests: Dict[str, List[str]] = {}
-    if not tests_dir or not tests_dir.is_dir():
-        return nfr_to_tests
-    project = (project_root if project_root is not None else tests_dir.parent).resolve()
-    for test_file in iter_test_files(tests_dir, project_language(project)):
-        try:
-            text = test_file.read_text(encoding="utf-8", errors="replace")
-        except Exception as exc:
-            print(f"[WARN] traceability scanner: could not read {test_file}, "
-                  f"skipping it: {exc}", file=sys.stderr)
-            continue
-        rel = str(test_file.relative_to(project))
-
-        if test_outcomes is None:
-            for m in NFR_PATTERN.finditer(text):
-                nfr_id = f"NFR-{int(m.group(1)):02d}"
-                if rel not in nfr_to_tests.setdefault(nfr_id, []):
-                    nfr_to_tests[nfr_id].append(rel)
-            continue
-
-        lines = text.splitlines()
-        for func_name, start, end in _test_function_ranges(text):
-            segment = "\n".join(lines[start - 1:end])
-            found_ids = {f"NFR-{int(m.group(1)):02d}" for m in NFR_PATTERN.finditer(segment)}
-            if not found_ids:
-                continue
-            if not _function_has_any_passing_test(rel, func_name, test_outcomes):
-                continue
-            for nfr_id in found_ids:
-                if rel not in nfr_to_tests.setdefault(nfr_id, []):
-                    nfr_to_tests[nfr_id].append(rel)
-    for lst in nfr_to_tests.values():
-        lst.sort()
-    return nfr_to_tests
 
 
 # ---------------------------------------------------------------------------

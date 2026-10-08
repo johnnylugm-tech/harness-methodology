@@ -86,3 +86,18 @@ def test_a_typescript_project_delivers_by_test_title(tmp_path):
     (tmp_path / "03-development" / "tests" / "nfr.test.ts").write_text(
         "it('test_nfr01_p95', () => { expect(1).toBe(1); });\n", encoding="utf-8")
     assert nfr_case_coverage(tmp_path)["pct"] == 100.0
+
+
+def test_the_matrix_and_4c_read_one_join(tmp_path):
+    """Round 33: the rendered NFR section and the gate number are one reading."""
+    from scripts.build_traceability import build_traceability
+
+    make_nfr_project(tmp_path, {"NFR-01": ["AC-N1.1"], "NFR-02": ["AC-N2.1"], "NFR-99": []},
+                     [("test_nfr01_p95", "AC-N1.1"), ("test_nfr02_sql", "AC-N2.1")],
+                     delivered=["test_nfr01_p95"])
+    (tmp_path / "02-architecture" / "SAD.md").write_text("FR-01: stub\n", encoding="utf-8")
+    per_nfr = nfr_case_coverage(tmp_path)["per_nfr"]
+    nfr_data = build_traceability(tmp_path).nfr_data
+    assert nfr_data["nfr_ids"] == ["NFR-01", "NFR-02", "NFR-99"], "every declared NFR keeps its row"
+    assert nfr_data["nfr_test_coverage"] == {**{n: v["tests"] for n, v in per_nfr.items()}, "NFR-99": []}
+    assert nfr_data["nfr_absent_witnesses"] == {**{n: v["absent"] for n, v in per_nfr.items()}, "NFR-99": []}

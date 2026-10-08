@@ -114,8 +114,14 @@ def nfr_project(tmp_path: Path, monkeypatch) -> Path:
     req = tmp_path / "01-requirements"
     req.mkdir()
     (req / "SRS.md").write_text(
-        "# Software Requirements Specification\n\n### NFR-10: integration coverage\n",
+        "# Software Requirements Specification\n\n### NFR-10: integration coverage\n\n"
+        "**Acceptance criteria**\n\n- **AC-N10.1**: errors carry a stable envelope.\n",
         encoding="utf-8")
+    (tmp_path / "02-architecture").mkdir()
+    (tmp_path / "02-architecture" / "TEST_SPEC.md").write_text(
+        "# TEST_SPEC.md\n\n### NFR Integration\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n|---|---|---|---|---|\n"
+        "| 1 | `test_error_envelope` | x=\"1\" | integration | AC-N10.1 |\n", encoding="utf-8")
 
     def _fake(*_a, **_k):
         return SuiteResult(

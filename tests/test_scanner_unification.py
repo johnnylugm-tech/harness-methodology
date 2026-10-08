@@ -101,54 +101,6 @@ def outcome_fixture_repo(tmp_path) -> Path:
     return tmp_path
 
 
-def test_nfr_coverage_skipped_test_does_not_count(outcome_fixture_repo):
-    from core.traceability.scanner import scan_test_nfr_coverage
-    outcomes = {
-        "tests/test_mixed.py::test_a": "skipped",
-        "tests/test_mixed.py::test_b": "passed",
-    }
-    result = scan_test_nfr_coverage(
-        outcome_fixture_repo / "tests", test_outcomes=outcomes, project_root=outcome_fixture_repo
-    )
-    assert "NFR-08" not in result, "a skipped test must not count as coverage"
-    assert "NFR-09" in result
-    assert "tests/test_mixed.py" in result["NFR-09"]
-
-
-def test_nfr_coverage_failed_test_does_not_count(outcome_fixture_repo):
-    from core.traceability.scanner import scan_test_nfr_coverage
-    outcomes = {
-        "tests/test_mixed.py::test_a": "failed",
-        "tests/test_mixed.py::test_b": "passed",
-    }
-    result = scan_test_nfr_coverage(
-        outcome_fixture_repo / "tests", test_outcomes=outcomes, project_root=outcome_fixture_repo
-    )
-    assert "NFR-08" not in result
-
-def test_nfr_coverage_missing_from_outcomes_does_not_count(outcome_fixture_repo):
-    """A function absent from test_outcomes (e.g. collection never reached
-    it) must not count either — only an explicit "passed" counts."""
-    from core.traceability.scanner import scan_test_nfr_coverage
-    result = scan_test_nfr_coverage(
-        outcome_fixture_repo / "tests",
-        test_outcomes={"tests/test_mixed.py::test_b": "passed"},
-        project_root=outcome_fixture_repo,
-    )
-    assert "NFR-08" not in result
-    assert "NFR-09" in result
-
-
-def test_nfr_coverage_none_outcomes_preserves_presence_only(outcome_fixture_repo):
-    """test_outcomes=None (default) must behave exactly like before this
-    fix — both NFRs count, regardless of pass/fail, matching the pre-Defect-A
-    contract for callers with no live run data (e.g. non-Python projects)."""
-    from core.traceability.scanner import scan_test_nfr_coverage
-    result = scan_test_nfr_coverage(outcome_fixture_repo / "tests")
-    assert "NFR-08" in result
-    assert "NFR-09" in result
-
-
 def test_fr_coverage_skipped_test_does_not_count(outcome_fixture_repo):
     from core.traceability.scanner import scan_test_fr_coverage
     outcomes = {
@@ -261,27 +213,6 @@ def nested_layout_repo(tmp_path) -> Path:
     return tmp_path
 
 
-def test_nfr_coverage_nested_layout_needs_project_root(nested_layout_repo):
-    from core.traceability.scanner import scan_test_nfr_coverage
-    tests_dir = nested_layout_repo / "03-development" / "tests"
-    outcomes = {"03-development/tests/test_mixed.py::test_a": "passed"}
-
-    # Without project_root: rel would be computed relative to
-    # "03-development" (tests_dir.parent), which can never match a key
-    # that starts with "03-development/tests/..." — silently losing all
-    # coverage was the original bug found during live validation; this is
-    # now a loud ValueError instead.
-    with pytest.raises(ValueError, match="project_root is required"):
-        scan_test_nfr_coverage(tests_dir, test_outcomes=outcomes)
-
-    # With project_root: rel matches, coverage is found.
-    result = scan_test_nfr_coverage(
-        tests_dir, test_outcomes=outcomes, project_root=nested_layout_repo
-    )
-    assert "NFR-08" in result
-    assert result["NFR-08"] == ["03-development/tests/test_mixed.py"]
-
-
 def test_fr_coverage_nested_layout_needs_project_root(nested_layout_repo):
     from core.traceability.scanner import scan_test_fr_coverage
     tests_dir = nested_layout_repo / "03-development" / "tests"
@@ -335,40 +266,40 @@ def class_and_param_repo(tmp_path) -> Path:
 def test_class_methods_with_same_name_do_not_collide(class_and_param_repo):
     """TestFoo.test_a and TestBar.test_a must be tracked independently —
     one passing must not paper over the other's failure."""
-    from core.traceability.scanner import scan_test_nfr_coverage
+    from core.traceability.scanner import scan_test_fr_coverage
     outcomes = {
         "tests/test_class.py::TestFoo.test_a": "passed",
         "tests/test_class.py::TestBar.test_a": "skipped",
     }
-    result = scan_test_nfr_coverage(
+    result = scan_test_fr_coverage(
         class_and_param_repo / "tests", test_outcomes=outcomes, project_root=class_and_param_repo
     )
-    assert "NFR-20" in result   # TestFoo.test_a passed
-    assert "NFR-21" not in result  # TestBar.test_a skipped, same bare name
+    assert "FR-20" in result   # TestFoo.test_a passed
+    assert "FR-21" not in result  # TestBar.test_a skipped, same bare name
 
 
 def test_parametrized_case_is_matched_via_bracket_suffix(class_and_param_repo):
     """test_outcomes only ever holds pytest's own bracketed per-case id
     (e.g. "test_param[case-a]"); a bare "test_param" lookup must still find
     it, matching if ANY parametrized variant passed."""
-    from core.traceability.scanner import scan_test_nfr_coverage
+    from core.traceability.scanner import scan_test_fr_coverage
     outcomes = {
         "tests/test_class.py::test_param[case-a]": "skipped",
         "tests/test_class.py::test_param[case-b]": "passed",
     }
-    result = scan_test_nfr_coverage(
+    result = scan_test_fr_coverage(
         class_and_param_repo / "tests", test_outcomes=outcomes, project_root=class_and_param_repo
     )
-    assert "NFR-22" in result
+    assert "FR-22" in result
 
 
 def test_parametrized_case_all_skipped_does_not_count(class_and_param_repo):
-    from core.traceability.scanner import scan_test_nfr_coverage
+    from core.traceability.scanner import scan_test_fr_coverage
     outcomes = {
         "tests/test_class.py::test_param[case-a]": "skipped",
         "tests/test_class.py::test_param[case-b]": "skipped",
     }
-    result = scan_test_nfr_coverage(
+    result = scan_test_fr_coverage(
         class_and_param_repo / "tests", test_outcomes=outcomes, project_root=class_and_param_repo
     )
-    assert "NFR-22" not in result
+    assert "FR-22" not in result

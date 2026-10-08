@@ -11594,3 +11594,16 @@ new 100 → 41.67;advance/api/cc/plus/super → 0(無 case 綁定或 SRS 無 AC 
 
 反證:HEAD 的 ac_case_binding + spec_tracking_checker 讓 11 個測試轉紅。`compute_trace_dimension` 201 → 170(收割);
 gate_cmds 3402 → 3405。
+
+### 站3 — matrix 的 NFR 區讀同一份 join,註記掃描器退役
+
+`build_traceability` 的 `nfr_data` 改由 `nfr_case_coverage` 產生(R33:matrix 與 4c 是同一個讀數)。SRS 宣告的每個 NFR
+都保留一列;NFR-99(4c 不計的 TBD 佔位)無見證、照舊 PENDING —— 原型曾因沿用 4c 的分母讓 NFR-99 列消失,語料 10 份
+matrix 有這一列,已更正。三態渲染規則不變。`scan_test_nfr_coverage` / `scan_test_nfr_absent_witnesses` 失去所有讀者後刪除;
+它們的 skipped / failed / not_collected / None 語意已由 `test_spec_coverage_delivery.py` 守住,class 同名方法與 parametrized
+三個測試改測仍在用同一 helper 的 `scan_test_fr_coverage`。
+
+已知差異:同一 class 內的同名方法改沿用 4b 的 `delivery_outcome`(任一處通過即算交付)。副作用:P9 專案下次 `cr-close`
+的 attestation 會 mismatch,CR 第 6 步本來就 `build-trace-attestation --write`。
+
+反證:HEAD 的 build_traceability + scanner 讓 3 個測試轉紅。

@@ -38,8 +38,6 @@ from core.traceability.scanner import (  # noqa: E402
     scan_python_fr_annotations,
     scan_test_fr_absent_witnesses,
     scan_test_fr_coverage,
-    scan_test_nfr_absent_witnesses,
-    scan_test_nfr_coverage,
     scan_sad_fr_modules,
 )
 from core.quality_gate.test_suite_run import run_suite  # noqa: E402
@@ -164,33 +162,19 @@ def build_traceability(
         for test_file in test_fr_map.get(fr_id, []):
             rt.add_test_coverage(test_file=test_file, fr_id=fr_id)
 
-    # NFR coverage: scan SRS.md + test files; stored on rt for matrix rendering.
-    srs_path = ProjectLayout(project).srs_path
-    nfr_ids = extract_nfr_ids_from_srs(srs_path)
-    test_nfr_map = (
-        scan_test_nfr_coverage(
-            ProjectLayout(project).active_test_dir,
-            test_outcomes=test_outcomes, project_root=project,
-        )
-        if nfr_ids else {}
-    )
-    # Round 46 站1: the witnesses the coverage scan refuses to credit. Without
-    # them a requirement whose guard skipped itself is indistinguishable from
-    # one that was never tested at all — and reads as VERIFIED because a
-    # sibling in the same file passed.
-    nfr_absent = (
-        scan_test_nfr_absent_witnesses(
-            ProjectLayout(project).active_test_dir, test_outcomes, project,
-        )
-        if (nfr_ids and test_outcomes is not None) else {}
-    )
+    # NFR coverage: the same join the trace dimension's 4c reads (Round 117 —
+    # it read `NFR-XX` strings in test bodies). Every NFR the SRS declares
+    # keeps its row; NFR-99, the TBD placeholder 4c does not count, has no
+    # witness and renders PENDING as before. A witness that did not run is
+    # named in the row (Round 46 站1), never credited by a passing sibling.
+    from core.quality_gate.ac_case_binding import nfr_case_coverage
+    nfr_ids = sorted(extract_nfr_ids_from_srs(ProjectLayout(project).srs_path))
+    per_nfr = nfr_case_coverage(project, test_outcomes)["per_nfr"]
     # Use setattr to avoid Pyright complaints about unknown attribute.
     setattr(rt, "nfr_data", {
-        "nfr_ids": sorted(nfr_ids),
-        "nfr_test_coverage": {nfr: test_nfr_map.get(nfr, []) for nfr in sorted(nfr_ids)},
-        "nfr_absent_witnesses": {
-            nfr: nfr_absent.get(nfr, []) for nfr in sorted(nfr_ids)
-        },
+        "nfr_ids": nfr_ids,
+        "nfr_test_coverage": {n: per_nfr.get(n, {}).get("tests", []) for n in nfr_ids},
+        "nfr_absent_witnesses": {n: per_nfr.get(n, {}).get("absent", []) for n in nfr_ids},
     })
 
     return rt
@@ -242,7 +226,7 @@ def generate_markdown_matrix(rt: RequirementTraceability, output_path: Path,
                 status = "VERIFIED"
             else:
                 status = "PENDING"
-            test_names = ", ".join(Path(t).name for t in tests) if tests else "—"
+            test_names = ", ".join(tests) if tests else "—"
             if absent:
                 test_names += " — absent: " + ", ".join(absent)
             lines.append(f"| {nfr_id} | {test_names} | {status} |")
