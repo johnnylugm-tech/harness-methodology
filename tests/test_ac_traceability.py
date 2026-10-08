@@ -95,6 +95,13 @@ _TEST_SPEC_NODASH = """\
 
 ### FR-09: 健康檢查與可觀測性
 
+| Case | Test Function | Derivation |
+|---|---|---|
+| 1 | `test_readyz_503_when_db_unreachable` | Q2 |
+| 2 | `test_readyz_503_when_migration_lag` | Q2 |
+| 3 | `test_healthz_readyz_no_auth` | Q5 |
+| 4 | `test_metrics_requires_admin` | Q6 |
+
 **Sub-assertions**
 
 | rule_id | predicate | applies_to |

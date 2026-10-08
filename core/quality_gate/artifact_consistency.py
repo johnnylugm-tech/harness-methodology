@@ -673,13 +673,14 @@ def _test_spec_dispositions(
         return set(), set(), set()
     text = test_spec.read_text(encoding="utf-8", errors="replace")
     deferred, unattributed = _parse_deferrals(text)
-    remainder = _AC_DEFERRAL_LINE.sub("", text)
-    # `_AC_ID_CITED`, not `_AC_ID`: TEST_SPEC sub-assertion rule_ids are
-    # routinely written without the dash (`AC1.1-status-201`), which `_AC_ID`
-    # parses as zero tokens — the dash gap then reads as "every AC is
-    # uncited". The SRS side stays `_AC_ID` so a typo never silently passes;
-    # that question is `check_ac_identifiers`'s, not this one's.
-    cited = {_with_dash(t) for t in _AC_ID_CITED.findall(remainder)}
+    # Round 117: cited means cited BY A CASE — in its declaration row, or in a
+    # sub-assertion whose `applies_to` names it (`ac_case_binding`). This
+    # scanned the whole file, so a criterion named only in prose read as
+    # covered while this check's own message and Agent B's checklist said
+    # "cited by a TEST_SPEC case", and nothing could say which test verified
+    # it. Deferral lines are prose, so they no longer need cutting out first.
+    from core.quality_gate.ac_case_binding import ac_case_bindings
+    cited = set(ac_case_bindings(project))
     return cited, set(deferred) - cited, unattributed - cited
 
 

@@ -65,7 +65,7 @@
 
 | # | Test Function | Inputs | Type | Derivation |
 |---|---|---|---|---|
-| 1 | `test_fr01_` | source="colour"; expected="color" | happy_path | Q1 |
+| 1 | `test_fr01_` | source="colour"; expected="color" | happy_path | Q1; AC-1.1 |
 | 2 | `test_fr01_` | source="a"; expected="alpha" | validation | Q2 |
 
 <!-- Inputs column: concrete declared values as key="value", semicolon-separated.

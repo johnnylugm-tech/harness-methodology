@@ -6753,3 +6753,27 @@
 - test: tests/test_a_reviewed_document_changed_later_is_reviewed_again.py::test_every_advance_loop_after_p1_reviews_changes_first
   bug: "a block with no executor forbids its own remedy (R103): every advance loop from P2 to P8 runs the change review before advance-phase"
   fixed_in: "Round 114 站6 (reviewChangedDeliverables, hoisted once in run-all)"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_citation_outside_every_case_binds_nothing
+  bug: "check_ac_test_spec_coverage counted an AC named anywhere in TEST_SPEC.md (prose included) as cited, while its own message and Agent B's checklist said cited by a TEST_SPEC case; nothing could say which test verified it"
+  fixed_in: "Round 117 站1"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_sub_assertion_binds_the_case_its_applies_to_names
+  bug: "a sub-assertion rule_id (taskq-final, taskq-new, taskq-open, taskq-cc-new) is a case-level binding through applies_to; reading only declaration rows would bring back the taskq-api false positive"
+  fixed_in: "Round 117 站1"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_sub_assertion_table_under_its_own_heading_binds_the_table_above
+  bug: "taskq-api writes its NFR sub-assertions under their own heading; scoping case numbers by section left 10 applies_to references with no case"
+  fixed_in: "Round 117 站1"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_applies_to_a_case_nobody_declared_binds_nothing
+  bug: "an applies_to number with no declared case must bind no test"
+  fixed_in: "Round 117 站1"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_trailing_segments_are_dropped_only_to_reach_a_declared_id
+  bug: "_AC_BODY accepts -N segments (taskq-renew's AC-04-3), so AC10.5-422-status read as AC-10.5-422; the first fix stripped AC-7 down to AC"
+  fixed_in: "Round 117 站1"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_case_number_belongs_to_the_most_recent_declaration_table
+  bug: "taskq-sol's sub-assertion table follows two declaration tables; a case number belongs to the nearer one"
+  fixed_in: "Round 117 站1"

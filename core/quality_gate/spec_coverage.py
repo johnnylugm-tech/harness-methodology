@@ -14,6 +14,7 @@ from pathlib import Path
 
 from core.utils.project_layout import ProjectLayout
 from core.quality_gate.parsers import SRS_SUBSECTION_PREFIX
+from core.quality_gate.ac_case_binding import cited_acs, subassertion_columns
 
 def _get_test_directories(project: Path) -> list[Path]:
     """Return all valid test directories (resolving symlinks and canonical layout)."""
@@ -376,6 +377,10 @@ def _parse_test_spec(spec_path: Path, unread: "list | None" = None) -> list[dict
     current_fr: str = ""
     in_table = False
     columns: dict = {}
+    # Round 117: a case's ACs, including those a sub-assertion attaches by
+    # `applies_to` — numbers belong to the most recent declaration table.
+    cases: dict = {}
+    sub_cols: dict = {}
 
     for idx, line in enumerate(lines):
         stripped = line.strip()
@@ -409,6 +414,17 @@ def _parse_test_spec(spec_path: Path, unread: "list | None" = None) -> list[dict
         if _is_header_row(lines, idx):
             columns = _header_columns(stripped)
             in_table = bool(columns)
+            cases = {} if in_table else cases
+            sub_cols = {} if in_table else subassertion_columns(stripped)
+            continue
+
+        if sub_cols and stripped.startswith("|"):
+            cols = [c.strip() for c in stripped.split("|")[1:-1]]
+            if len(cols) > max(sub_cols.values()):
+                for n in re.findall(r"\d+", cols[sub_cols["applies_to"]]):
+                    if int(n) in cases:
+                        cases[int(n)]["acs"] = sorted(
+                            set(cases[int(n)]["acs"]) | cited_acs(cols[sub_cols["rule_id"]]))
             continue
 
         # Skip the separator row (|---|---|...)
@@ -437,7 +453,10 @@ def _parse_test_spec(spec_path: Path, unread: "list | None" = None) -> list[dict
                     "type": _col("type"),
                     "derivation": _col("derivation"),
                     "fr_id": current_fr,
+                    "acs": sorted(cited_acs(stripped)),
                 })
+                if re.match(r"\d+$", cols[0] if cols else ""):
+                    cases[int(cols[0])] = results[-1]
             elif unread is not None:
                 unread.append({"line": idx + 1, "text": stripped})
             continue

@@ -170,6 +170,10 @@ def _metrics() -> "dict[str, object]":
             return 0
         return sum(1 for fr in _fr_ids(tree) if not extract_fr_section(spec, fr))
 
+    def ac_uncited(tree: Path) -> int:
+        from core.quality_gate.artifact_consistency import check_ac_test_spec_coverage
+        return sum(1 for v in check_ac_test_spec_coverage(tree) if v.check_type == "ac_no_test_case")
+
     return {
         "spec_declared": spec_declared,
         "spec_undelivered": spec_undelivered,
@@ -179,6 +183,7 @@ def _metrics() -> "dict[str, object]":
         "frs_total": frs_total,
         "frs_without_tests": frs_without_tests,
         "frs_without_requirement_text": frs_without_requirement_text,
+        "ac_uncited": ac_uncited,
     }
 
 

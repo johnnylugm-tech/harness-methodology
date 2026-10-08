@@ -181,7 +181,8 @@ def test_a_deferral_naming_no_test_at_all_is_left_to_its_own_channel(
 
 
 def test_an_uncited_criterion_is_still_an_error(tmp_path: Path) -> None:
-    spec = "# TEST_SPEC.md\n\n| 1 | `test_no_gpl_dependency` | AC-N7.1 |\n"
+    spec = ("# TEST_SPEC.md\n\n| Case | Test Function | Derivation |\n|---|---|---|\n"
+            "| 1 | `test_no_gpl_dependency` | AC-N7.1 |\n")
     violations = check_ac_test_spec_coverage(_project(tmp_path, spec))
     assert [v.check_type for v in violations] == ["ac_no_test_case"]
 

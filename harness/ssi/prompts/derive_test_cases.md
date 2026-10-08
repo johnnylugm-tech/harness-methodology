@@ -26,6 +26,7 @@ P3 Agent A implements tests FROM this catalog — not ad-hoc.
 > - 至少 1 個 `happy_path` test（Q1，必填）
 > - 至少 1 個 `failure` 或 `validation` test（Q2，必填）
 > - `derivation` 欄位必須引用 Q1-Q8、Step 2.5 或 NFR Pattern 編號（不得空白）
+> - SRS 宣告的每個 AC-id 寫在驗證它的 case 上：該 case 宣告列的 Derivation 欄（如 `Q1; AC-1.1`），或 `applies_to` 指向該 case 的 Sub-assertion `rule_id`。只出現在散文或另一張對照表的 AC-id 沒有綁到任何測試，P2 gate 判為未引用
 > - 所有從 SRS NFR 觸發的 pattern 必須出現（見 §2 NFR Pattern Table）
 > - 每個 case 有具體 `Inputs`（真實值，非 pytest-id 形式）
 > - Sub-assertion 表的每條 predicate 對其 `applies_to` 的 Inputs 自洽（P2 gate 會驗）
@@ -396,7 +397,7 @@ For each FR, write an entry in the following format:
 
 | # | Test Function | Inputs | Type | Derivation |
 |---|---|---|---|---|
-| 1 | `test_frXX_{behavior}` | x="colour"; expected="color" | happy_path | Q1 |
+| 1 | `test_frXX_{behavior}` | x="colour"; expected="color" | happy_path | Q1; AC-XX.1 |
 | 2 | `test_frXX_{error_condition}` | x="" | validation | Q2 |
 | 3 | `test_frXX_{field}_boundary` | x="lorem-ipsum"; expected="lorem ipsum" | boundary | Q3 |
 | 4 | `test_frXX_unauthenticated_returns_401` | token="" | nfr_pattern | Q6/NP-01 |
@@ -510,8 +511,11 @@ Standard Verification:
       A threat whose forced NP pattern has zero corresponding row → REJECT
 - [ ] **NFR AC-id citation completeness (Step 1d)**: grep TEST_SPEC.md's
       full text for every `AC-Nx.y` identifier SRS.md declares under an
-      NFR heading. Every one must appear — either inside a Step-1/1b/1c
-      derived test case, or inside a `Deferred: AC-Nx.y — ...` line.
+      NFR heading. Every one must appear — either in the declaration row
+      of the Step-1/1b/1c derived test case that verifies it (its Derivation
+      cell, or a sub-assertion `rule_id` whose `applies_to` names that case),
+      or inside a `Deferred: AC-Nx.y — ...` line. An id that appears only in
+      prose is bound to no test.
       A declared NFR AC-id that appears in NEITHER shape → REJECT. A
       `Deferred` line with no AC-id, or with a subset of the NFR's ids
       silently missing the rest → REJECT (Step 1d requires every id,

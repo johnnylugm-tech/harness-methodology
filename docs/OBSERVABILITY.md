@@ -1107,7 +1107,9 @@ tell them apart.
 
 `preflight_artifact_consistency` gained two checks at phase ≥ 3 and its
 `error_details` rows can now carry `ac_no_test_case` (an acceptance criterion
-in SRS.md that no TEST_SPEC case cites, one row per criterion, named by id) and
+in SRS.md that no TEST_SPEC case cites, one row per criterion, named by id —
+since Round 117 a case cites it in its declaration row or in a sub-assertion
+whose `applies_to` names it; prose does not) and
 `ac_population_unread` (SRS.md carries `AC-` identifiers and the parser
 attributed none of them, so the coverage check compared nothing). The existing
 `ac_parse_gap` row stays `info` and stays out of the block: a shape the

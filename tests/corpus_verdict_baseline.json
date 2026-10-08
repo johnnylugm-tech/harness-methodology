@@ -1,35 +1,35 @@
 {
   "omnibot": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None. Recorded as an observation, not a diagnosis \u2014 why phase_completed is empty here has not been investigated this round. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: phase_completed is EMPTY at current_phase 8 \u2014 not even P1 was recorded.",
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None. Recorded as an observation, not a diagnosis — why phase_completed is empty here has not been investigated this round. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed is EMPTY at current_phase 8 — not even P1 was recorded.",
       "why_right": "An empty record at phase 8 is a different failure from taskq's partial one, and collapsing the two would hide it."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "omnibot-new": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "The 275KB / 34-FR SPEC here is the largest in the corpus, so when it does become measurable it is the tree that will test whether these metrics scale. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: phase_completed is empty and current_phase is 1 \u2014 this project has not reached P3.",
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "The 275KB / 34-FR SPEC here is the largest in the corpus, so when it does become measurable it is the tree that will test whether these metrics scale. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed is empty and current_phase is 1 — this project has not reached P3.",
       "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "run-all-by-workflow": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict. FOUR of the six unmeasured entries ran past P3 without leaving a P3 record (the other two, omnibot-new and taskq-final, simply have not reached P3). An earlier draft said five; the recount is in the ledger. Round 89 then measured the four: two ran before push-checkpoint recorded anything and two before advance-phase did, so all four are historical. The one live gap it found \u2014 taskq-super's missing P5 \u2014 has no established cause, and advance-phase now reads back its own record rather than assuming it landed. Round 90 then found the other half: the record reached the working tree and not the commit, which is what a CI checkout reads \u2014 taskq-redo's Gate 4 failed on it, and two corpus projects had been repaired by hand. advance-phase now commits the entry it writes. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: phase_completed holds keys 1 and 2 at current_phase 9 \u2014 the same shape as taskq.",
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict. FOUR of the six unmeasured entries ran past P3 without leaving a P3 record (the other two, omnibot-new and taskq-final, simply have not reached P3). An earlier draft said five; the recount is in the ledger. Round 89 then measured the four: two ran before push-checkpoint recorded anything and two before advance-phase did, so all four are historical. The one live gap it found — taskq-super's missing P5 — has no established cause, and advance-phase now reads back its own record rather than assuming it landed. Round 90 then found the other half: the record reached the working tree and not the commit, which is what a CI checkout reads — taskq-redo's Gate 4 failed on it, and two corpus projects had been repaired by hand. advance-phase now commits the entry it writes. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: phase_completed holds keys 1 and 2 at current_phase 9 — the same shape as taskq.",
       "why_right": "Two independent projects that completed nine phases and recorded only the first two makes this a property of when they ran, not of one project's state file."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "The reading itself is the signal: at current_phase 9 with no P3 record, this project ran the phase and left nothing behind that could be re-judged. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "The reading itself is the signal: at current_phase 9 with no P3 record, this project ran the phase and left nothing behind that could be re-judged. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
       "moved": "First recording, unmeasurable: phase_completed holds keys 1 and 2 only, so no commit names this project's P3 exit and there is no tree to freeze.",
       "why_right": "Recorded as unmeasured rather than dropped (R46): a project this gate cannot watch has to say so, otherwise the coverage silently shrinks."
     },
@@ -37,11 +37,12 @@
   },
   "taskq-advance": {
     "_note": {
-      "cheapest_satisfaction": "An unread row is closed by making it parse \u2014 reformatting the table, not writing a test. That is cheap and it is also correct, so the number going to 0 is not by itself a warning.",
-      "discriminating_signal": "spec_unread_rows and spec_undelivered move independently, which is the discrimination: a row that starts parsing lands in the denominator and shows up as undelivered until a real test exists.",
-      "moved": "First recording: 97 declared / 31 undelivered / 2 unread rows on the P3-exit tree 81bbeb44e786. Accepted at 89/23.",
-      "why_right": "The only tree with unread TEST_SPEC rows recorded here (2). Round 74 \u7ad92 added that out-parameter so silence would stop being the answer; this is the first time the number is pinned anywhere."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 92 on the P3-exit tree 81bbeb44e786. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 86.",
+      "why_right": "86 criteria are cited nowhere in TEST_SPEC.md under either rule; the 6 more are named only outside every case, so no reader could say which declared test verifies them."
     },
+    "ac_uncited": 92,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -54,11 +55,12 @@
   },
   "taskq-api": {
     "_note": {
-      "cheapest_satisfaction": "Same as any 0: a correctly-named test with a weak or self-chosen assertion counts exactly as a real one. Probed this round and NOT resolved \u2014 a body-level scan (no statements / no asserts / trivially-true asserts) reports 12 here against 16 in taskq-redo, which separates neither.",
-      "discriminating_signal": "None found. runtime_test_seams is 0 here and 1 in taskq-redo, but that rule recognises one AST shape and cannot be read as a verdict on this project. Recorded as an open gap rather than as a clean bill.",
-      "moved": "First recording: 113 declared / 0 undelivered on the P3-exit tree 7e3113ecf131. Accepted at 86/0 \u2014 the denominator has since grown 27 on a tree that never changed.",
-      "why_right": "A second 0-undelivered project, recorded beside taskq-redo's on purpose. Two identical readings whose provenance is not identical is the thing this file is meant to make visible."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 0 on the P3-exit tree 7e3113ecf131. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "SRS.md declares no AC id, so there is no population to cite; P1's check_ac_identifiers is the check that reports that, and it is unchanged."
     },
+    "ac_uncited": 0,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -71,11 +73,12 @@
   },
   "taskq-cc": {
     "_note": {
-      "cheapest_satisfaction": "47 criteria left honestly undelivered is what a project pays for not stubbing. Every parser improvement lands on this number, which is why it moved +6 in declared while its undelivered stayed put.",
-      "discriminating_signal": "This project is the signal: it is the reference a new rule has to stay quiet on. If a future check reports here, that is the first thing to explain.",
-      "moved": "First recording: 124 declared / 47 undelivered / 1 unread row / 0 spec_alignment violations on the P3-exit tree 59489a184ad7.",
-      "why_right": "The only tree in the corpus with zero spec_alignment violations, and the control group Round 87 used to choose the shape of three separate rules \u2014 a rule that fires here is measuring the corpus, not a defect."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 94 on the P3-exit tree 59489a184ad7. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 2.",
+      "why_right": "92 criteria are cited only in a separate AC-to-case table ('AC-1.1 | FR-01 #1') that names a case by section and number in prose; no declared test function can be read from it. 2 were uncited under both rules."
     },
+    "ac_uncited": 94,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -88,11 +91,12 @@
   },
   "taskq-cc-new": {
     "_note": {
-      "cheapest_satisfaction": "Not applicable in the usual direction: this project answered the same pressure taskq-redo did by writing tests that shell out to radon and measure p95 over 50 runs (Round 87's counter-proof). The cheap path was available and not taken.",
-      "discriminating_signal": "The framework still cannot see the difference \u2014 it scored this tree BELOW taskq-redo on every dimension. What distinguishes them is in the assertions, and only Round 87 \u7ad95's criteria review reads those, per FR, at P3.",
-      "moved": "First recording: 104 declared / 15 undelivered on the P3-exit tree 5298d3ab760b. Accepted at 104/40 \u2014 the only tree in the corpus that today's enforcer judges LOOSER, by 25.",
-      "why_right": "A loosening nobody reviewed is the half of drift that no ratchet in this repo would have caught. Recording it is what makes the next one answerable."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 49 on the P3-exit tree 5298d3ab760b. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "49 FR criteria appear only in an 'Acceptance criteria: AC-1.1, ...' prose line above each FR table; its NFR criteria are bound through sub-assertions and still read as cited."
     },
+    "ac_uncited": 49,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -105,20 +109,21 @@
   },
   "taskq-done": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all \u2014 this project has not reached P3 (not even P1 is recorded yet).",
-      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name \u2014 same reasoning as omnibot-new's entry above."
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all — this project has not reached P3 (not even P1 is recorded yet).",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name — same reasoning as omnibot-new's entry above."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq-final": {
     "_note": {
-      "cheapest_satisfaction": "Same shape as its 10-FR siblings: naming the 31 undelivered declarations as tests would close this without writing an assertion.",
-      "discriminating_signal": "None distinctive on the numbers alone \u2014 0 unread rows, 0 alignment violations, 0 runtime_test_seams. What distinguishes this entry is external to them: it is the corpus's newest P3 exit.",
-      "moved": "First recording, now measurable: phase_completed[3].sha gained a real 40-char sha (9ccd4135) between the 2026-09-02 baseline freeze and this one \u2014 118 declared / 31 undelivered on that P3-exit tree. Discovered while verifying an unrelated round's test suite; confirmed unrelated to that round's own changes \u2014 replaying with those changes present moved this one entry and left the other nine byte-identical.",
-      "why_right": "The corpus's former could-not-measure control \u2014 its previous note called it \"a project mid-pipeline with the record it should have at this point\" \u2014 is retired the moment the record exists. It is now an ordinary measured entry, not a special case."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 0 on the P3-exit tree 9ccd4135cd01. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "Every criterion is bound to a case through a sub-assertion rule_id whose applies_to names it, so the stricter reading moves nothing."
     },
+    "ac_uncited": 0,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -131,20 +136,21 @@
   },
   "taskq-forever": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: state.json shows current_phase 2 with phase_completed holding only key 1 \u2014 this project has not reached P3.",
-      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name \u2014 same reasoning as omnibot-new's entry above."
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: state.json shows current_phase 2 with phase_completed holding only key 1 — this project has not reached P3.",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name — same reasoning as omnibot-new's entry above."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
   "taskq-new": {
     "_note": {
-      "cheapest_satisfaction": "Identical to taskq-super's: name the missing tests and the number goes to zero without an assertion being written.",
-      "discriminating_signal": "None today. Round 87 \u7ad91 made delivery outcome-aware, but that half is deliberately outside this baseline \u2014 run_suite measures the machine on an archived tree, which is the defect Round 88 \u7ad90 fixed.",
-      "moved": "First recording: 116 declared / 52 undelivered on the P3-exit tree c15966f250d7. Accepted at 81/17 \u2014 +35 on both, the second-largest drift.",
-      "why_right": "A second independent instance of the same +35-ish jump, which is what makes it a property of the enforcer rather than of one project's documents."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 0 on the P3-exit tree c15966f250d7. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "Every criterion is bound in a row or a sub-assertion; AC-10.5 is cited only as AC10.5-422-status and resolves to its declared id, which is why trailing segments are dropped to a declared id."
     },
+    "ac_uncited": 0,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -157,11 +163,12 @@
   },
   "taskq-open": {
     "_note": {
-      "cheapest_satisfaction": "Writing any 40-hex phase_completed[\"3\"] sha would also move this entry; here the sha is the advance commit itself, checked with git log.",
-      "discriminating_signal": "343c85da5b28 resolves in taskq-open and is the commit advance-phase --completed 3 wrote, so the replayed tree is the real P3 exit, not an arbitrary reachable commit.",
-      "moved": "unmeasured -> first measured vector: taskq-open finished Phase 3 and state.json phase_completed[\"3\"].sha is 343c85da5b28, the `handover: advance to Phase 4` commit.",
-      "why_right": "The project progressed; the judge did not change. The same two tests fail on the harness before this round's fix with the identical message, so the move is the corpus, not the code."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 0 on the P3-exit tree 343c85da5b28. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "Every criterion is cited in its declaration row or in a sub-assertion applied to it, so the stricter reading moves nothing."
     },
+    "ac_uncited": 0,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -177,11 +184,12 @@
   },
   "taskq-plus": {
     "_note": {
-      "cheapest_satisfaction": "Same as its siblings for the 50 \u2014 name them. Note that its accepted verdict recorded nothing to compare against, so the drift here is unknown rather than zero.",
-      "discriminating_signal": "None for the declarations. What this entry adds is coverage of a different SPEC shape, so a future rule that only works on the 10-FR layout reports here first.",
-      "moved": "First recording: 113 declared / 50 undelivered / 8 FRs on the P3-exit tree 21130712f632. Its own gate2_result.json records no spec_declared at all.",
-      "why_right": "An 8-FR SPEC from an earlier generation, kept in the baseline for exactly that reason: a rule tuned on the 10-FR family should be shown a tree it did not come from."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 0 on the P3-exit tree 21130712f632. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "SRS.md declares no AC id, so there is no population to cite; P1's check_ac_identifiers is the check that reports that, and it is unchanged."
     },
+    "ac_uncited": 0,
     "frs_total": 8,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -194,11 +202,12 @@
   },
   "taskq-redo": {
     "_note": {
-      "cheapest_satisfaction": "This project IS the cheapest satisfaction, on the record: 29 correctly-named empty tests written in the Gate 2 exit commit itself (fbf9f5c). 130/130 stays 130/130 under any parser, so no improvement to the thing that reads declarations can ever move this line.",
-      "discriminating_signal": "Exactly one, and it is narrow: runtime_test_seams=1, the only non-zero in the corpus (deps.py branches at runtime on whether TaskService.create was monkey-patched). spec_undelivered cannot tell this tree from taskq-api's identical 0.",
-      "moved": "First recording, not a move: 130 declared / 0 undelivered / 1 runtime_test_seam on the P3-exit tree f58d68552567.",
-      "why_right": "This is the tree Round 87 traced the three-dimension degradation to, recorded exactly as today's enforcer reads it. It is the reference point the whole baseline exists for."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 0 on the P3-exit tree f58d68552567. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 0.",
+      "why_right": "Every criterion is cited in the declaration row of the case that verifies it, so the stricter reading moves nothing."
     },
+    "ac_uncited": 0,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -211,11 +220,12 @@
   },
   "taskq-renew": {
     "_note": {
-      "cheapest_satisfaction": "8 is small enough that closing it with stubs would cost less than an afternoon, which is the point: cheapness scales with how far below the line a project sits.",
-      "discriminating_signal": "None. Recorded so that a rule which suddenly reports many violations on the corpus's cleanest declaration set has to explain itself.",
-      "moved": "First recording: 89 declared / 8 undelivered / 8 FRs on the P3-exit tree 7e9277dcbf17. Like taskq-plus, its committed gate result carries no spec_declared to compare against.",
-      "why_right": "The lowest undelivered count of any measured tree, and from the older 8-FR family \u2014 the far end of the range this baseline covers."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 11 on the P3-exit tree 7e9277dcbf17. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 11.",
+      "why_right": "The same 11 criteria are cited nowhere under either rule; every other one is cited in a declaration row."
     },
+    "ac_uncited": 11,
     "frs_total": 8,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -226,12 +236,15 @@
     "spec_undelivered": 8,
     "spec_unread_rows": 0
   },
+  "taskq-retry": {
+    "unmeasured": "no 40-char sha in phase_completed[3]"
+  },
   "taskq-sn": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
-      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all \u2014 this project is at initial scaffold and has not reached P3.",
-      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name \u2014 same reasoning as omnibot-new's entry above."
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None needed; this is a coverage hole rather than a verdict, the same shape as omnibot-new and the other pre-P3 entries. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
+      "moved": "First recording, unmeasurable: state.json shows current_phase 1 with no phase_completed key at all — this project is at initial scaffold and has not reached P3.",
+      "why_right": "Correctly unmeasurable rather than missing a record: there is no P3 exit yet to name — same reasoning as omnibot-new's entry above."
     },
     "unmeasured": "no 40-char sha in phase_completed[3]"
   },
@@ -240,11 +253,12 @@
   },
   "taskq-super": {
     "_note": {
-      "cheapest_satisfaction": "36 declarations appeared under this tree because the parser stopped dropping rows. A project facing that jump can close it by writing 36 named stubs, which is precisely the path taskq-redo took two rounds later.",
-      "discriminating_signal": "None for the declarations themselves. What this entry buys is that the next +36 cannot happen without somebody writing down what a project below the new line is expected to do about it.",
-      "moved": "First recording: 123 declared / 51 undelivered on the P3-exit tree 2b74f46fb187. Accepted at 87/15 \u2014 the largest drift in the corpus, +36 on both numbers, on bytes that never changed.",
-      "why_right": "The clearest single measurement of how far the bar has moved under projects that were already accepted. It is recorded, not corrected: grandfathering would mean the framework can never raise its own bar (R43 \u7ad94)."
+      "cheapest_satisfaction": "Write each AC id into the Derivation cell of any delivered declaration row, or into a sub-assertion rule_id applied to one. The binding is the TEST_SPEC author's word, so a row that does not verify the criterion satisfies this count exactly as well as one that does.",
+      "discriminating_signal": "None mechanical. This count cannot tell a criterion bound to the case that verifies it from one bound to an unrelated case; Phase 2's Agent B review (Step 1d) is the only reader of that, and no corpus search for such bindings was made this round.",
+      "moved": "ac_uncited first recorded: 111 on the P3-exit tree 2b74f46fb187. Round 117 counts a criterion as cited only when a TEST_SPEC case cites it; the rule before it (any mention anywhere in TEST_SPEC.md) gives 111.",
+      "why_right": "TEST_SPEC.md cites no AC id at all, so all 111 are uncited under either rule."
     },
+    "ac_uncited": 111,
     "frs_total": 10,
     "frs_without_requirement_text": 0,
     "frs_without_tests": 0,
@@ -266,8 +280,8 @@
   },
   "tts-new": {
     "_note": {
-      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record \u2014 `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 \u7ad91 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
-      "discriminating_signal": "None. Two projects at phase 8 with no phase_completed entries at all is the finding; its cause is not established here. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one \u2014 but a real commit at the wrong moment does not.",
+      "cheapest_satisfaction": "The cheapest way to move this entry out of 'unmeasured' is to write a phase_completed[\"3\"] record — `frozen_tree_sha` only checks the value is 40 hex characters, and Round 72 站1 found a project shipping the literal string PLACEHOLDER there. A sha that git can resolve but that names a commit unrelated to the P3 exit would replay cleanly.",
+      "discriminating_signal": "None. Two projects at phase 8 with no phase_completed entries at all is the finding; its cause is not established here. The mechanical check is `git archive`: a sha naming no reachable commit is recorded as could-not-measure rather than as a tree, so a fabricated record shows up as an unreadable one — but a real commit at the wrong moment does not.",
       "moved": "First recording, unmeasurable: phase_completed is EMPTY at current_phase 8, the same shape as omnibot.",
       "why_right": "A second instance of the empty-record shape, which is what makes it worth naming rather than treating as one project's accident."
     },

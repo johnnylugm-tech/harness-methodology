@@ -11544,3 +11544,34 @@ phase_tasks 1162 → 1172;cmd_run_fr_step 872 → 870(收割);split golden 重�
 | `canonical_form.fr_id_to_test_filename` 的 `"tests"` 預設值 | 沒有 production 呼叫者,只有自測 | 有 production 呼叫者 |
 | 修正語料中的 symlink(taskq-final、omnibot、tts-new) | 語料唯讀,專案已過 P8 | — |
 | P3 workflow 的「TRACEABILITY_MATRIX.md §5 is the canonical listing」 | R114 站7 起 matrix 由框架 render;是否仍有 §5 屬另一個陳述漂移,不在測試根範圍 | 下一輪 prompt↔產出漂移盤點 |
+
+## Round 117 — NFR 覆蓋改讀「宣告且已交付的 TEST_SPEC case」(TRACEABILITY_MATRIX §5 漂移 + 4c 採信規則)(2026-10-08)
+
+老闆令:處理 TRACEABILITY_MATRIX §5 的漂移,範圍包含 4c 的採信規則;方案先驗證是正解且無副作用。裁決:新綁定合約
+一律套用,不做遷移機制(進行中的 taskq-sn 由老闆處理)。方案先在 scratch clone 完整實作、全套轉綠、13 項反證後才動 repo。
+
+**根源**:框架從沒宣告「AC 綁在哪個 case」。`check_ac_test_spec_coverage` 收 TEST_SPEC 任何地方的 AC id(散文也算),
+它自己的訊息與 Agent B 檢查清單卻寫「由 case 引用」。沒有可讀的綁定,4c 只能採信實作者寫在測試裡的 `NFR-XX` 字串
+(R87),P3 prompt 只好指向一個不存在的 FR↔NFR 表(matrix §5、SRS §2 `NFR Association` 欄,語料 0/6)。語料各自發明
+寫法:列內(wow 的 Derivation、sol 的 Inputs、done 的 fn 欄)、sub-assertion rule_id(final、new、open、cc-new、api)、
+散文或另一張對照表(sn、cc)。
+
+### 站1 — P2 合約:AC 綁在 case
+
+`core/quality_gate/ac_case_binding.py`:引用 = case 的宣告列,或 `applies_to` 指向該 case 的 sub-assertion rule_id;
+case 編號屬於最近一張宣告表;`AC10.5-422-status` 只在去尾能到已宣告 id 時才解析為 `AC-10.5`。`_parse_test_spec`
+每列多一個 `acs` 鍵,列集合不變:全語料的 (test_fn, type, derivation, fr_id)、unread 數與 4b 的 declared/implemented/pct
+新舊 sha256 相同。`_test_spec_dispositions` 的 cited 改讀綁定。prompt(紅線規則、Step 3 範例、Agent B Step 1d)、
+`templates/TEST_SPEC.md`、OBSERVABILITY 同步。
+
+第一版被推翻三次:只讀宣告列(`_TEST_SPEC_NODASH` 釘住的 taskq-api 誤報回來)、case 編號以 section 為範圍(taskq-api
+10 筆 applies_to 懸空;改「最近宣告表」後 18 專案 1,950 筆懸空 0)、去尾把 `AC-7` 剝成 `AC`。
+
+P2 error(舊 → 新,HEAD):done/sol/wow/open/redo/final/new/api/plus 0 → 0;sn(P3)0 → 67;cc-new 0 → 49(FR AC 只在
+「Acceptance criteria: …」散文行);cc 2 → 94(另一張對照表);advance 86 → 92。P8/P9 專案只有重跑 run-phase 才遇到。
+
+`corpus_replay` 新增 `ac_uncited`(純函數):被接受的樹不得被靜默重判(R88)。11 個專案的 `_note` 寫舊規則值與四點;
+`cheapest_satisfaction` 照實寫「把 AC id 寫進任何已交付列」,`discriminating_signal` 照實寫「沒有機械訊號,只有 P2 的
+Agent B」。taskq-retry(另一個 session 新建)首次記錄為不可量測。
+
+反證:HEAD 的 spec_coverage + artifact_consistency 讓 6 個新測試中 4 個轉紅。spec_coverage 981 → 1000。

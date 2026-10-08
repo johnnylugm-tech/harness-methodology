@@ -96,8 +96,10 @@ def test_a_predicate_suffix_matches_the_criterion_it_sits_under(
     )
     spec = (
         "# TEST_SPEC.md\n\n### NFR-01: latency\n\n"
-        "| rule_id | predicate |\n|---|---|\n"
-        "| AC-P1.1-latency-p95 | p95 < 200 |\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n|---|---|---|---|---|\n"
+        "| 1 | `test_nfr01_p95` | p95_budget_ms=\"200\" | nfr_pattern | NP-06 |\n\n"
+        "| rule_id | predicate | applies_to |\n|---|---|---|\n"
+        "| AC-P1.1-latency-p95 | p95 < 200 | 1 |\n"
     )
     assert check_ac_test_spec_coverage(_project(tmp_path, srs, spec)) == []
 
