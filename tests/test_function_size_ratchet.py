@@ -353,7 +353,7 @@ _CEILINGS: dict[str, int] = {
     # `findings.extend(...)` lines by design: the list of what doctor asks is
     # meant to be readable top to bottom in one place.
     "core/doctor.py::run_doctor": 226,  # 2026-09-05: 219 -> 226 — Round 96 站1. Check 13b, the gitleaks-scope WARN, beside 13's CI-template drift: init-project ships two templates and only one had a reader that noticed a project never got it.
-    "core/quality_gate/spec_tracking_checker.py::compute_trace_dimension": 201,
+    "core/quality_gate/spec_tracking_checker.py::compute_trace_dimension": 170,
 }
 
 

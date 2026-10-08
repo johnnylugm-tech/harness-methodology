@@ -70,8 +70,22 @@ def project(tmp_path: Path) -> Path:
     req.mkdir()
     (req / "SRS.md").write_text(
         "# Software Requirements Specification\n\n"
-        "### NFR-07: dependency and licence compliance\n"
-        "### NFR-10: integration coverage\n",
+        "### NFR-07: dependency and licence compliance\n\n**Acceptance criteria**\n\n"
+        "- **AC-N7.1**: every license is allowlisted.\n"
+        "- **AC-N7.2**: the SBOM records a license per dependency.\n\n"
+        "### NFR-10: integration coverage\n\n**Acceptance criteria**\n\n"
+        "- **AC-N10.1**: errors carry a stable envelope.\n",
+        encoding="utf-8",
+    )
+    # Round 117: the requirement's witnesses are the cases TEST_SPEC binds to it.
+    arch = tmp_path / "02-architecture"
+    arch.mkdir()
+    (arch / "TEST_SPEC.md").write_text(
+        "# TEST_SPEC.md\n\n### NFR Integration\n\n"
+        "| # | Test Function | Inputs | Type | Derivation |\n|---|---|---|---|---|\n"
+        "| 1 | `test_licenses_in_allowlist` | x=\"1\" | static | AC-N7.1 |\n"
+        "| 2 | `test_sbom_license_field` | x=\"1\" | static | AC-N7.2 |\n"
+        "| 3 | `test_error_envelope` | x=\"1\" | integration | AC-N10.1 |\n",
         encoding="utf-8",
     )
     return tmp_path
@@ -111,23 +125,17 @@ def _pin_outcomes(monkeypatch, outcomes: dict[str, str]) -> None:
 
 
 def test_an_absent_witness_is_reported_not_discarded(project):
-    """`scanner.py:380` drops the function it refuses to credit. It must not."""
-    from core.traceability.scanner import scan_test_nfr_absent_witnesses
+    """The case that did not run is named, with what happened to it."""
+    from core.quality_gate.ac_case_binding import nfr_case_coverage
 
-    absent = scan_test_nfr_absent_witnesses(
-        project / "03-development" / "tests",
-        test_outcomes=_OUTCOMES,
-        project_root=project,
-    )
+    per_nfr = nfr_case_coverage(project, _OUTCOMES)["per_nfr"]
 
-    assert "NFR-07" in absent, (
-        "test_sbom_license_field claims to verify NFR-07 and did not run — "
+    named = " ".join(per_nfr["NFR-07"]["absent"])
+    assert "test_sbom_license_field" in named and "skipped" in named, (
+        "test_sbom_license_field verifies AC-N7.2 and did not run — "
         "the framework must be able to name it"
     )
-    named = " ".join(str(x) for x in absent["NFR-07"])
-    assert "test_sbom_license_field" in named
-    assert "skipped" in named
-    assert "NFR-10" not in absent, "NFR-10's only witness passed"
+    assert per_nfr["NFR-10"]["absent"] == [], "NFR-10's only witness passed"
 
 
 def test_a_requirement_with_an_absent_witness_is_not_covered(project, monkeypatch):

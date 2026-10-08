@@ -9,9 +9,10 @@ sub-assertion whose `applies_to` names the case.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from core.quality_gate.ac_case_binding import ac_case_bindings, resolve
+from core.quality_gate.ac_case_binding import ac_case_bindings, nfr_case_coverage, resolve
 from core.quality_gate.artifact_consistency import check_ac_test_spec_coverage
 from tests.support.nfr_project import make_nfr_project
 
@@ -75,3 +76,13 @@ def test_a_case_number_belongs_to_the_most_recent_declaration_table(tmp_path):
           + "| rule_id | predicate | applies_to |\n|---|---|---|\n"
           + '| AC-N2.1-wiring | component == "db" | 1 |\n| AC-N2.2-x | x == "1" | 2 |\n')
     assert ac_case_bindings(tmp_path) == {"AC-N2.1": {"test_app_wires_database"}}
+
+
+def test_a_typescript_project_delivers_by_test_title(tmp_path):
+    make_nfr_project(tmp_path, {"NFR-01": ["AC-N1.1"]}, [("test_nfr01_p95", "AC-N1.1")])
+    (tmp_path / "03-development" / "tests" / "test_nfr.py").unlink()
+    (tmp_path / ".methodology").mkdir()
+    (tmp_path / ".methodology" / "state.json").write_text(json.dumps({"language": "typescript"}))
+    (tmp_path / "03-development" / "tests" / "nfr.test.ts").write_text(
+        "it('test_nfr01_p95', () => { expect(1).toBe(1); });\n", encoding="utf-8")
+    assert nfr_case_coverage(tmp_path)["pct"] == 100.0

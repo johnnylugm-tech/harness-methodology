@@ -11575,3 +11575,22 @@ P2 error(舊 → 新,HEAD):done/sol/wow/open/redo/final/new/api/plus 0 → 0;sn(
 Agent B」。taskq-retry(另一個 session 新建)首次記錄為不可量測。
 
 反證:HEAD 的 spec_coverage + artifact_consistency 讓 6 個新測試中 4 個轉紅。spec_coverage 981 → 1000。
+
+### 站2 — 4c = AC 綁定 × 交付,Gate 3 起到期
+
+`ac_case_binding.nfr_case_coverage`:每個 SRS NFR(排除 NFR-99)的每個準則,由引用它的 case 的測試(與 4b 同一次
+`spec_coverage_report`)或 `Deferred:` 子句點名的測試(與 `check_ac_deferral_targets` 同一個 `delivery_outcome`)驗證。
+`compute_trace_dimension` 在 Gate 3 起才算 4c;Gate 2 為 `None`,不併入 merged(R114 站5 的 P4 出口期限;FR 列引用的
+NFR 準則屬 Gate 1)。
+
+第二版被推翻:把 `Deferred:` 一律算覆蓋,違反 R69 站5「A Deferred line is NOT coverage」,且讓「全寫 Deferred」成為最便宜
+的過關法;反過來算未覆蓋,sol 照 Step 1d 寫的 39 個工具 deferral 會讓它在 Gate 3 無分可拿(R42)。正解:點名測試的
+deferral 以該測試判;交給工具/人的 deferral 不進分子也不進分母、具名(`nfr_not_test_verified`),代價是 R69 的帳本列;
+沒有一個可量的 NFR 時 4c = 0.0。假設宣告測試全交付,sol/wow/done/cc-new/open/new/final/redo 上限 100%。
+
+凍結 P4 出口樹(舊 → 新):redo 100 → 100;final 100 → 91.67;open 100 → 75;renew 100 → 66.67;cc-new 83.33 → 58.33;
+new 100 → 41.67;advance/api/cc/plus/super → 0(無 case 綁定或 SRS 無 AC id)。被扣的每一個都是宣告測試在交付樹沒有 `def`
+(open `test_nfr03_request_txn_commit_rollback`、final `test_verify_system_exits_zero` 等,逐一 grep 確認)。
+
+反證:HEAD 的 ac_case_binding + spec_tracking_checker 讓 11 個測試轉紅。`compute_trace_dimension` 201 → 170(收割);
+gate_cmds 3402 → 3405。

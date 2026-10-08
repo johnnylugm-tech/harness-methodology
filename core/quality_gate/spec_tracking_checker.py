@@ -226,7 +226,7 @@ def _filter_active_frs(rt, missing: dict) -> tuple[set, set]:
 
 def resolve_threshold_effective(
     *,
-    pct_4a: float, pct_4b: float, pct_4c: float,
+    pct_4a: float, pct_4b: float, pct_4c: "float | None",
     threshold_4a: float, threshold_4b: float, threshold_4c: float,
 ) -> float:
     """The threshold to compare `merged_pct` against, so that
@@ -255,16 +255,13 @@ def resolve_threshold_effective(
     component's value and clears it, and the printed number stays meaningful to
     a human reading the gate line.
     """
-    failing = [
-        threshold
-        for pct, threshold in (
-            (pct_4a, threshold_4a), (pct_4b, threshold_4b), (pct_4c, threshold_4c),
-        )
-        if pct < threshold
-    ]
+    pairs = [(pct_4a, threshold_4a), (pct_4b, threshold_4b)]
+    if pct_4c is not None:
+        pairs.append((pct_4c, threshold_4c))
+    failing = [threshold for pct, threshold in pairs if pct < threshold]
     if failing:
         return max(failing)
-    merged = min(pct_4a, pct_4b, pct_4c)
+    merged = min(p for p, _ in pairs)
     if merged == pct_4a:
         return threshold_4a
     if merged == pct_4b:
@@ -310,7 +307,7 @@ def compute_trace_dimension(project, gate: int) -> dict:
         "name": "traceability",
         "4a_fr_to_test_pct": 100.0,
         "4b_test_spec_pct": 85.0,
-        "4c_nfr_to_test_pct": 100.0,
+        "4c_nfr_to_test_pct": 100.0,   # None before Gate 3 — not yet due
         "merged_pct": 85.0,
         "passed": True/False,
         "threshold_4a": 100,
@@ -320,7 +317,8 @@ def compute_trace_dimension(project, gate: int) -> dict:
             # against THIS, not threshold_4a, or a passing 4b/4c misreads as FAIL
         "active_uncoded": [...],   # FRs in denominator without code
         "active_untested": [...],  # FRs in denominator without test
-        "nfr_untested": [...],     # NFRs from SRS.md without any test reference
+        "nfr_untested": [...],     # NFRs with a criterion no delivered test verifies
+        "nfr_not_test_verified": [...],  # every criterion deferred to a non-test verifier
         "blocking": True/False,
         "error": str | None,
       }
@@ -335,7 +333,7 @@ def compute_trace_dimension(project, gate: int) -> dict:
         "name": "traceability",
         "4a_fr_to_test_pct": 0.0,
         "4b_test_spec_pct": 0.0,
-        "4c_nfr_to_test_pct": 100.0,
+        "4c_nfr_to_test_pct": None,
         "merged_pct": 0.0,
         "passed": False,
         "threshold_4a": threshold_4a,
@@ -414,58 +412,25 @@ def compute_trace_dimension(project, gate: int) -> dict:
         result["4b_test_spec_pct"] = 0.0
         result["error"] = (result["error"] or "") + f" 4b: {e}"
 
-    # 4c: NFR → test coverage (Gate 2+)
-    # Each NFR-XX ID in SRS.md must be referenced in at least one test file.
-    nfr_pct = 100.0
+    # 4c: NFR → declared, delivered TEST_SPEC case (Gate 3+). Round 117: this
+    # credited any passing test whose body named `NFR-XX` — a string the
+    # implementer writes, from an FR↔NFR table no project had. It now reads
+    # the case Phase 2 bound to each criterion (`ac_case_binding`) and that
+    # case's delivery, the same `spec_coverage_report` run as 4b. Not due at
+    # Gate 2: NFR-section tests are due at the P4 exit (Round 114 站5), and
+    # the FR rows that cite NFR criteria are Gate 1's. None, not 100 — a
+    # component that was not measured is not a pass (Round 35).
+    nfr_pct = None
     nfr_untested: list = []
     nfr_absent_witnesses: list = []
-    if gate >= 2:
+    if gate >= 3:
         try:
-            from core.traceability.scanner import (
-                extract_nfr_ids_from_srs,
-                scan_test_nfr_absent_witnesses,
-                scan_test_nfr_coverage,
-            )
-            from core.utils.project_layout import ProjectLayout
-            srs_path = ProjectLayout(project_path).srs_path
-            nfr_ids = extract_nfr_ids_from_srs(srs_path)
-            # F-2.2: NFR-99 is the placeholder convention for deferred
-            # / TBD / ambiguity markers (see phase1_plan.md L96,
-            # R-CANONICAL-INTERP-001). It is not a real NFR that requires
-            # test coverage — exclude from the 4c denominator.
-            nfr_ids = {n for n in nfr_ids if n != "NFR-99"}
-            if nfr_ids:
-                # Defect A fix: outcome-aware coverage. run_suite is
-                # memoized per-process (Round 25 SSOT) — this reuses the
-                # same measurement check_traceability() above already took.
-                test_outcomes = _measured_outcomes(project_path)
-                test_nfr_map = scan_test_nfr_coverage(
-                    ProjectLayout(project_path).active_test_dir,
-                    test_outcomes=test_outcomes, project_root=project_path,
-                )
-                # Round 46 站1: a requirement with a witness that did not run
-                # is not covered. `scan_test_nfr_coverage` grants credit per
-                # FILE, so one passing sibling used to cover for every skipped
-                # guard in the same file — taskq-advance shipped NFR-05/07/09
-                # VERIFIED that way while the tests asserting the missing
-                # README, the missing SBOM and the zero-skip rule all skipped
-                # themselves. Recomputed on that project this moves 4c from
-                # 12/12 = 100.0 to 9/12 = 75.0, under Gate 4's 90.
-                absent = (
-                    scan_test_nfr_absent_witnesses(
-                        ProjectLayout(project_path).active_test_dir,
-                        test_outcomes, project_path,
-                    )
-                    if test_outcomes is not None else {}
-                )
-                covered = {
-                    n for n in nfr_ids if n in test_nfr_map and n not in absent
-                }
-                nfr_pct = round(len(covered) / len(nfr_ids) * 100, 2)
-                nfr_untested = sorted(nfr_ids - covered)
-                nfr_absent_witnesses = sorted(
-                    f"{n} ← {w}" for n in nfr_ids & set(absent) for w in absent[n]
-                )
+            from core.quality_gate.ac_case_binding import nfr_case_coverage
+            cov = nfr_case_coverage(project_path, _measured_outcomes(project_path))
+            nfr_pct = cov["pct"]
+            nfr_untested = cov["untested"]
+            nfr_absent_witnesses = [f"{n} {w}" for n, v in cov["per_nfr"].items() for w in v["absent"]]
+            result["nfr_not_test_verified"] = cov["not_test_verified"]
         except Exception as e:
             # Fail-closed: NFR scan errors (malformed/unreadable SRS) must not
             # silently pass as 100% coverage. Unlike 4a/4b which also set their
@@ -486,13 +451,14 @@ def compute_trace_dimension(project, gate: int) -> dict:
     # Threshold for 4c matches 4b per gate (60%/80%/90% at G2/G3/G4)
     threshold_4c = threshold_4b
 
-    # Merged: min of all three dimensions — fail-closed
-    merged = min(result["4a_fr_to_test_pct"], result["4b_test_spec_pct"], nfr_pct)
+    # Merged: min of the components that are due — fail-closed
+    due = [result["4a_fr_to_test_pct"], result["4b_test_spec_pct"]] + ([nfr_pct] if nfr_pct is not None else [])
+    merged = min(due)
     result["merged_pct"] = merged
     result["passed"] = (
         pct_4a >= threshold_4a
         and result["4b_test_spec_pct"] >= threshold_4b
-        and nfr_pct >= threshold_4c
+        and (nfr_pct is None or nfr_pct >= threshold_4c)
     )
     result["threshold_effective"] = resolve_threshold_effective(
         pct_4a=pct_4a,

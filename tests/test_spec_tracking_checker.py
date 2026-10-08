@@ -94,10 +94,10 @@ def test_compute_trace_dimension_nfr_scan_exception_is_fail_closed(tmp_path):
         "core.traceability.scanner.extract_nfr_ids_from_srs",
         return_value=["NFR-01", "NFR-02"],
     ), patch(
-        "core.traceability.scanner.scan_test_nfr_coverage",
+        "core.quality_gate.ac_case_binding.nfr_case_coverage",
         side_effect=RuntimeError("malformed SRS"),
     ):
-        result = compute_trace_dimension(tmp_path, gate=2)
+        result = compute_trace_dimension(tmp_path, gate=3)
 
     assert result["4c_nfr_to_test_pct"] == 0.0, (
         f"Expected nfr_pct=0.0 on scan exception, got {result['4c_nfr_to_test_pct']}"

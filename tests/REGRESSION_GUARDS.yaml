@@ -6777,3 +6777,35 @@
 - test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_case_number_belongs_to_the_most_recent_declaration_table
   bug: "taskq-sol's sub-assertion table follows two declaration tables; a case number belongs to the nearer one"
   fixed_in: "Round 117 站1"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_an_annotation_is_not_a_binding
+  bug: "4c credited any passing test whose body named NFR-XX — a string the implementer writes, copied from an FR<->NFR table (TRACEABILITY_MATRIX §5, SRS §2 NFR Association) no project had"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_a_declared_case_nobody_wrote_fails_gate3
+  bug: "taskq-open, taskq-new, taskq-final shipped NFRs at 4c 100 whose TEST_SPEC-declared tests had no def in the delivered tree; 4c now reads the bound case's delivery"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_is_not_due_at_gate2
+  bug: "4c was judged at Gate 2 (P3 exit) although NFR-section tests are due at the P4 exit (Round 114 站5); not due is None, not 100"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_a_criterion_deferred_to_a_tool_is_neither_coverage_nor_a_miss
+  bug: "a deferral is not coverage (Round 69 站5), and what a test cannot show is not zero (Round 35): a tool-deferred criterion leaves the denominator and is named"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_nothing_left_to_measure_is_not_a_pass
+  bug: "a project whose every NFR criterion is deferred to a non-test verifier must not read as 4c 100"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_a_deferral_naming_a_test_is_judged_by_that_test
+  bug: "a Deferred clause naming a test function binds the criterion to that test, the read check_ac_deferral_targets makes (Round 83 站3)"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_gate_trace_dimension.py::test_4c_an_nfr_with_no_criterion_is_not_covered
+  bug: "an NFR that declares no AC id has nothing a case can verify; it is not covered"
+  fixed_in: "Round 117 站2"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_a_typescript_project_delivers_by_test_title
+  bug: "4c delivery for a js/ts project reads it('test_...') titles through the same spec_coverage_report as 4b"
+  fixed_in: "Round 117 站2"

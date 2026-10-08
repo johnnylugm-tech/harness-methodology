@@ -1,4 +1,5 @@
-"""Which TEST_SPEC case verifies which acceptance criterion.
+"""Which TEST_SPEC case verifies which acceptance criterion — and so which
+SRS non-functional requirement a delivered test verifies.
 
 Round 117. `check_ac_test_spec_coverage` asked only whether an AC id appeared
 anywhere in TEST_SPEC.md, prose included, while its own message and Agent B's
@@ -25,6 +26,8 @@ from pathlib import Path
 from core.quality_gate.artifact_consistency import (
     _AC_ID,
     _AC_ID_CITED,
+    _DEFERRAL_TEST_FN,
+    _parse_deferrals,
     _with_dash,
     srs_acceptance_criteria,
 )
@@ -79,3 +82,90 @@ def ac_case_bindings(project) -> dict:
         for ac in row.get("acs", ()):
             out.setdefault(resolve(ac, declared), set()).add(row["test_fn"])
     return out
+
+
+def nfr_case_coverage(project, test_outcomes=None) -> dict:
+    """Per SRS NFR (NFR-99 excluded): every criterion it declares is verified by
+    a delivered test — one whose case cites it (the same `spec_coverage_report`
+    run, and so the same `delivery_outcome` rule, as the dimension's 4b), or
+    one a `Deferred:` clause names. A criterion deferred to anything else
+    is listed under `not_a_test`. An NFR that declares no AC id is not covered.
+
+    Returns `{"per_nfr": {nfr: {"tests", "absent", "not_a_test"}}, "pct",
+    "untested", "not_test_verified"}`.
+    """
+    from core.quality_gate.spec_coverage import spec_coverage_report
+    from core.traceability.scanner import extract_nfr_ids_from_srs
+    from core.utils.project_layout import ProjectLayout
+
+    project = Path(project)
+    declared = {a for acs in declared_acs(project).values() for a in acs}
+    nfr_ids = {n for n in extract_nfr_ids_from_srs(ProjectLayout(project).srs_path) if n != "NFR-99"}
+    report = spec_coverage_report(project, test_outcomes=test_outcomes)
+    delivered: dict = {}
+    undelivered: dict = {}
+    for row in report["covered"]:
+        for ac in row.get("acs", ()):
+            delivered.setdefault(resolve(ac, declared), set()).add(row["test_fn"])
+    for row in report["missing"]:
+        for ac in row.get("acs", ()):
+            undelivered.setdefault(resolve(ac, declared), set()).add(f"{row['test_fn']} ({row['why']})")
+    # A deferral that names a test function binds the criterion to that test
+    # (`check_ac_deferral_targets` reads the same clause); one that names a
+    # tool or a person is recorded, not counted as coverage (Round 69 站5).
+    spec = ProjectLayout(project).test_spec_path
+    clauses, _unattributed = _parse_deferrals(
+        spec.read_text(encoding="utf-8", errors="replace")) if spec.exists() else ({}, set())
+    named = {_with_dash(ac): set(_DEFERRAL_TEST_FN.findall(clause)) for ac, clause in clauses.items()}
+    named_why = _deferral_target_outcomes(project, {fn for fns in named.values() for fn in fns}, test_outcomes)
+    criteria = declared_acs(project)
+    per_nfr: dict = {}
+    for nfr in sorted(nfr_ids):
+        acs = criteria.get(nfr, [])
+        tests: set = set()
+        absent: list = [] if acs else [f"{nfr} declares no AC-id"]
+        not_a_test: list = []
+        for ac in acs:
+            by_deferral = {fn for fn in named.get(ac, ()) if named_why[fn] == "delivered"}
+            if ac in delivered or by_deferral:
+                tests |= delivered.get(ac, set()) | by_deferral
+            elif ac in named and not named[ac] and ac not in undelivered:
+                not_a_test.append(ac)
+            else:
+                absent += ([f"{ac} ← {w}" for w in sorted(undelivered.get(ac, ()))]
+                           + [f"{ac} ← {fn} ({named_why[fn]})" for fn in sorted(named.get(ac, ()))]
+                           or [f"{ac} ← no TEST_SPEC case cites it"])
+        per_nfr[nfr] = {"tests": sorted(tests), "absent": absent, "not_a_test": not_a_test}
+    # A criterion deferred to a tool or a person is outside what a test can
+    # show: not coverage (Round 69 站5), and not a miss either (Round 35) —
+    # it is named, and Round 69's ledger row is its cost. An NFR made only of
+    # such criteria leaves the denominator; one with none left to measure in
+    # a project that declares NFRs is not a pass.
+    measured = {n for n, v in per_nfr.items() if v["tests"] or v["absent"]}
+    covered = {n for n in measured if not per_nfr[n]["absent"]}
+    if measured:
+        pct = round(len(covered) / len(measured) * 100, 2)
+    else:
+        pct = 0.0 if nfr_ids else 100.0
+    return {
+        "per_nfr": per_nfr,
+        "pct": pct,
+        "untested": sorted(measured - covered) if measured else sorted(nfr_ids),
+        "not_test_verified": sorted(set(per_nfr) - measured),
+    }
+
+
+def _deferral_target_outcomes(project: Path, fns: set, test_outcomes) -> dict:
+    """`delivery_outcome` for each test a `Deferred:` clause names — the read
+    `check_ac_deferral_targets` makes, over every test function in the tree."""
+    from core.quality_gate.spec_coverage import (
+        _get_test_directories, _scan_test_functions, delivery_outcome)
+    from core.utils.lang_patterns import project_language
+
+    if not fns:
+        return {}
+    lang = project_language(project)
+    actual: set = set()
+    for test_dir in _get_test_directories(project):
+        actual |= _scan_test_functions(test_dir, lang)
+    return {fn: delivery_outcome(fn, actual, test_outcomes) for fn in fns}
