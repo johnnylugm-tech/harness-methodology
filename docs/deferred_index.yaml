@@ -2265,3 +2265,27 @@ entries:
     item: "對 Derivation / rule_id 的 AC 引用做語意比對"
     reason: "綁定是 P2 作者的陳述,由 Agent B 審查;沒有機械訊號,照實記錄"
     reopen: "出現把 AC 綁到無關列的實例"
+  - round: 118
+    line: 11658
+    kind: table_row
+    item: "Advance step 通用 fixer loop"
+    reason: "終點補救,錯誤要跑完 Peer Review 與 Push 才被發現;要改 workflowgen 與 8 份 JS"
+    reopen: "出現無法前移到產出者 loop 的 advance 確定性阻擋"
+  - round: 118
+    line: 11659
+    kind: table_row
+    item: "Peer Review 也問此規則"
+    reason: "需改 Peer Review JS;發生條件比本案窄"
+    reopen: "出現 Peer Review 輪引入錯引用的實例"
+  - round: 118
+    line: 11660
+    kind: table_row
+    item: "`recordBlock` 傳 `--exit-code`(本次 exit 50 被記成 owner unknown)"
+    reason: "不同問題,另案"
+    reopen: "老闆指定"
+  - round: 118
+    line: 11661
+    kind: table_row
+    item: "`misplaced_spec_citations` 收相對路徑時 `relative_to` 拋錯"
+    reason: "advance 傳入 resolved path,不影響;另案"
+    reopen: "出現相對路徑呼叫者"

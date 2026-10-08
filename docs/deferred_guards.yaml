@@ -2632,3 +2632,27 @@ entries:
     guard: "manual"
     evidence: >-
       2026-10-08: 條件是「出現把 AC 綁到無關列的實例」。本輪未搜尋;綁定是 P2 作者的陳述,由 Agent B 依 Step 1d 審查,replay note 的 discriminating_signal 照實寫「沒有機械訊號」。
+  - round: 118
+    item: "Advance step 通用 fixer loop"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「出現無法前移到產出者 loop 的 advance 確定性阻擋」。本輪只處理 exit 50 一條,已前移到 A/B loop;未搜尋其他 advance 阻擋是否同形,不宣稱已查過。
+  - round: 118
+    item: "Peer Review 也問此規則"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「出現 Peer Review 輪引入錯引用的實例」。本輪語料只有 taskq-retry 一例,其錯引用在 sub-task 第 1 輪就存在,不是 Peer Review 輪引入;未搜尋其他專案。
+  - round: 118
+    item: "`recordBlock` 傳 `--exit-code`(本次 exit 50 被記成 owner unknown)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「老闆指定」,尚未指定。journal 最後一筆 record-block 為 owner=unknown、evidence「no exit code」,現象仍在。
+  - round: 118
+    item: "`misplaced_spec_citations` 收相對路徑時 `relative_to` 拋錯"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-08: 條件是「出現相對路徑呼叫者」。唯一的生產呼叫者 advance_prechecks 傳入 `Path(project)`,而 cmd_advance_phase 的 project 已 resolve;本輪未搜尋其他呼叫者。
