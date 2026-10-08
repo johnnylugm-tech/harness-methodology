@@ -2596,7 +2596,9 @@ entries:
       2026-10-08: re-open 欄為「—」:語料唯讀,ledger 自己陳述此決定沒有再開條件。
   - round: 116
     item: "P3 workflow 的「TRACEABILITY_MATRIX.md §5 is the canonical listing」"
-    verdict: NOT_MET
-    guard: "manual"
+    verdict: MET
+    condition_met_in: "Round 117(老闆令處理 §5 漂移,連 4c 採信規則一起重設計,2026-10-08)"
+    guard: "tests/test_nfr_coverage_reads_the_case_binding.py::test_no_workflow_or_plan_sends_an_agent_to_the_missing_association_source"
+    resolved_in: "Round 117 站1-站4"
     evidence: >-
-      2026-10-08: 條件是「下一輪 prompt↔產出漂移盤點」。本輪未成立:本輪範圍是測試根。
+      2026-10-08: 條件是「下一輪 prompt↔產出漂移盤點」。成立:老闆令處理。實測 §5 與 SRS §2 `NFR Association` 欄皆不存在(語料 0/6),4c 採信的是實作者寫進測試的 NFR-XX 字串;改為讀 TEST_SPEC case 綁定與其交付,陳述全數移除。

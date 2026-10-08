@@ -101,3 +101,18 @@ def test_the_matrix_and_4c_read_one_join(tmp_path):
     assert nfr_data["nfr_ids"] == ["NFR-01", "NFR-02", "NFR-99"], "every declared NFR keeps its row"
     assert nfr_data["nfr_test_coverage"] == {**{n: v["tests"] for n, v in per_nfr.items()}, "NFR-99": []}
     assert nfr_data["nfr_absent_witnesses"] == {**{n: v["absent"] for n, v in per_nfr.items()}, "NFR-99": []}
+
+
+def test_no_workflow_or_plan_sends_an_agent_to_the_missing_association_source(tmp_path):
+    from scripts.generate_full_plan import generate_full_plan
+    from scripts.workflowgen.generate_workflows import generate
+    from tests.test_plangen_golden import _fixture_project
+
+    import re
+
+    banned = re.compile(r"TRACEABILITY_MATRIX\.md §5|NFR Association|(?<!#)# NFR-(?:XX|\d)")
+    texts = [generate(phase) for phase in range(1, 9)]
+    proj = _fixture_project(tmp_path)
+    texts += [generate_full_plan(phase, proj, None, dynamic=False) or "" for phase in range(1, 10)]
+    hits = [m.group(0) for t in texts for m in banned.finditer(t)]
+    assert not hits, hits

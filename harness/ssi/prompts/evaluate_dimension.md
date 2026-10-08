@@ -430,9 +430,9 @@ API smoke path); the harness only checks that the declaration executes cleanly.
 Re-run at every phase exit, not only at Gate 2 (Round 46 站5). What the target
 *contains* is the project's own statement, and the harness does not read it —
 so if the SPEC requires particular steps in it (a migration round-trip, a
-service smoke path), the project's own `# NFR-XX`-annotated tests are what
-enforce that, and since Round 46 站1 those tests must actually pass for the
-requirement to count as covered.
+service smoke path), the TEST_SPEC cases bound to that NFR's acceptance
+criteria are what enforce that, and they must actually pass for the
+requirement to count as covered (traceability 4c, Round 117).
 
 ### architecture (Tier 3 — CRG-ONLY, framework-owned)
 

@@ -6817,3 +6817,15 @@
 - test: tests/test_traceability_pipeline.py::TestBuildTraceability::test_build_traceability_nfr_markdown_verified
   bug: "an NFR whose bound case was never written renders PARTIAL with the case named, not VERIFIED"
   fixed_in: "Round 117 站3"
+
+- test: tests/test_nfr_coverage_reads_the_case_binding.py::test_no_workflow_or_plan_sends_an_agent_to_the_missing_association_source
+  bug: "the P3 workflow and plangen told implementers to tag tests with NFR-XX from TRACEABILITY_MATRIX §5 / SRS §2 NFR Association, sources no project had, and that 4c would block Gate 2 without them"
+  fixed_in: "Round 117 站4"
+
+- test: tests/test_generate_full_plan.py::TestFe3e429Fixes::test_c3_no_warning_sends_the_agent_to_edit_the_srs
+  bug: "the P3 plan told an agent to add an NFR Association column to the approved SRS"
+  fixed_in: "Round 117 站4"
+
+- test: tests/test_generate_full_plan.py::TestNfrAnnotationInstruction::test_hr16_says_4c_is_not_due_at_gate2
+  bug: "the HR-16 reminder said 4c is judged at 60/80/90% at G2/G3/G4"
+  fixed_in: "Round 117 站4"

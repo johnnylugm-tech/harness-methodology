@@ -907,18 +907,6 @@ def _fr_dev_steps(fr_id: str, phase: int, project: Path) -> List[str]:
         f"  → Verify: `git log --oneline -1` shows `test(RED): failing test for {fr_id}`",
         "  → GitHub push: ✅ auto-done by run-fr-step",
         "",
-        "  → **NFR annotation (4c gate dim — F-2.3)**: the new test file",
-        f"    `{test_dir_str}/test_fr{num_str}.py` MUST include `# NFR-XX` annotations",
-        f"    for every NFR associated with {fr_id} in `01-requirements/SRS.md §2`",
-        "    `NFR Association` column. Example:",
-        "    ```python",
-        "    # NFR-01 perf: submit+status p95 < 50ms",
-        "    # NFR-04 sec: redaction hit rate = 100%",
-        f"    def test_{fr_id.lower().replace('-', '_')}_main(): ...",
-        "    ```",
-        "    Without these annotations compute_trace_dimension 4c = 0% and",
-        "    Gate 2 blocks. NFR-99 placeholder is excluded (do not annotate).",
-        "",
         "  → **Property Tests (Direction B)**: If this FR has algebraic invariants (see `**Properties**` in `TEST_SPEC.md`),",
         "    the sub-agent MUST implement an executing property test (e.g., `@given` from `hypothesis` or `fast-check`).",
         "- **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md "
@@ -1274,10 +1262,6 @@ def _dynamic_fr_template_block(phase: int, project: Path, gate_meta: "dict | Non
         test_dir_str = _layout.get_relative_str(_layout.active_test_dir)
         fr_steps = [
             f"- **[ORCH-RED]**     `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-RED --project . --srs 01-requirements/SRS.md`",
-            "> **NFR annotation (4c gate dim — F-2.3)**: the new test file MUST include `# NFR-XX`"
-            " annotations for every NFR associated with {FR-ID} in `01-requirements/SRS.md §2` `NFR"
-            " Association` column (e.g. `# NFR-01 perf: submit+status p95 < 50ms`). Without these,"
-            " compute_trace_dimension 4c = 0% and Gate 2 blocks. NFR-99 placeholder is excluded.",
             f"- **[P3-MIRROR]**    `python3 harness_cli.py check-test-mirrors-spec --fr-id {{FR-ID}} --test-file {test_dir_str}/test_*.py --project .`",
             f"- **[ORCH-GREEN]**   `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-GREEN --project . --srs 01-requirements/SRS.md`",
             f"- **[ORCH-IMPROVE]** `run-fr-step --phase {phase} --fr-id {{FR-ID}} --step TDD-IMPROVE --project .`",

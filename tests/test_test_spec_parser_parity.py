@@ -234,8 +234,6 @@ _TABLE_CELL_SPLITTERS = {
         "the gap register, not a spec",
     ("harness/ssi/scripts/verify.py", "count_diff_lines"):
         "unified-diff hunk headers, not markdown",
-    ("scripts/plangen/artifact_parsers.py", "parse_srs_fr_nfr_xref"):
-        "SRS NFR→FR cross-reference rows",
     ("cli/checks/specs.py", "_deferred_rows_with_inputs"):
         "the Deferred-to-Downstream-Phases table's Inputs column (Round 87 "
         "站3). Never answers which tests are declared — `_parse_test_spec` "

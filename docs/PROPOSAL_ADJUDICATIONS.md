@@ -11607,3 +11607,15 @@ matrix 有這一列,已更正。三態渲染規則不變。`scan_test_nfr_covera
 的 attestation 會 mismatch,CR 第 6 步本來就 `build-trace-attestation --write`。
 
 反證:HEAD 的 build_traceability + scanner 讓 3 個測試轉紅。
+
+### 站4 — 「註記 / §5 / §2 關聯欄」的陳述全數移除
+
+刪除:P3 workflow(`spec_phase3.py:205`,「TRACEABILITY_MATRIX.md §5 is the canonical listing」)、plangen 兩段
+(`blocks.py`,「SRS §2 `NFR Association` column … 4c = 0% and Gate 2 blocks」)、`phase_tasks.py` 的註記段落與「去 SRS
+加一欄」警告;`parse_srs_fr_nfr_xref`(語料全回 `{}`)連同 re-export、parity 項目與它的自測。改寫:phase_tasks 的 NFR
+段落寫 4c 的真規則;HR-16(`generate_full_plan.py:192`,重生 golden 時才找到)寫「G3/G4 80/90%,G2 尚未到期」;
+`harness_bridge.py` 與 `evaluate_dimension.md` 的「`# NFR-XX` 註記測試是執行者」改為綁定的 case。NFR 表保留,FRs 欄只用
+原本就在用的 raw-text fallback。taskq-open 的 P3 計畫回放:只有上述刪改,NFR 表本體不變。
+
+反證:HEAD 的五個來源檔讓 5 個測試轉紅。run-all 449380 → 448905(上限 449005,−475);`_render_per_fr_tdd` 237 → 236。
+R116 §不做「P3 workflow 的 §5」改判 MET。

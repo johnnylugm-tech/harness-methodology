@@ -10,7 +10,7 @@
 > **Hard Rules in Force (this plan)** — explicit reminders:
 > - HR-04: HybridWorkflow ON — Agent A authors, a separate Agent B sub-agent reviews. Never role-play A or B yourself.
 > - HR-05: harness-methodology wins all conflicts — if a project decision contradicts SKILL.md / INIT / this plan, the harness wins.
-> - HR-16: Trace dimension = `min(4a, 4b, 4c)` — ALL THREE must pass (G2/G3/G4 only): 4a = 100% over IN_PROGRESS+VERIFIED FRs, 4b = TEST_SPEC→test coverage (60/80/90% at G2/G3/G4), 4c = NFR→test coverage (60/80/90% at G2/G3/G4, NFR-99 placeholder excluded). `gate_score_overrides` is a **threshold floor (raises, not lowers)** per `sab_parser.derive_gate_score_overrides` — cannot bypass a failing trace dim. Remediation: fix code/FRs/tests to pass, accept gate block, or escalate to human. No automated override.
+> - HR-16: Trace dimension = `min(4a, 4b, 4c)` — ALL THREE must pass (G2/G3/G4 only): 4a = 100% over IN_PROGRESS+VERIFIED FRs, 4b = TEST_SPEC→test coverage (60/80/90% at G2/G3/G4), 4c = every NFR acceptance criterion cited by a TEST_SPEC case whose test passes, or deferred to a named verifier (80/90% at G3/G4; not yet due at G2 — NFR-section tests are due at the P4 exit; NFR-99 placeholder excluded). `gate_score_overrides` is a **threshold floor (raises, not lowers)** per `sab_parser.derive_gate_score_overrides` — cannot bypass a failing trace dim. Remediation: fix code/FRs/tests to pass, accept gate block, or escalate to human. No automated override.
 > - HR-17: NEVER modify files inside `harness/` — debug the framework, never hot-patch the submodule.
 
 ---
@@ -86,18 +86,6 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   → Verify: `git log --oneline -1` shows `test(RED): failing test for FR-01`
   → GitHub push: ✅ auto-done by run-fr-step
 
-  → **NFR annotation (4c gate dim — F-2.3)**: the new test file
-    `03-development/tests/test_fr01.py` MUST include `# NFR-XX` annotations
-    for every NFR associated with FR-01 in `01-requirements/SRS.md §2`
-    `NFR Association` column. Example:
-    ```python
-    # NFR-01 perf: submit+status p95 < 50ms
-    # NFR-04 sec: redaction hit rate = 100%
-    def test_fr_01_main(): ...
-    ```
-    Without these annotations compute_trace_dimension 4c = 0% and
-    Gate 2 blocks. NFR-99 placeholder is excluded (do not annotate).
-
   → **Property Tests (Direction B)**: If this FR has algebraic invariants (see `**Properties**` in `TEST_SPEC.md`),
     the sub-agent MUST implement an executing property test (e.g., `@given` from `hypothesis` or `fast-check`).
 - **[P3-MIRROR]** Verify the RED test mirrors TEST_SPEC.md (P3 only implements — correctness was locked in P2; on FAIL fix the TEST, not TEST_SPEC):
@@ -160,18 +148,6 @@ Each FR ends with a Gate 1 quality evaluation (CHECKPOINT). Phase exits via Gate
   ```
   → Verify: `git log --oneline -1` shows `test(RED): failing test for FR-02`
   → GitHub push: ✅ auto-done by run-fr-step
-
-  → **NFR annotation (4c gate dim — F-2.3)**: the new test file
-    `03-development/tests/test_fr02.py` MUST include `# NFR-XX` annotations
-    for every NFR associated with FR-02 in `01-requirements/SRS.md §2`
-    `NFR Association` column. Example:
-    ```python
-    # NFR-01 perf: submit+status p95 < 50ms
-    # NFR-04 sec: redaction hit rate = 100%
-    def test_fr_02_main(): ...
-    ```
-    Without these annotations compute_trace_dimension 4c = 0% and
-    Gate 2 blocks. NFR-99 placeholder is excluded (do not annotate).
 
   → **Property Tests (Direction B)**: If this FR has algebraic invariants (see `**Properties**` in `TEST_SPEC.md`),
     the sub-agent MUST implement an executing property test (e.g., `@given` from `hypothesis` or `fast-check`).

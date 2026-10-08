@@ -3422,9 +3422,9 @@ class HarnessBridge(_FinalizeStages):
         # not. `_score_pytest_benchmark` applies a fixed 1000ms/3000ms penalty
         # its own docstring calls "cross-validation heuristics, not NFR
         # targets"; no line of it reads a p95, a project's budget, or an NFR.
-        # A project's latency budget is enforced by the project's own
-        # `# NFR-01`-annotated tests, and since Round 46 站1 those have to
-        # actually pass for the requirement to count as covered. Naming an
+        # A project's latency budget is enforced by the TEST_SPEC cases bound
+        # to NFR-01's acceptance criteria, and those have to actually pass for
+        # the requirement to count as covered (traceability 4c, Round 117). Naming an
         # enforcer that does not exist is worse than naming none: it is why
         # taskq-advance's FINAL_SIGN_OFF could record "NFR-01 … Conditional
         # PASS … dimension scoring uses framework override path" next to a

@@ -1711,26 +1711,29 @@ class TestTddDevSteps:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestNfrAnnotationInstruction:
-    def test_p3_static_nfr_section_removed_misleading_wording(self, project: Path):
-        """The static NFR Coverage section MUST NOT tell agents that NFR
-        compliance is verified without separate tasks — that wording caused
-        agents to skip NFR annotations in test files."""
-        joined = "\n".join(generate_phase3_tasks(project, project / "SRS.md"))
-        # Old misleading wording (replaced by explicit annotation instruction)
+    def test_p3_static_nfr_section_states_the_case_binding(self, project: Path):
+        """Round 117: the NFR Coverage section states what 4c reads — the
+        TEST_SPEC case bound to each criterion — not a `# NFR-XX` annotation."""
+        srs = project / "01-requirements" / "SRS.md"
+        srs.write_text("# SRS\n\n### NFR-01: Performance\n\nFast response time.\n\n", encoding="utf-8")
+        joined = "\n".join(generate_phase3_tasks(project, srs))
         assert "not separate tasks" not in joined
-        # New explicit instruction
-        assert "NFR" in joined and ("annotation" in joined.lower() or "annotate" in joined.lower())
+        assert "TEST_SPEC case" in joined and "Gate 3" in joined
+        assert "# NFR-XX" not in joined and "NFR Association" not in joined
 
-    def test_p3_fr_dev_steps_includes_nfr_annotation_instruction(self, project: Path):
-        """_fr_dev_steps ORCH-RED block must mention annotating test file
-        with NFR-XX IDs derived from SRS.md §2 NFR Association column.
-        Without this, compute_trace_dimension 4c denominator blocks Gate 2."""
+    def test_p3_fr_dev_steps_carry_no_annotation_instruction(self, project: Path):
+        """The ORCH-RED block used to tell the implementer to tag the test
+        file with NFR ids from SRS §2's `NFR Association` column — a column
+        no SRS had — and that 4c would block Gate 2 without it."""
         joined = "\n".join(_fr_dev_steps("FR-01", phase=3, project=project))
-        # The instruction must reference both the test file and NFR tagging
-        assert "test_fr" in joined
-        assert "NFR" in joined
-        # Must explain WHY (4c gate dimension) so agents don't dismiss it
-        assert "4c" in joined or "traceability" in joined.lower()
+        assert "# NFR-XX" not in joined
+        assert "NFR Association" not in joined
+
+    def test_hr16_says_4c_is_not_due_at_gate2(self, project: Path):
+        """Round 117: 4c is judged from Gate 3; the reminder said 60/80/90% at G2/G3/G4."""
+        joined = generate_full_plan(3, project)
+        assert "60/80/90% at G2/G3/G4, NFR-99" not in joined
+        assert "not yet due at G2" in joined
 
     def test_hr16_reminder_mentions_4b_and_4c(self, project: Path):
         """The HR-16 hard-rule reminder must mention all three trace dims
@@ -1781,14 +1784,15 @@ class TestFe3e429Fixes:
         assert "—" in result  # fallback sentinel present
 
     # C3 follow-up: ⚠️ note must appear when no NFR Association column in SRS
-    def test_c3_nfr_coverage_warning_note(self, project: Path):
+    def test_c3_no_warning_sends_the_agent_to_edit_the_srs(self, project: Path):
+        """The warning told a Phase 3 agent to add a column to the approved SRS."""
         srs = project / "01-requirements" / "SRS.md"
         srs.write_text(
             "# SRS\n\n### NFR-01: Performance\n\nFast response time.\n\n",
             encoding="utf-8",
         )
         result = "\n".join(generate_phase3_tasks(project, srs))
-        assert "NFR→FR mapping not found" in result
+        assert "NFR→FR mapping not found" not in result
 
     # C4: P4 milestone section must use 10-Push Strategy labels ⑤ and ⑥
     def test_c4_p4_milestone_header_note(self, project: Path):

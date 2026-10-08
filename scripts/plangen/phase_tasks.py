@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 from .artifact_parsers import (
     _HARNESS_VERSION,
@@ -18,7 +18,6 @@ from .artifact_parsers import (
     parse_quality_report,
     parse_risk_register,
     parse_sad_modules,
-    parse_srs_fr_nfr_xref,
     parse_srs_fr_sections,
     parse_srs_nfr_sections,
     parse_test_plan,
@@ -440,49 +439,29 @@ def generate_phase3_tasks(repo_path: Path, srs_path: Path, dynamic: bool = False
         # NFR summary — informational, shows which NFRs each FR implements
         nfrs = parse_srs_nfr_sections(srs_path)
         if nfrs:
-            # Build NFR→FRs reverse map.  Primary source: §2 cross-reference table
-            # (parse_srs_fr_nfr_xref).  Fallback: search raw FR description text for
-            # NFR IDs (works when SRS embeds NFR refs inside FR sections directly).
-            _fr_nfr_xref = parse_srs_fr_nfr_xref(srs_path)
-            _nfr_to_frs: Dict[str, List[str]] = {}
-            for _fr_id, _nfr_ids in _fr_nfr_xref.items():
-                for _nfr_id in _nfr_ids:
-                    _nfr_to_frs.setdefault(_nfr_id, []).append(_fr_id)
-
             lines.append("### NFR Coverage ({} total)".format(len(nfrs)))
             lines.append("")
             lines.append("> NFRs are implemented **within FRs** — each FR satisfies one or more NFRs.")
-            lines.append("> **NFR traceability requirement (4c gate dim, F-2.3)**: every NFR-XX ID")
-            lines.append("> in `01-requirements/SRS.md` MUST appear as a `# NFR-XX` annotation")
-            lines.append("> in at least one test file under `03-development/tests/`. Without these")
-            lines.append("> annotations the `traceability` gate dim scores 4c = 0% and Gate 2")
-            lines.append("> fails. The per-FR TDD-RED step below shows the exact annotation")
-            lines.append("> pattern; NFR-99 (deferred/ambiguity placeholder per phase1_plan.md")
-            lines.append("> R-CANONICAL-INTERP-001) is excluded from the 4c denominator.")
+            lines.append("> **NFR coverage (traceability 4c, judged from Gate 3)**: every AC-id an NFR")
+            lines.append("> declares in `01-requirements/SRS.md` must be cited by a TEST_SPEC case — in")
+            lines.append("> its declaration row, or in a sub-assertion whose `applies_to` names it — whose")
+            lines.append("> test passes, or be deferred to a named verifier (`Deferred: AC-…`).")
             lines.append("")
             lines.append("| NFR | Type | FRs Implementing |")
             lines.append("|-----|------|-----------------|")
             for nfr in nfrs:
                 nfr_id = nfr['nfr']
                 nfr_type = nfr.get('title', '').replace(f'{nfr_id}: ', '')
-                # Primary: cross-reference table lookup
-                _ref_frs = _nfr_to_frs.get(nfr_id, [])
-                # Fallback: grep NFR ID from FR raw_details text
-                if not _ref_frs:
-                    _ref_frs = [
-                        fr['fr'] for fr in frs
-                        if nfr_id.lower() in fr.get('raw_details', '').lower()
-                    ] if frs else []
+                # FRs whose own SRS text names this NFR.
+                _ref_frs = [
+                    fr['fr'] for fr in frs
+                    if nfr_id.lower() in fr.get('raw_details', '').lower()
+                ] if frs else []
                 fr_list = ', '.join(_ref_frs)
                 if not fr_list:
                     fr_list = '—'
                 lines.append(f"| {nfr_id} | {nfr_type[:30]} | {fr_list} |")
             lines.append("")
-            if not _fr_nfr_xref:
-                lines.append("> ⚠️ **NFR→FR mapping not found** — `—` entries above indicate no `NFR Association`")
-                lines.append("> column was detected in SRS.md FR tables. To enable auto-mapping, add an")
-                lines.append("> `NFR Association` column to each FR row in `01-requirements/SRS.md §2`.")
-                lines.append("")
             lines.append("**Gate 2 NFR dimensions** (tool-scored, see Gate 2 config):")
             lines.append("- `security` (bandit), `secrets_scanning` (gitleaks), `mutation_testing` (mutmut 2.x — `pip install 'mutmut<3'`)")
             lines.append("- `integration_coverage` (pytest), `test_assertion_quality` (pytest)")
