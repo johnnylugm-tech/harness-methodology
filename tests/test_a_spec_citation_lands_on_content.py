@@ -118,3 +118,74 @@ def test_advance_phase_runs_the_check() -> None:
         if isinstance(n, ast.Call) and isinstance(n.func, (ast.Name, ast.Attribute))
     }
     assert "misplaced_spec_citations" in called
+
+
+# ── Round 118 站1: the rule reaches the loop that writes the citation ──────────
+# Asked only at advance-phase, a misplaced citation was found after Agent B had
+# approved, Peer Review had passed and the push had run — and the workflow's
+# Advance step has no fixer, so the run halted (taskq-retry, exit 50). The same
+# rule now also answers inside the Phase 1 A/B loop, where Agent A can act.
+
+_APPROVE = (
+    '{"review_status":"APPROVE","reason":"All requirements from SPEC.md are '
+    'transcribed with numbered acceptance criteria, and every functional '
+    'requirement maps to one heading.","citations":["SRS.md:1"],'
+    '"docs_embedded":["SRS.md","SPEC.md"],"gaps":[]}'
+)
+
+
+def _review(proj: Path, phase: int = 1, doc: "Path | None" = None):
+    from scripts.structured_b_review import structured_b_review
+
+    srs = proj / "01-requirements" / "SRS.md"
+    return structured_b_review(
+        _APPROVE, phase=phase, round_num=1, max_rounds=5,
+        doc_content=srs.read_text(), doc_name="SRS.md",
+        doc_path=srs if doc is None else doc,
+    )
+
+
+def test_one_deliverable_is_asked_on_its_own(tmp_path):
+    from core.quality_gate.spec_citations import misplaced_spec_citations_in
+
+    proj = _project(tmp_path, "See SPEC.md:6.\n", tracking="SPEC.md:2\n")
+    found = misplaced_spec_citations_in(proj / "01-requirements" / "SRS.md")
+    assert len(found) == 1 and found[0].startswith("01-requirements/SRS.md:2 ")
+
+
+def test_a_file_the_rule_does_not_cover_is_not_asked(tmp_path):
+    from core.quality_gate.spec_citations import misplaced_spec_citations_in
+
+    proj = _project(tmp_path, "")
+    inv = proj / "TEST_INVENTORY.yaml"
+    inv.write_text("# SPEC.md:6\n")
+    assert misplaced_spec_citations_in(inv) == []
+
+
+def test_the_review_loop_cannot_approve_a_misplaced_citation(tmp_path):
+    proj = _project(tmp_path, "See SPEC.md:6.\n")
+    out = _review(proj)
+    synth = [g for g in out["gaps"] if g.get("_synthesized")]
+    assert out["escalation_action"] == "retry"
+    assert len(synth) == 1 and synth[0]["severity"] == "high"
+    assert "SRS.md:2 cites SPEC.md:6" in synth[0]["message"]
+
+
+def test_the_review_loop_approves_citations_on_content(tmp_path):
+    assert _review(_project(tmp_path, "See SPEC.md:7.\n"))["escalation_action"] == "approve"
+
+
+def test_the_review_loop_asks_only_in_phase_1(tmp_path):
+    out = _review(_project(tmp_path, "See SPEC.md:6.\n"), phase=2)
+    assert out["escalation_action"] == "approve"
+
+
+def test_a_review_without_a_deliverable_path_is_unchanged(tmp_path):
+    from scripts.structured_b_review import structured_b_review
+
+    proj = _project(tmp_path, "See SPEC.md:6.\n")
+    out = structured_b_review(
+        _APPROVE, phase=1, round_num=1, max_rounds=5,
+        doc_content=(proj / "01-requirements" / "SRS.md").read_text(), doc_name="SRS.md",
+    )
+    assert out["escalation_action"] == "approve"

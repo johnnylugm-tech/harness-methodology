@@ -6833,3 +6833,15 @@
 - test: tests/test_harness_bridge.py::TestSabClosureGaps::test_generate_quality_manifest_carries_no_nfr_fr_mapping
   bug: "quality_manifest.nfr_fr_mapping was read from an SRS §2 NFR Association column no template defines (15/15 corpus manifests held {}); the gate prompt it fed never received an entry"
   fixed_in: "Round 117 站5"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_the_review_loop_cannot_approve_a_misplaced_citation
+  bug: "the SPEC.md line-citation rule was asked only at advance-phase, after Agent B approved, Peer Review passed and the push ran; the workflow's Advance step has no fixer, so taskq-retry's run-all halted at P1 exit 50 on an SRS citation of a table separator row. Counter-proof run 2026-10-08: replacing the gap append in structured_b_review with `pass` turns this red"
+  fixed_in: "Round 118 站1"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_the_review_loop_asks_only_in_phase_1
+  bug: "the rule's scope is the Phase 1 citing deliverables, the same boundary advance-phase asks it at; a later-phase review must not grow a new blocker the advance does not enforce"
+  fixed_in: "Round 118 站1"
+
+- test: tests/test_a_spec_citation_lands_on_content.py::test_a_review_without_a_deliverable_path_is_unchanged
+  bug: "Peer Review passes no --doc-content; a review with no deliverable path must keep its existing verdict"
+  fixed_in: "Round 118 站1"

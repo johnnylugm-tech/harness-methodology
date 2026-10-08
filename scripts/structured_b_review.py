@@ -186,13 +186,45 @@ def _with_escalation(out: dict[str, Any], round_num: int | None, max_rounds: int
     return out
 
 
+def _misplaced_citation_gap(doc_path: Path) -> dict[str, Any] | None:
+    """A high gap naming each SPEC.md citation that lands off content.
+
+    The rule is core.quality_gate.spec_citations — the one advance-phase blocks
+    on at the Phase 1 exit (exit 50). Asked here too so the A/B loop that wrote
+    the number can correct it; the Advance step has no fixer.
+    """
+    from core.quality_gate.spec_citations import misplaced_spec_citations_in
+    from core.review_quota import categorize_finding
+
+    rows = misplaced_spec_citations_in(doc_path)
+    if not rows:
+        return None
+    gap = {
+        "severity": "high",
+        "evidence_type": "methodology_artifact",
+        "canonical_ref": "SPEC.md",
+        "fr_id": None,
+        "message": (
+            "Framework verification: SPEC.md line citation(s) point at no content "
+            "— advance-phase blocks the Phase 1 exit on this (exit 50):\n"
+            + "\n".join(f"  - {r}" for r in rows)
+            + "\nOpen SPEC.md at each number and cite the line that carries the "
+            "text; these are almost always off by one or two."
+        ),
+        "_synthesized": True,
+    }
+    gap["category"] = categorize_finding(gap)
+    return gap
+
+
 def structured_b_review(raw_text: str, phase: int = 0,
                         deliverable: str = "",
                         round_num: int | None = None,
                         max_rounds: int = 5,
                         doc_content: str | None = None,
                         vocabulary: dict[str, list[str]] | None = None,
-                        doc_name: str | None = None) -> dict[str, Any]:
+                        doc_name: str | None = None,
+                        doc_path: Path | None = None) -> dict[str, Any]:
     """End-to-end: extract JSON from raw text, validate, return structured dict.
 
     round_num/max_rounds (optional): when supplied, also computes the
@@ -215,6 +247,9 @@ def structured_b_review(raw_text: str, phase: int = 0,
     doc_name (optional): the reviewed deliverable's basename (the CLI derives
     it from --doc-content). The stub check compares against
     templates/<doc_name>; without it only the sentinel marks a stub.
+
+    doc_path (optional): the deliverable's path (the CLI passes --doc-content).
+    In Phase 1 it adds a high gap for SPEC.md citations that land off content.
     """
     extracted, extraction_meta = extract_b_review_json(raw_text)
 
@@ -319,6 +354,12 @@ def structured_b_review(raw_text: str, phase: int = 0,
         }
         stub_gap["category"] = categorize_finding(stub_gap)
         gaps.append(stub_gap)
+
+    if phase == 1 and doc_path is not None \
+            and result.normalized.get("review_status") in ("REJECT", "APPROVE"):
+        citation_gap = _misplaced_citation_gap(doc_path)
+        if citation_gap is not None:
+            gaps.append(citation_gap)
 
     out = {
         "status": "OK",
@@ -432,6 +473,7 @@ def _cli() -> int:
         round_num=args.round_num, max_rounds=args.max_rounds,
         doc_content=doc_content, vocabulary=vocabulary,
         doc_name=Path(args.doc_content).name if args.doc_content else None,
+        doc_path=Path(args.doc_content) if args.doc_content else None,
     )
 
     json_text = json.dumps(result, indent=2, ensure_ascii=False)

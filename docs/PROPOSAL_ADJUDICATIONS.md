@@ -11637,3 +11637,25 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 | 4c 門檻改為 100% | 不在本輪範圍 | 門檻政策檢討 |
 | matrix 在零交付時顯示 PARTIAL 而非 PENDING | 現行渲染規則未改動,列內已具名 absent | matrix 狀態詞彙檢討 |
 | 對 Derivation / rule_id 的 AC 引用做語意比對 | 綁定是 P2 作者的陳述,由 Agent B 審查;沒有機械訊號,照實記錄 | 出現把 AC 綁到無關列的實例 |
+
+## Round 118 — SPEC 行號引用規則進入 Phase 1 A/B loop(taskq-retry run-all 停在 P1 advance exit 50)(2026-10-08)
+
+老闆令:驗證問題的真實性與根源(harness bug 或 workflow JS bug),套用正解而非 workaround,不動專案、不破壞共通性;方案與副作用先驗證。
+
+**根源**:Round 113 站4 的規則(`core/quality_gate/spec_citations.py`)只有一個 consumer —— advance-phase 的 Phase 1 出口。當時的前提「補救是改一個數字,不構成 R103 死結」在 workflow 下不成立:P1 Advance step 的 loop 只處理 stale approvals,沒有 fixer;寫出行號的 A/B loop(`structured_b_review.py`)每輪的確定性驗證不含此規則,`b_gap_validator` 的 citation 驗證只核對 B 的 citation 字串,不讀 SPEC 行。taskq-retry 的 SRS AC-1.2~1.4 整段偏 2 行,B 第 1 輪 APPROVE,run 跑完 Peer Review 與 Push 後停在 exit 50 —— 與 taskq-sol 同形(B 看到、核准)。歸屬:harness 設計缺口;JS 不需改。
+
+### 站1 — 同一規則,第二個 consumer:A/B loop
+
+- **正解**: `misplaced_spec_citations_in(doc)` 對單一交付物問同一規則(root 由 `ProjectLayout` 反推,非 citing file 回 [])。`structured_b_review` 在 `phase == 1` 且有 deliverable 路徑時,命中就附加一個 synthesized high gap(與 template-stub gap 同模式),APPROVE 不會 persist,Agent A 下一輪拿到具體行號用 Edit 修。advance 出口保留為最終把關。
+- **副作用查證**: `--phase 1` + deliverable 只出現在 P1 `runSubTask`(SRS / SPEC_TRACKING / TEST_INVENTORY;後者非 citing file);P1/P2 Peer Review 傳 null;P2 傳 `--phase 2`;Python 無其他 consumer。`ProjectLayout` 無 I/O。真實資料重放:taskq-retry SRS → retry(gap 指名 `SRS.md:74`),SPEC_TRACKING → approve,與 advance 規則結果相同。全套 8936 passed。
+- **守衛(3 支)**: review loop 不能核准錯引用(反證過:移除 append 轉紅)、只在 Phase 1、無 deliverable 路徑時行為不變。
+- **誠實邊界**: 偏到另一行內容行仍看不見(Round 113 原限制;taskq-retry 的 AC-1.3/1.4 即此類)。Peer Review 核准時以 peer 的 b2 重新 persist 三份 approval 且不帶 deliverable,Peer Review 輪中新引入的錯引用仍只由 advance 把關。
+
+### §不做(附 re-open 條件)
+
+| 項目 | 理由 | re-open |
+|---|---|---|
+| Advance step 通用 fixer loop | 終點補救,錯誤要跑完 Peer Review 與 Push 才被發現;要改 workflowgen 與 8 份 JS | 出現無法前移到產出者 loop 的 advance 確定性阻擋 |
+| Peer Review 也問此規則 | 需改 Peer Review JS;發生條件比本案窄 | 出現 Peer Review 輪引入錯引用的實例 |
+| `recordBlock` 傳 `--exit-code`(本次 exit 50 被記成 owner unknown) | 不同問題,另案 | 老闆指定 |
+| `misplaced_spec_citations` 收相對路徑時 `relative_to` 拋錯 | advance 傳入 resolved path,不影響;另案 | 出現相對路徑呼叫者 |
