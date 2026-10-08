@@ -222,6 +222,10 @@ _TABLE_CELL_SPLITTERS = {
         "that a declaration name cannot contain",
     ("core/quality_gate/parsers/spec_tracking_parser.py", "split_row"):
         "SPEC_TRACKING.md status rows",
+    ("core/quality_gate/ac_case_binding.py", "subassertion_columns"):
+        "a sub-assertion table HEADER — which columns hold rule_id and "
+        "applies_to (Round 117). Never answers which tests are declared: the "
+        "rows it locates attach AC ids to cases `_parse_test_spec` already read",
     ("core/quality_gate/property_check.py", "_parse_invariant_table"):
         "SAD property tables (invariant / applies_to / fulfill_phase)",
     ("harness/harness_bridge.py", "_parse_nfr_fr_xref"):
