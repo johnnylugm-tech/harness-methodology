@@ -1132,7 +1132,7 @@ _LINE_CEILING.update({
     # ToolSpec-declared stdout scoring frames diagnostic stderr without losing
     # it from audit evidence. This is a behaviour fix, not a concurrent split
     # (the split safety contract forbids mixing those). No spare growth room.
-    "harness/tool_runners.py": 903,
+    "harness/tool_runners.py": 905,  # 2026-10-11: +2 — Round 118 站2: run_tool takes `extra_args` (one parameter, one `cmd.extend`) so S4 can ask a per-FR gate's pytest-cov to tolerate another FR's uncollectable RED file; the decision lives in test_suite_run.per_fr_pytest_args, not here. Previous: 903.
 })
 
 

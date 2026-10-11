@@ -281,7 +281,14 @@ _CEILINGS: dict[str, int] = {
     # above it — same shape, different question (can the scanner still see,
     # not is there a framework-produced number). Blocks independently of
     # what the real scan below it reports.
-    "harness/harness_bridge.py::_run_harness_cross_validation": 506,
+    # 507 at Round 118 站2, from 506: +1 — the S4 `run_tool` call passes
+    # `per_fr_pytest_args(ctx.gate_num, tool)` and no longer fits on one line;
+    # the rationale sits at the module-level import, not in this body.
+    "harness/harness_bridge.py::_run_harness_cross_validation": 507,
+    # 202 at Round 118 站2, from 200 (the default): +2 — an `extra_args`
+    # parameter and the `cmd.extend` that applies it. run_tool was exactly at
+    # the default; the per-FR decision itself lives in test_suite_run.
+    "harness/tool_runners.py::run_tool": 202,
 
     # 432 at Round 92 站1, from 417: +15 for step [2a/11], delivering
     # templates/.gitleaks.toml the same way [2/11] delivers the CI workflow —

@@ -11651,6 +11651,13 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 - **守衛(3 支)**: review loop 不能核准錯引用(反證過:移除 append 轉紅)、只在 Phase 1、無 deliverable 路徑時行為不變。
 - **誠實邊界**: 偏到另一行內容行仍看不見(Round 113 原限制;taskq-retry 的 AC-1.3/1.4 即此類)。Peer Review 核准時以 peer 的 b2 重新 persist 三份 approval 且不帶 deliverable,Peer Review 輪中新引入的錯引用仍只由 advance 把關。
 
+### 站2 — 一個 FR 的標準 RED 不再讓其他 FR 無法量測(2026-10-11)
+
+- **缺陷**: `fr_suite_verdict` 把「import 尚未寫的模組」定義為標準 TDD-RED,Round 77 把 Gate 1 的紅燈範圍限定在本 FR 的測試;但兩個 per-FR 量測(S4 的 `pytest-cov`、`run_suite`)都用 pytest 預設模式,一個收集錯誤就中斷整個 session。taskq-retry:FR-10 的 RED 已 commit,下一次 dispatch 撞上配額,重啟後 FR-01 先跑 —— 它的 23 個測試全過,S4 卻 rc 2、分數 None(`infra_fail`),`fr_suite_verdict(FR-01)` 讀成 red 使 TDD-GREEN 重跑(空的 `feat(FR-01): GREEN`),COVERAGE-FIX 追一個沒量到的 LOW_COVERAGE;FR-02 走同一條路。非近期回歸:harness 從未用過 `--continue-on-collection-errors`,`pytest-cov` 指令自 2026-08-12 未變;Round 32 站4(None 即阻擋)以來的潛在缺陷,由「RED 後中斷」觸發。
+- **正解**: 只有 per-FR 的問題容忍收集錯誤。`test_suite_run.run_suite_for_fr` 先跑 strict,僅在它被收集錯誤中斷時改跑 tolerant,且 tolerant 中每個無法收集的檔案都已以檔案級 `error` 歸給擁有它的 FR 才採用(否則退回 strict),FR-10 因此仍是 RED 而非 UNKNOWN;`fr_suite_verdict` 與 `validate_fr_coverage_immediate(fr_id=…)` 走這個入口。S4 由 `per_fr_pytest_args(gate_num, tool)` 決定:只有 per-FR gate 的 `pytest-cov` 加旗標,S4-B 的歸屬既有邏輯把錯誤判給 FR-10。
+- **副作用查證**: strict 為預設,整套消費者(advance prechecks、phase truth、spec coverage、traceability、cross artifact)不變;Gate 2/3/4 的 S4 不加旗標 —— 它們的 S4-B 讀 agent 證據的 `N failed`,讀不到 `N error`,容忍會放行無法 import 的測試檔。無收集錯誤時旗標對 rc 與輸出無作用,一般情況仍只執行一次(Round 25)。`phase_truth_verifier` 的「rc=1 且 failures=0」規則經 `_parse_failure_count` 把 `ERROR` 計入,不受影響。taskq-retry 快照重放:FR-01/02/04 green、FR-03/05 red(自身 readyz 回歸)、FR-10 red;Gate 1 S4 97.0、FR-01 per-FR 100.0;strict 與 Gate 2 S4 結果不變。
+- **守衛(9 支,4 組反證)**: 移除 junit 歸屬、同時移除退回保護、停用 S4 參數、對所有 gate 加旗標,各自讓對應守衛轉紅。
+
 ### §不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |

@@ -103,6 +103,7 @@ def run_tool(
     project_root: str,
     *,
     timeout_override: Optional[int] = None,
+    extra_args: "tuple[str, ...]" = (),
 ) -> tuple[str, int]:
     """Execute *tool* against *project_root* and return (stdout+stderr, returncode).
 
@@ -183,6 +184,7 @@ def run_tool(
         cmd.append(
             part.format(root=root, test_target=test_target, cov_target=cov_target)
         )
+    cmd.extend(extra_args)
 
     # Round 16: tools run with cwd=root but no PYTHONPATH, so `import
     # <package>` fails for any src-layout project (03-development/src/ or

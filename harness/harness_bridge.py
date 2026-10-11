@@ -59,6 +59,9 @@ from harness.effort_tracker import EffortTracker
 from core.phase_topology import PER_FR_GATE1_PHASES
 from core.quality_gate.constitution.profile import GateConfig
 from core.quality_gate.latency_targets import judge_performance_by_latency_targets
+# Round 118 站2: S4 asks this for its argv — a per-FR gate's pytest-cov
+# tolerates another FR's uncollectable RED file, and S4-B scopes it to its owner.
+from core.quality_gate.test_suite_run import per_fr_pytest_args
 from core.utils.project_layout import ProjectLayout
 
 try:
@@ -754,7 +757,8 @@ def _run_harness_cross_validation(
         # which cannot fire here since `agent_score < threshold` makes that
         # false by construction. A self-reported FAIL that the tool actually
         # confirms is a PASS is corrected, not flagged.
-        output, returncode = run_tool(tool, ctx.project_root)
+        output, returncode = run_tool(
+            tool, ctx.project_root, extra_args=per_fr_pytest_args(ctx.gate_num, tool))
         if tool_runs is not None:
             tool_runs[dim_name] = (tool, output, returncode)
 

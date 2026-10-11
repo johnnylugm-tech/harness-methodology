@@ -325,7 +325,7 @@ def test_s4_blocks_on_a_dead_canary_even_when_the_real_scan_reports_clean(tmp_pa
     monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
     monkeypatch.setattr(tr, "scanner_is_alive",
                          lambda root: "secrets-scan canary failed: dead config")
-    monkeypatch.setattr(tr, "run_tool", lambda tool, root: ("no leaks found", 0))
+    monkeypatch.setattr(tr, "run_tool", lambda tool, root, **_kw: ("no leaks found", 0))
 
     ctx = GateContext(
         gate_num=2, config={}, project_root=str(project), phase=3, fr_id=None,
@@ -363,7 +363,7 @@ def test_s4_does_not_block_when_the_canary_is_alive(tmp_path, monkeypatch):
     }), encoding="utf-8")
     monkeypatch.setattr(_gt, "gate_config_path", lambda g: cfg_path)
     monkeypatch.setattr(tr, "scanner_is_alive", lambda root: None)
-    monkeypatch.setattr(tr, "run_tool", lambda tool, root: ("no leaks found", 0))
+    monkeypatch.setattr(tr, "run_tool", lambda tool, root, **_kw: ("no leaks found", 0))
 
     ctx = GateContext(
         gate_num=2, config={}, project_root=str(project), phase=3, fr_id=None,

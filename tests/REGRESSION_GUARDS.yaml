@@ -6845,3 +6845,27 @@
 - test: tests/test_a_spec_citation_lands_on_content.py::test_a_review_without_a_deliverable_path_is_unchanged
   bug: "Peer Review passes no --doc-content; a review with no deliverable path must keep its existing verdict"
   fixed_in: "Round 118 站1"
+
+- test: tests/test_a_red_fr_does_not_blind_the_others.py::test_another_frs_red_does_not_make_this_fr_red
+  bug: "one FR's canonical TDD-RED (an import of a not-yet-written module) interrupted the whole pytest session, so every other FR's fr_suite_verdict read RED — taskq-retry FR-01 re-ran TDD-GREEN with 23 passing tests. Counter-proof run 2026-10-11: dropping the junit collection-error attribution turns this and two siblings red"
+  fixed_in: "Round 118 站2"
+
+- test: tests/test_a_red_fr_does_not_blind_the_others.py::test_the_fr_whose_module_is_missing_stays_red
+  bug: "tolerating collection errors without attributing them turns the FR whose module is missing from RED into UNKNOWN, which _fr_tests_say reads as done. Counter-proof run 2026-10-11: removing both the attribution and the fall-back-to-strict guard turns this red"
+  fixed_in: "Round 118 站2"
+
+- test: tests/test_a_red_fr_does_not_blind_the_others.py::test_gate1_s4_scores_coverage_while_another_fr_sits_at_red
+  bug: "Gate 1's S4 pytest-cov exited 2 on another FR's uncollectable RED file, scored None and blocked under infra_fail (taskq-retry FR-01, FR-02). Counter-proof run 2026-10-11: disabling per_fr_pytest_args turns this red"
+  fixed_in: "Round 118 站2"
+
+- test: tests/test_a_red_fr_does_not_blind_the_others.py::test_a_whole_suite_gate_still_gets_no_score
+  bug: "a whole-suite gate's S4-B counts `N failed` in the agent's evidence and not `N error`, so tolerating collection errors there would score a suite that cannot import. Counter-proof run 2026-10-11: adding the flag for every gate turns this red"
+  fixed_in: "Round 118 站2"
+
+- test: tests/test_a_red_fr_does_not_blind_the_others.py::test_the_whole_suite_run_still_reads_an_uncollectable_file_as_red
+  bug: "run_suite's default (strict) mode is what every whole-suite consumer reads; an uncollectable test file must stay a red, outcome-less run there"
+  fixed_in: "Round 118 站2"
+
+- test: tests/test_a_red_fr_does_not_blind_the_others.py::test_the_s4_call_site_asks_for_the_per_fr_args
+  bug: "R30: a per-FR argument S4 never asks for has no live effect"
+  fixed_in: "Round 118 站2"

@@ -284,13 +284,15 @@ def _scrubbed_env() -> dict:
     return env
 
 
-def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
+def _measure(project: Path, test_target: str, cov_target: str,
+             *, tolerate_collection_errors: bool = False) -> SuiteResult:
     timeout = suite_timeout(project)
     with tempfile.TemporaryDirectory(prefix="harness-cov-") as tmpdir:
         json_path = Path(tmpdir) / "coverage.json"
         junit_path = Path(tmpdir) / "junit.xml"
         cmd = [
             sys.executable, "-m", "pytest", test_target,
+            *((COLLECTION_TOLERANT_FLAG,) if tolerate_collection_errors else ()),
             "--tb=short", "-q",
             f"--cov={cov_target}",
             "--cov-report=term-missing",
@@ -327,7 +329,8 @@ def _measure(project: Path, test_target: str, cov_target: str) -> SuiteResult:
             )
         output = proc.stdout + proc.stderr
         coverage = _read_coverage(json_path)
-        test_outcomes = _parse_junit_outcomes(junit_path, project)
+        test_outcomes = _parse_junit_outcomes(
+            junit_path, project, collection_errors=tolerate_collection_errors)
     return SuiteResult(
         passed=proc.returncode == 0, coverage=coverage,
         test_target=test_target, cov_target=cov_target,
@@ -365,7 +368,8 @@ def _resolve_classname(project: Path, classname: str) -> tuple[str, str]:
     return classname.replace(".", "/") + ".py", ""
 
 
-def _parse_junit_outcomes(junit_path: Path, project: Path) -> dict[str, str]:
+def _parse_junit_outcomes(junit_path: Path, project: Path,
+                          *, collection_errors: bool = False) -> dict[str, str]:
     """Per-test outcome map from a `--junitxml` report:
     `"file::name"` (module-level) or `"file::ClassName.name"` (class
     method) -> `"passed"` / `"skipped"` / `"failed"` / `"error"`.
@@ -393,6 +397,16 @@ def _parse_junit_outcomes(junit_path: Path, project: Path) -> dict[str, str]:
     for testcase in root.iter("testcase"):
         classname = testcase.get("classname") or ""
         name = testcase.get("name")
+        if (collection_errors and not classname and name
+                and testcase.find("error") is not None):
+            # A file that could not be collected: pytest names it by its dotted
+            # module path and nothing else. Keyed as the bare file, the same
+            # shape `failing_nodeids` gives it, so `select_fr_outcomes` hands it
+            # to the FR that owns the file — kept RED, not unmeasured.
+            rel = name.replace(".", "/") + ".py"
+            if (project / rel).is_file():
+                outcomes[rel] = "error"
+            continue
         if not classname or not name:
             continue
         rel, class_qualname = _resolve_classname(project, classname)
@@ -436,15 +450,20 @@ def _read_coverage(json_path: Path) -> float | None:
         return None
 
 
-def run_suite(project: "str | Path", *, force: bool = False) -> SuiteResult:
+def run_suite(project: "str | Path", *, force: bool = False,
+              tolerate_collection_errors: bool = False) -> SuiteResult:
     """Measure the project's test suite. Executes at most once per process.
 
     Repeat callers get the first measurement back, unless the source, tests, or
     test configuration changed since it was taken — then the suite runs again.
     Pass force=True to bypass the memo entirely.
+
+    `tolerate_collection_errors` is for per-FR questions only — see
+    `run_suite_for_fr`. Every whole-suite consumer keeps the default, where a
+    test file that cannot be collected interrupts the run and the suite is red.
     """
     root = Path(project).resolve()
-    key = str(root)
+    key = str(root) + ("|tolerant" if tolerate_collection_errors else "")
     test_target, cov_target = resolve_targets(root)
 
     from core.utils.lang_patterns import project_language
@@ -480,9 +499,60 @@ def run_suite(project: "str | Path", *, force: bool = False) -> SuiteResult:
         if cached is not None and cached[0] == fingerprint:
             return cached[1]
 
-    result = _measure(root, test_target, cov_target)
+    result = _measure(root, test_target, cov_target,
+                      tolerate_collection_errors=tolerate_collection_errors)
     _CACHE[key] = (fingerprint, result)
     return result
+
+
+# Round 118 站2 — one FR's canonical RED (an import of a module not written
+# yet) used to interrupt the whole pytest session, so every OTHER FR asked in
+# that state got no measurement at all: Gate 1's S4 scored None (`infra_fail`),
+# `fr_suite_verdict` read RED, and COVERAGE-FIX chased a number nobody had
+# taken. Per-FR questions now tolerate collection errors; whole-suite ones do
+# not, because for them an uncollectable test file is exactly a red suite.
+COLLECTION_TOLERANT_FLAG = "--continue-on-collection-errors"
+
+
+def per_fr_pytest_args(gate_num: int, tool: str) -> "tuple[str, ...]":
+    """Extra argv for S4's run of *tool* at *gate_num*.
+
+    Only a per-FR gate tolerates collection errors, and only for the pytest
+    coverage tool Gate 1 runs. A whole-suite gate's S4-B reads failures from
+    the agent's evidence, which counts `N failed` and not `N error`, so
+    tolerating there would hand it a score for a suite that cannot import.
+    """
+    from core.quality_gate.gate_thresholds import is_per_fr_gate
+
+    if tool == "pytest-cov" and is_per_fr_gate(gate_num):
+        return (COLLECTION_TOLERANT_FLAG,)
+    return ()
+
+
+def _interrupted_by_collection(result: SuiteResult) -> bool:
+    nodeids = failing_nodeids(result.output) or []
+    return (result.ran and result.returncode == 2 and not result.test_outcomes
+            and any("::" not in n for n in nodeids))
+
+
+def run_suite_for_fr(project: "str | Path") -> SuiteResult:
+    """`run_suite` for a question about one FR.
+
+    The strict run is taken first and is the answer whenever it measured
+    something. Only when a collection error interrupted it is the suite run
+    again with collection errors tolerated — and that run is used only if
+    every uncollectable file was attributed to its owner, so no FR's RED can
+    turn into UNKNOWN. A tree without collection errors still runs once.
+    """
+    strict = run_suite(project)
+    if not _interrupted_by_collection(strict):
+        return strict
+    tolerant = run_suite(project, tolerate_collection_errors=True)
+    files = [n for n in (failing_nodeids(tolerant.output) or []) if "::" not in n]
+    if not tolerant.ran or not files or not all(
+            (tolerant.test_outcomes or {}).get(f) == "error" for f in files):
+        return strict
+    return tolerant
 
 
 # Round 41 站1 — the three answers to "did this FR's tests pass".
@@ -620,8 +690,11 @@ def fr_suite_verdict(project: "str | Path", fr_id: str) -> str:
     passed. That is the canonical shape of a TDD-RED state — an import of the
     not-yet-written module — and reading it as UNKNOWN would let a broken GREEN
     call itself finished.
+
+    Round 118 站2: measured through `run_suite_for_fr`, so another FR's
+    uncollectable RED file does not make this FR's verdict RED as well.
     """
-    result = run_suite(project)
+    result = run_suite_for_fr(project)
     if not result.ran:
         return UNKNOWN
     selected = fr_test_outcomes(result, fr_id)

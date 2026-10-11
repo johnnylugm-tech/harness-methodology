@@ -952,9 +952,9 @@ def validate_fr_coverage_immediate(
     separately inside a single advance-phase — see the module docstring of
     test_suite_run for the measurements.
     """
-    from core.quality_gate.test_suite_run import run_suite
+    from core.quality_gate.test_suite_run import run_suite, run_suite_for_fr
 
-    result = run_suite(project)
+    result = run_suite_for_fr(project) if fr_id is not None else run_suite(project)
     if not result.ran:
         return None
     if result.coverage is None:

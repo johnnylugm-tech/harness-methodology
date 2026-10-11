@@ -1,7 +1,7 @@
 {
   "schema": "harness/traceability/attestation/v1",
-  "git_sha": "8746d4fe9d33f66e43ca679639988fb36d4311dd",
-  "content_sha256": "0737518266677a51514723415ef2a74e46b0ff546a89f6f2854af61849830e82",
+  "git_sha": "6f9097121dfb25448da364b99d2fac95323d85b1",
+  "content_sha256": "46364e21c0e8046509d2b9804b4f029e8ad75b848af962280c1e12a72c126d78",
   "tool": "scripts/build_trace_attestation.py",
   "overlay_used": "/Users/johnny/projects/harness-methodology/TRACEABILITY_MATRIX.overlay.yaml",
   "overlay_errors": [],
@@ -14,7 +14,7 @@
       "code_coverage": "100.0%",
       "test_coverage": "100.0%",
       "verification_rate": "100.0%",
-      "total_links": 122,
+      "total_links": 124,
       "missing_mappings": {
         "fr_without_srs": [
           "FR-01",
@@ -67,6 +67,7 @@
           "tests/cli/test_fr_cmds_cli.py",
           "tests/cli/test_project_cmds_cli.py",
           "tests/e2e/test_cli_journeys.py",
+          "tests/test_a_red_fr_does_not_blind_the_others.py",
           "tests/test_attestation_verify.py",
           "tests/test_canonical_form.py",
           "tests/test_canonical_lint.py",
@@ -95,6 +96,7 @@
           "tests/cli/test_fr_cmds_cli.py",
           "tests/cli/test_project_cmds_cli.py",
           "tests/e2e/test_cli_journeys.py",
+          "tests/test_a_red_fr_does_not_blind_the_others.py",
           "tests/test_attestation_verify.py",
           "tests/test_canonical_form.py",
           "tests/test_canonical_lint.py",
