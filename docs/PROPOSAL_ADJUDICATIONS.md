@@ -11658,6 +11658,13 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 - **副作用查證**: strict 為預設,整套消費者(advance prechecks、phase truth、spec coverage、traceability、cross artifact)不變;Gate 2/3/4 的 S4 不加旗標 —— 它們的 S4-B 讀 agent 證據的 `N failed`,讀不到 `N error`,容忍會放行無法 import 的測試檔。無收集錯誤時旗標對 rc 與輸出無作用,一般情況仍只執行一次(Round 25)。`phase_truth_verifier` 的「rc=1 且 failures=0」規則經 `_parse_failure_count` 把 `ERROR` 計入,不受影響。taskq-retry 快照重放:FR-01/02/04 green、FR-03/05 red(自身 readyz 回歸)、FR-10 red;Gate 1 S4 97.0、FR-01 per-FR 100.0;strict 與 Gate 2 S4 結果不變。
 - **守衛(9 支,4 組反證)**: 移除 junit 歸屬、同時移除退回保護、停用 S4 參數、對所有 gate 加旗標,各自讓對應守衛轉紅。
 
+### 站3 — TDD-GREEN 的契約沒有出口:測試與另一項已交付需求衝突時,只能彎曲正式碼(2026-10-11,只記錄,不改行為)
+
+- **缺陷**: taskq-retry 的 FR-03 因 RC=25 被停放,FR-09 的 fail-closed readiness 先交付;FR-03 的 RED 測試(FR-09 之前寫的,DB 用 `create_all`、沒有 `alembic_version`)到 GREEN 時與 FR-09 衝突。`build_tdd_green_prompt` 規定「FORBIDDEN: Modifying test files」、「all tests must pass」、「Write only what the failing test demands」,輸出格式只有 `DONE`;對照 `build_tdd_improve_prompt`,前提不成立時有明確的 `PRECONDITION_BLOCKED` 出口。GREEN 唯一能讓測試過的路是改正式碼:commit `b491d0c` 在 `service/health.py`、`repository/health.py`(`fr_module_traceability` 只屬於 FR-09)加入 `schema_present()`,`alembic_version` 缺席但 ORM 表齊全時 `/readyz` 回 ready,違反 SPEC.md:157/160。Gate 1(FR-03 100.0)與 Gate 2(96.4)都沒有反對:FR-09 自己的測試以 patch 版本號驗證 503、不涵蓋 `current is None`;CRITERIA_REVIEWER 只拿 FR-03 的 SPEC 條文審,看不到屬於 FR-09 的條文。
+- **正解(對該專案)**: 還原兩個 health hunk,並在兩個測試 fixture 寫入真實 head(`conftest.stamp_head`);複製品上全套 185 passed、ruff 與 `check-test-mirrors-spec` OK,反證(只還原正式碼)讓兩項測試重新失敗。這是專案內容的修正,已由老闆明確授權偏離「同 phase 不混用手動與自動」。
+- **harness 不改行為的理由(三條候選皆有證據否決或不足)**: 見下表。**確定性的 ownership 檢查被語料量測否決** —— 21 個專案、257 個 `feat(FR-NN): GREEN` commit 中,57(22%)會碰到 `fr_module_traceability` 只屬於別的 FR 的模組,多為合理的共用檔(`errors`、`app`、`config`、`__main__`、health 掛載、router),誤報率不可接受,連只記帳也只是雜訊。
+- **誠實邊界**: 沒有找到可驗證為安全的通用修法。更窄的條件(例如「被改的模組所屬 FR 已通過 Gate 1,且改動後其自身測試的覆蓋或斷言下降」)沒有量測,不能說所有確定性檢查都不可行。FR-03 GREEN 的內部推理無從查證(spawn 的 session 沒有保留 transcript),只能從 commit 內容與 docstring「schema bootstrapped without alembic」推論它知道自己在放寬。
+
 ### §不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
@@ -11666,3 +11673,6 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 | Peer Review 也問此規則 | 需改 Peer Review JS;發生條件比本案窄 | 出現 Peer Review 輪引入錯引用的實例 |
 | `recordBlock` 傳 `--exit-code`(本次 exit 50 被記成 owner unknown) | 不同問題,另案 | 老闆指定 |
 | `misplaced_spec_citations` 收相對路徑時 `relative_to` 拋錯 | advance 傳入 resolved path,不影響;另案 | 出現相對路徑呼叫者 |
+| TDD-GREEN 的 `PRECONDITION_BLOCKED` / `TEST_CONFLICT` 出口(仿 IMPROVE) | GREEN 的測試本來就是紅的,框架無從機械驗證「測試錯了」是真是假;`fr_step_stages.py` 已指出未經驗證的出口是 universal opt-out | 出現可機械驗證的條件(例如宣告出口時必須附上與其衝突、且目前為綠的測試或 SPEC 條文,框架能重放) |
+| GREEN 後阻擋「改到別的 FR 專屬模組」 | 語料 21 專案、257 個 GREEN commit,57(22%)觸發,多為合理共用檔 | 先量測出誤報率可接受的更窄條件 |
+| 停放後重試的 FR 重做 RED | 只在停放/中斷路徑成立;頻率與副作用未量測 | 出現第二個「停放後重試的 FR,其 RED 測試與後交付的 FR 衝突」的實例 |

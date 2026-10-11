@@ -2656,3 +2656,21 @@ entries:
     guard: "manual"
     evidence: >-
       2026-10-08: 條件是「出現相對路徑呼叫者」。唯一的生產呼叫者 advance_prechecks 傳入 `Path(project)`,而 cmd_advance_phase 的 project 已 resolve;本輪未搜尋其他呼叫者。
+  - round: 118
+    item: "TDD-GREEN 的 `PRECONDITION_BLOCKED` / `TEST_CONFLICT` 出口(仿 IMPROVE)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-11: 條件是「出現可機械驗證的條件」。本輪未找到:GREEN 的測試本來就是紅的,框架無法重放「測試錯了」這個宣告;cli/fr_step_stages.py 對 PRECONDITION_BLOCKED 的註解已指出未經驗證的出口是 universal opt-out。只確認了 build_tdd_green_prompt 與 build_tdd_improve_prompt 的差異,沒有設計或試作任何驗證方式。
+  - round: 118
+    item: "GREEN 後阻擋「改到別的 FR 專屬模組」"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-11: 條件是「先量測出誤報率可接受的更窄條件」。本輪只量測了最寬的條件(GREEN commit 改到 fr_module_traceability 中只屬於另一個 FR 的模組):21 個專案、257 個 GREEN commit,57(22%)觸發。沒有量測任何更窄的條件。
+  - round: 118
+    item: "停放後重試的 FR 重做 RED"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-11: 條件是「出現第二個停放後重試且 RED 測試與後交付 FR 衝突的實例」。語料中只確認 taskq-retry 一例;沒有逐一檢查其他專案的停放紀錄,因此不能說只有一例。
