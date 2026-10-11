@@ -6869,3 +6869,27 @@
 - test: tests/test_a_red_fr_does_not_blind_the_others.py::test_the_s4_call_site_asks_for_the_per_fr_args
   bug: "R30: a per-FR argument S4 never asks for has no live effect"
   fixed_in: "Round 118 站2"
+
+- test: tests/test_a_green_ghost_is_measured_at_advance.py::test_a_green_ghost_whose_fr_is_green_does_not_block
+  bug: "ghost paper-trail records were never cleared or re-judged, so two TDD-GREEN records written while a collection-interrupted suite misread FR-01/FR-02 as RED blocked taskq-retry's Phase 3 advance for five rounds after both FRs had passed Gate 1. Counter-proof run 2026-10-11: disabling the re-measurement turns this red"
+  fixed_in: "Round 118 站4"
+
+- test: tests/test_a_green_ghost_is_measured_at_advance.py::test_an_improve_ghost_still_blocks_on_a_green_tree
+  bug: "TDD-IMPROVE has no measurable outcome; resolving it because the FR's tests are green would erase the only signal that the refactor never ran. Counter-proof run 2026-10-11: resolving every step whose FR is green turns this red"
+  fixed_in: "Round 118 站4"
+
+- test: tests/test_a_green_ghost_is_measured_at_advance.py::test_a_green_ghost_whose_fr_is_red_still_blocks
+  bug: "a GREEN claim with the FR's own tests still red is exactly what the ghost check exists for"
+  fixed_in: "Round 118 站4"
+
+- test: tests/test_a_green_ghost_is_measured_at_advance.py::test_a_green_ghost_the_framework_cannot_measure_still_blocks
+  bug: "UNKNOWN (non-Python project) is not GREEN; a measurement that was never taken must not clear a block"
+  fixed_in: "Round 118 站4"
+
+- test: tests/test_a_green_ghost_is_measured_at_advance.py::test_a_green_ghost_for_an_fr_with_no_tests_still_blocks
+  bug: "an FR with no attributable tests measures UNKNOWN and must keep blocking"
+  fixed_in: "Round 118 站4"
+
+- test: tests/test_a_green_ghost_is_measured_at_advance.py::test_the_record_itself_is_kept
+  bug: "resolution is a judgement at advance time; the audit record of the dispatch must stay on disk"
+  fixed_in: "Round 118 站4"

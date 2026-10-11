@@ -26,7 +26,7 @@ from core.evidence_retention import (
     evidence_in_cleared_dirs,
 )
 from core.quality_gate import agent_b_approvals, gate1_evidence
-from core.quality_gate.ghost_detector import scan_phase_ghost_trails
+from core.quality_gate.ghost_detector import blocking_phase_ghost_trails
 from core.quality_gate.legal_artifacts import PHASE_DELIVERABLES
 from core.quality_gate.phase_completed_recovery import (
     try_recover_dangling_phase_completed,
@@ -1814,7 +1814,7 @@ def _check_ghost_paper_trail(project: Path, completed_phase: int) -> int:
 
     Returns 0 if clear, 22 (GHOST_DETECTED) if unresolved ghosts remain.
     """
-    ghost_trails = scan_phase_ghost_trails(project, completed_phase)
+    ghost_trails = blocking_phase_ghost_trails(project, completed_phase)
     if not ghost_trails:
         return 0
 

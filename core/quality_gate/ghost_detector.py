@@ -233,6 +233,38 @@ def scan_phase_ghost_trails(project: Path, phase: int) -> list[dict[str, Any]]:
     return results
 
 
+def blocking_phase_ghost_trails(project: Path, phase: int) -> list[dict[str, Any]]:
+    """The ghost records for *phase* that still block advance.
+
+    Round 118 站4. A record is a claim made about one dispatch and was taken as
+    permanent: nothing ever cleared it, and "re-run with genuine code changes"
+    cannot be met by an FR whose work is done. TDD-GREEN is defined by the FR's
+    own tests passing, which the framework measures itself, so a GREEN record
+    whose FR is GREEN on the tree being advanced no longer holds: it is listed
+    and ledgered here, and the record stays on disk. Every other step keeps
+    blocking (IMPROVE has no measurable outcome), and so does a GREEN record
+    the framework cannot measure (UNKNOWN).
+    """
+    from core.degradation_ledger import record_degradation
+    from core.quality_gate.test_suite_run import GREEN, fr_suite_verdict
+
+    blocking: list[dict[str, Any]] = []
+    for record in scan_phase_ghost_trails(project, phase):
+        fr_id = str(record.get("fr_id", ""))
+        if record.get("step") == "TDD-GREEN" and fr_suite_verdict(project, fr_id) == GREEN:
+            print(f"[ghost] {fr_id} / TDD-GREEN: resolved — its own tests pass on "
+                  f"the tree being advanced (record kept)")
+            record_degradation(
+                project, "advance:ghost-resolved",
+                f"{fr_id} TDD-GREEN ghost resolved by measurement",
+                why="the FR's own tests pass on the advanced tree; the record "
+                    "was a claim about one earlier dispatch",
+                owner="harness")
+        else:
+            blocking.append(record)
+    return blocking
+
+
 # ── Git helpers ──────────────────────────────────────────────────────────────
 
 

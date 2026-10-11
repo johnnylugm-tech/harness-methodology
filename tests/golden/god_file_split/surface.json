@@ -629,7 +629,7 @@
     "cli.phase_cmds::_check_deferred_fixes_resolved": "b9016a80306acb4b",
     "cli.phase_cmds::_check_gate1_live_coverage": "470ea0b57665c609",
     "cli.phase_cmds::_check_gate_score_variance": "7ff9a2c5e0e38211",
-    "cli.phase_cmds::_check_ghost_paper_trail": "c3b827ff2917d175",
+    "cli.phase_cmds::_check_ghost_paper_trail": "bebc7aeeaf509f6e",
     "cli.phase_cmds::_cmd_run_phase_impl": "a046b642372e78ab",
     "cli.phase_cmds::_enforcer_moved_note": "ae1f9104533bed72",
     "cli.phase_cmds::_gate1_per_fr_coverage_verdict": "7190f45ebbf7b28d",

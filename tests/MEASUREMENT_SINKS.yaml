@@ -52,6 +52,15 @@ sinks:
       a second refusal at the advance would be a second enforcer of one
       dimension, the defect this station removes. The row keeps the gap
       visible, which the old "not installed, skipping" print did not.
+  "advance:ghost-resolved":
+    sink: report-only
+    why: >-
+      Round 118 站4. The verdict is already taken where it belongs: advance's
+      ghost check re-measures a TDD-GREEN record with fr_suite_verdict and
+      blocks unless the FR's own tests are GREEN on the advanced tree. This
+      row records that a past ghost record was judged resolved by that
+      measurement, so the resolution stays visible beside the record that
+      is kept on disk; it is not a finding anything should act on.
   "gate:arch-constraints":
     sink: verdict
     where: >-

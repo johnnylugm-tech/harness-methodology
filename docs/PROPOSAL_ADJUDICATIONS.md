@@ -11665,6 +11665,14 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 - **harness 不改行為的理由(三條候選皆有證據否決或不足)**: 見下表。**確定性的 ownership 檢查被語料量測否決** —— 21 個專案、257 個 `feat(FR-NN): GREEN` commit 中,57(22%)會碰到 `fr_module_traceability` 只屬於別的 FR 的模組,多為合理的共用檔(`errors`、`app`、`config`、`__main__`、health 掛載、router),誤報率不可接受,連只記帳也只是雜訊。
 - **誠實邊界**: 沒有找到可驗證為安全的通用修法。更窄的條件(例如「被改的模組所屬 FR 已通過 Gate 1,且改動後其自身測試的覆蓋或斷言下降」)沒有量測,不能說所有確定性檢查都不可行。FR-03 GREEN 的內部推理無從查證(spawn 的 session 沒有保留 transcript),只能從 commit 內容與 docstring「schema bootstrapped without alembic」推論它知道自己在放寬。
 
+### 站4 — advance 對 TDD-GREEN 的 ghost 紀錄重新量測(2026-10-11)
+
+- **缺陷**: ghost 紀錄(`.sessi-work/ghost_detected/`)自 2026-07-11 引入後沒有任何解除路徑:`_check_ghost_paper_trail` 只要有紀錄就回傳 22,修法提示「以真正的程式碼變更重跑該步驟」對已完成的 FR 無法做到(R103)。taskq-retry:站2 修正前,收集中斷讓 FR-01/FR-02 被誤判為 RED,已有 GREEN commit 的兩個 FR 被重派 GREEN,agent 如實回報「already passes; no changes needed」,寫下兩筆 ghost(10-11 13:04/13:08,當時 harness pin 為 `6f909712`,站2 尚未存在)。之後兩個 FR 通過 Gate 1、Gate 2 通過,Advance 仍連續 5 輪被這兩筆擋下。非近期回歸:2026-09-25 後 ghost 偵測、`_fr_tests_say`、`_check_ghost_paper_trail` 都沒有改動。
+- **正解**: TDD-GREEN 的定義是「該 FR 自己的測試通過」,框架能自行量測(Round 41 的 `fr_suite_verdict`)。`ghost_detector.blocking_phase_ghost_trails` 在要交接的樹上重新量測:TDD-GREEN 紀錄且該 FR 為 GREEN → 已解除(列出、記 `advance:ghost-resolved` ledger,紀錄保留在磁碟);RED / UNKNOWN 照舊阻擋;其他步驟照舊阻擋 —— IMPROVE 沒有可量測的結果,Gate 1 通過也不代表 IMPROVE 做過。寫入端與 `scan_phase_ghost_trails` 不變。
+- **副作用查證**: ghost 紀錄唯一的讀取者就是這個 advance 檢查(workflow JS、doctor、報表都不讀)。無紀錄時在量測前就回傳 0;有紀錄時量測走 strict `run_suite` 的 memo。原型與實作在合成反例上:自身測試紅、IMPROVE、無可歸屬測試、JS 專案皆仍阻擋;taskq-retry 快照上兩筆皆解除,rc 0。
+- **守衛(6 支,2 組反證)**: 停用重新量測 → 「測試綠」案例轉紅;放寬到所有步驟 → IMPROVE 反例轉紅。
+- **誠實邊界**: 若某筆 GREEN ghost 確實是「宣稱完成、實際沒做」,而之後別的步驟讓該 FR 的測試轉綠,它會被判為已解除 —— 這是刻意的:要交接的樹上 GREEN 的定義確實成立。寫入端仍會在「本來就不需要做」的 GREEN dispatch 上寫 ghost 並回傳 22;站2 之後此情況的觸發來源已移除,未另行處理。
+
 ### §不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
