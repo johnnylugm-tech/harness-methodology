@@ -11673,6 +11673,15 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 - **守衛(6 支,2 組反證)**: 停用重新量測 → 「測試綠」案例轉紅;放寬到所有步驟 → IMPROVE 反例轉紅。
 - **誠實邊界**: 若某筆 GREEN ghost 確實是「宣稱完成、實際沒做」,而之後別的步驟讓該 FR 的測試轉綠,它會被判為已解除 —— 這是刻意的:要交接的樹上 GREEN 的定義確實成立。寫入端仍會在「本來就不需要做」的 GREEN dispatch 上寫 ghost 並回傳 22;站2 之後此情況的觸發來源已移除,未另行處理。
 
+### 站5 — 預覽目錄補上 `spec_alignment`(2026-10-12)
+
+- **缺陷**: Round 107(2026-09-08)把 `unread_config_key` 改成「P3 資訊性、P4 起阻擋」,與 `config_liveness`、`drift_detection` 同一類延遲義務;那兩個在 `_DELAYED_BLOCKING_PREFLIGHTS`,`spec_alignment` 沒有,所以 `preview_next_phase_blocking` 看不到它。`advance-phase` 用同一個預覽並拒絕有未結義務的 advance(Round 43 站2),預覽看不到,advance 就放行。taskq-retry:SPEC 宣告的 `TASKQ_CORS_ORIGINS`、`TASKQ_HOST`、`TASKQ_PORT`、`TASKQ_LOG_LEVEL`、`TASKQ_LOG_FORMAT` 沒有任何程式讀取;同一棵樹上 `run-phase --phase 4` 是 BLOCKED,`preview-next-phase --phase 3` 回報 clean,advance 推進到 Phase 4,之後 pre-push hook 以 Phase 4 擋下。非近期回歸:缺口存在約一個月。
+- **正解**: `spec_alignment` 加入目錄;`preflight_spec_alignment` 回傳 `error_details`,只含「在該 phase 真的阻擋」的錯誤(FR-set 類 ≥ P2、config 類 ≥ P4);`_obligations_from_preflight` 加分支,每個錯誤一個義務(沿用 `artifact_consistency` 的先例)。預覽與 `run-phase N+1` 對這個檢查結構上等價:`spec_alignment.py` 不讀 `state.json` 或 phase,預覽的 sibling 以 `phase=next_phase` 建構。
+- **查證**: 16 個 preflight 中讀取 `self.phase` 卻不在目錄的只有 `fsm`(環境類)、`bvs_phase_order`(有明文的刻意排除)與 `spec_alignment`(唯一非預期遺漏)。22 個專案 × phase 1~8 共 208 格,`error_details` 非空 ⇔ `run-phase` 會阻擋,0 不一致。端到端:在 Phase 3 出口的真實樹上執行 `advance-phase --completed 3`,修正前 rc 0(推進並產生 handover commit),修正後 rc 37(`P4 entry has 5 unresolved obligation(s). Not advancing`),state 仍為 phase 3。
+- **連帶**: e2e 的「healthy」fixture 有 SRS 卻沒有 canonical `SPEC.md`,`run-phase 2` 對它本來就一定擋(`canonical_missing`);fixture 補一份與 SRS 相符的 `SPEC.md`。FR-set 類義務因此也會在 P1→P2 的 advance 提前出現,內容與 P2 入口原本就會擋的完全相同。
+- **守衛(8 支,2 組反證)**: 目錄成員、P4 預覽逐 key 命名、P3 預覽不命名只在 P4 阻擋的 key、讀取完整則無義務、FR-set 一 phase 提前、`error_details` ⇔ 該 phase 阻擋的不變式、預覽 CLI、advance 拒絕。移除目錄成員讓 5 支轉紅;移除 `error_details` 的 phase 過濾讓不變式守衛轉紅。
+- **誠實邊界**: 這個修正只對之後的 advance 生效,已經推進到 P4 且帶著義務的專案(taskq-retry)不受影響。Phase 3 的 Preview fixer 最多 2 輪是否足以實作 5 個讀取未實測;失敗時會在 advance 之前 `halt('preview-next-phase')`。
+
 ### §不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
@@ -11684,3 +11693,4 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 | TDD-GREEN 的 `PRECONDITION_BLOCKED` / `TEST_CONFLICT` 出口(仿 IMPROVE) | GREEN 的測試本來就是紅的,框架無從機械驗證「測試錯了」是真是假;`fr_step_stages.py` 已指出未經驗證的出口是 universal opt-out | 出現可機械驗證的條件(例如宣告出口時必須附上與其衝突、且目前為綠的測試或 SPEC 條文,框架能重放) |
 | GREEN 後阻擋「改到別的 FR 專屬模組」 | 語料 21 專案、257 個 GREEN commit,57(22%)觸發,多為合理共用檔 | 先量測出誤報率可接受的更窄條件 |
 | 停放後重試的 FR 重做 RED | 只在停放/中斷路徑成立;頻率與副作用未量測 | 出現第二個「停放後重試的 FR,其 RED 測試與後交付的 FR 衝突」的實例 |
+| pre-push hook 的 `handover: advance to Phase N` 特例改為也認得 `chore(state): record phase N completion` | `cli/advance_steps.py:206-210`(Round 43 站2,2026-08-07)明言該猜測在「入口被擋就不翻 phase」之後可移除;09-02 多出的 commit 無意間讓特例失效,但補 A 之後 advance 不會再進入需要猜測的狀態,再替它加分支是擴充預定移除的機制 | 出現預覽本來就看不到的義務,導致 push 被 phase 猜測擋下 |

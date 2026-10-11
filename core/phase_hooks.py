@@ -106,6 +106,7 @@ _DELAYED_BLOCKING_PREFLIGHTS: frozenset[str] = frozenset({
     "reliability_lint",
     "config_liveness",
     "previous_phase_artifacts",
+    "spec_alignment",
 })
 
 
@@ -213,6 +214,15 @@ def _obligations_from_preflight(
                 check_id=check_id, target_phase=target_phase,
                 rule_id=str(d.get("rule_id", check_id)),
                 message=str(d.get("message", "artifact consistency violation")),
+            ))
+    elif check_id == "spec_alignment":
+        # Use `error_details` (Round 118 站5): only the errors that block at the
+        # target phase, so the preview never names what run-phase would not.
+        for d in res.get("error_details") or []:
+            out.append(Obligation(
+                check_id=check_id, target_phase=target_phase,
+                rule_id=str(d.get("rule_id", check_id)),
+                message=str(d.get("message", "canonical spec divergence")),
             ))
     elif check_id == "config_liveness":
         # Use `orphans` ({env_key: "file:line"}).
@@ -1126,6 +1136,11 @@ class PhaseHooks:
             "errors": len(errors),
             "needs_review": len(reviews),
             "divergences": [v.rule_id for v in errors],
+            # Round 118 站5: what blocks at THIS phase, for the carry-over preview.
+            "error_details": [
+                {"rule_id": v.rule_id, "message": f"{v.check_type}: {v.message}"}
+                for v in (errors_fr if blocking_fr else []) + (errors_cfg if blocking_cfg else [])
+            ],
         }
 
     def preflight_property_spec(self) -> Dict[str, Any]:

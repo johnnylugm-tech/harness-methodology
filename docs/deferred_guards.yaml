@@ -2674,3 +2674,9 @@ entries:
     guard: "manual"
     evidence: >-
       2026-10-11: 條件是「出現第二個停放後重試且 RED 測試與後交付 FR 衝突的實例」。語料中只確認 taskq-retry 一例;沒有逐一檢查其他專案的停放紀錄,因此不能說只有一例。
+  - round: 118
+    item: "pre-push hook 的 `handover: advance to Phase N` 特例改為也認得 `chore(state): record phase N completion`"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-10-12: 條件是「出現預覽本來就看不到的義務,導致 push 被 phase 猜測擋下」。本輪唯一的實例(taskq-retry 的 5 個 unread config key)是預覽漏掉 spec_alignment 造成,已由站5 修正;同一棵樹上的端到端重放顯示修正後 advance 會在入口拒絕,不再需要 hook 猜 phase。只查了 PREFLIGHT_CHECKS 中讀取 self.phase 的 16 個 preflight(其餘兩個未在目錄者為 fsm 與 bvs_phase_order,皆為刻意排除),沒有查其他專案在 09-02 之後的 push 是否撞過這個特例失效。

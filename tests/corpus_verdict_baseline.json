@@ -237,7 +237,22 @@
     "spec_unread_rows": 0
   },
   "taskq-retry": {
-    "unmeasured": "no 40-char sha in phase_completed[3]"
+    "_note": {
+      "cheapest_satisfaction": "Write each key's name as a string anywhere under src/. The check is key-substring presence in any src file (core/quality_gate/spec_alignment.py), so a comment or an unused constant satisfies it exactly as well as a real CORS allowlist, logger setup or launcher.",
+      "discriminating_signal": "None mechanical. spec_alignment cannot tell a key that configures behaviour from one that is merely mentioned; config_liveness reads the opposite direction (keys read but undeclared). No corpus search was made for keys that appear in src/ without influencing behaviour.",
+      "moved": "taskq-retry stopped being unmeasurable: phase_completed[3] now carries the P3-exit sha 90aad8c0c1c8 (the handover commit). First recorded: spec_alignment_violations 5, spec_declared 170, spec_undelivered 52, spec_unread_rows 3; ac_uncited 0, frs_total 10, frs_without_tests 0, frs_without_requirement_text 0, runtime_test_seams 0.",
+      "why_right": "Before, the project had no completed Phase 3, so there was no delivered tree to judge. Now there is one, and the 5 spec_alignment_violations are real: SPEC.md declares TASKQ_CORS_ORIGINS, TASKQ_HOST, TASKQ_PORT, TASKQ_LOG_LEVEL and TASKQ_LOG_FORMAT and the delivered system never reads them. They are the same five that `run-phase --phase 4` blocks on."
+    },
+    "ac_uncited": 0,
+    "frs_total": 10,
+    "frs_without_requirement_text": 0,
+    "frs_without_tests": 0,
+    "runtime_test_seams": 0,
+    "sha": "90aad8c0c1c8",
+    "spec_alignment_violations": 5,
+    "spec_declared": 170,
+    "spec_undelivered": 52,
+    "spec_unread_rows": 3
   },
   "taskq-sn": {
     "_note": {

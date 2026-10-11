@@ -6893,3 +6893,35 @@
 - test: tests/test_a_green_ghost_is_measured_at_advance.py::test_the_record_itself_is_kept
   bug: "resolution is a judgement at advance time; the audit record of the dispatch must stay on disk"
   fixed_in: "Round 118 站4"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_spec_alignment_is_a_delayed_blocking_member
+  bug: "Round 107 made unread_config_key a P4-entry obligation but left spec_alignment out of _DELAYED_BLOCKING_PREFLIGHTS, so preview-next-phase reported 'clean' and advance-phase entered Phase 4 with five unread config keys (taskq-retry). Counter-proof run 2026-10-12: removing the member turns this and four siblings red"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_the_p4_preview_names_each_unread_config_key
+  bug: "an obligation that does not name its key leaves the preview fixer nothing to open; the generic fallback would say only 'spec_alignment would block at phase 4'"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_the_p3_preview_does_not_name_config_keys_that_only_block_from_p4
+  bug: "the preview must not name a finding run-phase N+1 does not make: unread config keys are informational at P3"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_a_requirement_dropped_from_the_srs_is_previewed_one_phase_early
+  bug: "the FR-set class of spec_alignment blocks from P2 entry; the preview now shows it at P1->P2, exactly as run-phase 2 reports it"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_every_previewed_obligation_is_one_the_next_phase_blocks_on
+  bug: "error_details must be non-empty exactly when the preflight at that phase fails and says it blocks (208 project x phase cells on the corpus, 0 mismatches). Counter-proof run 2026-10-12: dropping the per-phase filter turns this red"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_the_preview_cli_reports_the_obligation
+  bug: "R30: an obligation the preview command does not print has no live effect"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_advance_refuses_to_enter_a_phase_whose_entry_will_block
+  bug: "advance-phase must refuse this obligation (exit 37) rather than hand the next phase a state its own entry preflight rejects"
+  fixed_in: "Round 118 站5"
+
+- test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_a_project_that_reads_its_keys_has_no_obligation
+  bug: "a project whose code reads every declared key must produce no obligation, or the new member would block healthy advances"
+  fixed_in: "Round 118 站5"

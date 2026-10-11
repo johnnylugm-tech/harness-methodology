@@ -151,6 +151,13 @@ def e2e_project(tmp_path):
     req = proj / "01-requirements"
     req.mkdir()
     (req / "SRS.md").write_text(_SRS, encoding="utf-8")
+    # The canonical spec: P2 entry demands one, and since Round 118 站5 so does
+    # the advance that previews P2 entry. The SRS above transcribes these headings.
+    (proj / "SPEC.md").write_text(
+        "# e2e canonical spec\n\n### FR-01: first requirement\n\n"
+        "### FR-02: second requirement\n\n### FR-03: third requirement\n",
+        encoding="utf-8",
+    )
     (req / "SPEC_TRACKING.md").write_text(_SPEC_TRACKING, encoding="utf-8")
     (req / "TRACEABILITY_MATRIX.md").write_text(_TRACEABILITY, encoding="utf-8")
     (proj / "TEST_INVENTORY.yaml").write_text(
