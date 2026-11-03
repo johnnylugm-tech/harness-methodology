@@ -1956,6 +1956,21 @@ test('round118-6: tests still failing after two resolver rounds halt the phase',
   assert.ok(!events.agents.some((a) => a.label === 'coverage'))
 })
 
+test('round118-6: a newly written test that fails gets two resolver rounds', async () => {
+  let written = false, fixes = 0
+  const responder = makeHappyResponder([
+    { match: /^declared-check-unwritten-r\d$/, respond: () => ({ rc: written ? 0 : 1 }) },
+    { match: /^declared-check-failing-r\d$/, respond: () => ({ rc: written && fixes < 2 ? 1 : 0 }) },
+    { match: /^declared-write-r\d$/, respond: () => { written = true; return 'wrote tests' } },
+    { match: /^declared-fix-r\d$/, respond: () => { fixes++; return 'fixed product' } },
+    ...happyOverrides(),
+  ])
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), responder)
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  assert.deepEqual(declaredLabels(events, 'declared-write-'), ['declared-write-r1'])
+  assert.deepEqual(declaredLabels(events, 'declared-fix-'), ['declared-fix-r1', 'declared-fix-r2'])
+})
+
 // ---- Round 114 站7: the P1 matrix is rendered by the framework, not authored ----
 test('round114: P1 dispatches no traceability author or reviewer and approves three deliverables', async () => {
   const { result, events } = await runWorkflow(WF('phase1-requirements.js'), makeHappyResponder(happyOverrides()))

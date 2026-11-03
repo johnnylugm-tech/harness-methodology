@@ -6939,5 +6939,5 @@
   fixed_in: "Round 118 站6"
 
 - test: tests/test_workflow_sim.py::test_sim_testbed_passes
-  bug: "round118-6 sims: a failing declared test dispatches the resolver (not the writer) before Coverage, the writer keeps its test-only scope, both kinds dispatch both, and failing rows still there after two rounds halt with owner=project"
+  bug: "round118-6 sims: a failing declared test dispatches the resolver (not the writer) before Coverage, the writer keeps its test-only scope, both kinds dispatch both, failing is sampled after declared-write so a newly written test that fails still gets two resolver rounds, and failing rows still there after two rounds halt with owner=project"
   fixed_in: "Round 118 站6"

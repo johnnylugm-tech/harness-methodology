@@ -11682,6 +11682,20 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 - **守衛(8 支,2 組反證)**: 目錄成員、P4 預覽逐 key 命名、P3 預覽不命名只在 P4 阻擋的 key、讀取完整則無義務、FR-set 一 phase 提前、`error_details` ⇔ 該 phase 阻擋的不變式、預覽 CLI、advance 拒絕。移除目錄成員讓 5 支轉紅;移除 `error_details` 的 phase 過濾讓不變式守衛轉紅。
 - **誠實邊界**: 這個修正只對之後的 advance 生效,已經推進到 P4 且帶著義務的專案(taskq-retry)不受影響。Phase 3 的 Preview fixer 最多 2 輪是否足以實作 5 個讀取未實測;失敗時會在 advance 之前 `halt('preview-next-phase')`。
 
+### 站6 — 已寫出但執行失敗的宣告測試交給 resolver，且在 writer 之後量測 `failing`(2026-11-03)
+
+- **缺陷**:
+  1. Round 114 站5 引入的 P4 `Declared Tests` 把所有未交付的非 FR 宣告測試一律派給 `declared-write`（SCOPE RULES 禁止修改正式碼）。在 `taskq-retry` 上，6 支宣告測試皆已存在但執行失敗（`[failed]`，產品缺陷），只准改測試檔的 writer 無法收斂，兩輪後 `halt('declared-tests')`。
+  2. `4559b4e1` 拆出 `--kind unwritten|failing` 與 `declared-fix` resolver 時，把 `const unwritten = ..., failing = ...` 寫在每輪開頭（`declared-write-r{round}` 之前）。初次進入 P4 時測試尚未寫出（`unwritten = 1, failing = 0`），round 1 由 `declared-write-r1` 寫出測試並發現產品缺陷，但該輪 `failing` 早已取樣為 `0`，直接跳過 `declared-fix-r1`，導致剛寫出而失敗的宣告測試只剩 round 2 一輪 resolver（若測試在 round 2 才寫出則為 0 輪）。
+- **正解**:
+  1. `undelivered-tests` 新增 `--kind unwritten|failing`（`unwritten`: `absent`/`not_collected`；`failing`: `failed`/`error`/`skipped`，兩者互斥且分割所有未交付列）。
+  2. `scripts/workflowgen/spec_phase4.py` 的 `_render_declared_tests` 每輪先查 `unwritten`，若非 0 且 `round < 3` 先執行 `declared-write-r{round}`，**之後**才查 `failing` 並派發 `declared-fix-r{round}`，確保第 1 輪剛寫出即失敗的測試在同一輪立即進入 `declared-fix-r1`，保有完整的兩輪 resolver 預算。
+- **實證**:
+  1. `taskq-retry` 現場重跑 P4：`declared-check-unwritten-r1` 為 `RC=0`、`declared-check-failing-r1` 為 `RC=1`，`declared-fix-r1` 產出 5 筆 `fix(...)` commit（`2022266`、`46a7acc`、`144657e`、`ce698d2`、`d3d5d91`）修妥 6 支失敗宣告測試，round 2 兩項檢查皆 `RC=0` 收斂。
+  2. `sim_runner.test.mjs` 新增狀態模擬反例 `round118-6: a newly written test that fails gets two resolver rounds`：修正前在 round 3 觸發 `halt('declared-tests')`（`declared-fix` 僅跑 1 輪），修正後於 round 1/2 完整執行 `declared-fix-r1` 與 `declared-fix-r2` 並通過。
+- **守衛**: `tests/test_a_failing_declared_test_goes_to_a_resolver.py`（3 支，分割不變式與失敗分類）與 `scripts/workflowgen/js_src/sim_runner.test.mjs`（5 支 `round118-6` 模擬測試）。
+- **誠實邊界**: 若 `declared-write-r1` 漏寫某支測試直到 `declared-write-r2` 才寫出，且該測試一跑就失敗，則僅剩 `declared-fix-r2` 一輪可修；這是 `round <= 3` 雙輪上限的結構邊界。
+
 ### §不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
