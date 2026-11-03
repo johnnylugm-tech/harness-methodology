@@ -6925,3 +6925,19 @@
 - test: tests/test_a_preview_sees_the_config_reads_p4_will_demand.py::test_a_project_that_reads_its_keys_has_no_obligation
   bug: "a project whose code reads every declared key must produce no obligation, or the new member would block healthy advances"
   fixed_in: "Round 118 站5"
+
+- test: tests/test_a_failing_declared_test_goes_to_a_resolver.py::test_the_two_kinds_partition_the_rows
+  bug: "the P4 Declared Tests step sent every undelivered row to a writer barred from source, so a declared test that exists and FAILS (a product defect) could never converge; taskq-retry halted at declared-tests on 6 rows, all [failed], none [absent]. A row neither --kind lists would be sent nowhere while advance-phase exit 52 still blocks on it"
+  fixed_in: "Round 118 站6 (undelivered-tests --kind unwritten|failing; failing rows go to the declared-fix resolver)"
+
+- test: tests/test_a_failing_declared_test_goes_to_a_resolver.py::test_failing_is_every_test_that_ran_and_did_not_pass
+  bug: "error and skipped are outcomes of a test that ran; classing them as unwritten would send them back to the writer that cannot fix them"
+  fixed_in: "Round 118 站6"
+
+- test: tests/test_a_failing_declared_test_goes_to_a_resolver.py::test_without_a_kind_the_output_is_unchanged
+  bug: "advance-phase exit 52 and its remedy name `undelivered-tests --non-fr`; the flag must not change what that command lists"
+  fixed_in: "Round 118 站6"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "round118-6 sims: a failing declared test dispatches the resolver (not the writer) before Coverage, the writer keeps its test-only scope, both kinds dispatch both, and failing rows still there after two rounds halt with owner=project"
+  fixed_in: "Round 118 站6"

@@ -1882,25 +1882,33 @@ test('round114: standalone-mutmut fails a score under the gate threshold', async
 // ---- Round 114 站5: P4 writes the declared tests no FR owns ----
 // `undelivered-tests --non-fr` decides (rc 0 = none left); the writer runs only
 // while some remain, at most twice, and a run that still has some halts.
-const p4WithDeclared = (rcs) => {
-  let i = 0
+// Round 118 站6: the command is asked per kind — `unwritten` (absent / never
+// collected) goes to the writer, `failing` (ran and did not pass) to the
+// resolver that may fix the product. Each sequence below is that kind's rc
+// per round.
+const p4WithDeclared = (unwrittenRcs, failingRcs = [0]) => {
+  let u = 0, f = 0
   return makeHappyResponder([
-    { match: /^declared-check-r\d$/, respond: () => ({ rc: rcs[Math.min(i++, rcs.length - 1)] }) },
+    { match: /^declared-check-unwritten-r\d$/, respond: () => ({ rc: unwrittenRcs[Math.min(u++, unwrittenRcs.length - 1)] }) },
+    { match: /^declared-check-failing-r\d$/, respond: () => ({ rc: failingRcs[Math.min(f++, failingRcs.length - 1)] }) },
     ...happyOverrides(),
   ])
 }
+const declaredLabels = (events, prefix) => events.agents.map((a) => a.label).filter((l) => l.startsWith(prefix))
 
 test('round114: nothing undelivered -> no writer is dispatched', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0]))
   assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
-  assert.ok(!events.agents.some((a) => a.label.startsWith('declared-write-')))
+  assert.equal(declaredLabels(events, 'declared-write-').length, 0)
+  assert.equal(declaredLabels(events, 'declared-fix-').length, 0)
 })
 
 test('round114: undelivered tests are written once, then the check passes', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 0]))
   assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
   const labels = events.agents.map((a) => a.label)
-  assert.equal(labels.filter((l) => l.startsWith('declared-write-')).length, 1)
+  assert.equal(declaredLabels(events, 'declared-write-').length, 1)
+  assert.equal(declaredLabels(events, 'declared-fix-').length, 0, 'nothing failing -> no resolver')
   assert.ok(labels.indexOf('declared-write-r1') < labels.indexOf('coverage'),
             'the tests must exist before Coverage and Gate 3 measure the suite')
 })
@@ -1909,7 +1917,42 @@ test('round114: tests still undelivered after two writing rounds halt the phase'
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 1, 1]))
   assert.equal(result.halt_step, 'declared-tests')
   assert.equal(result.owner, 'project')
-  assert.equal(events.agents.filter((a) => a.label.startsWith('declared-write-')).length, 2)
+  assert.equal(declaredLabels(events, 'declared-write-').length, 2)
+  assert.ok(!events.agents.some((a) => a.label === 'coverage'))
+})
+
+test('round118-6: a declared test that runs and fails goes to the resolver, not the writer', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0], [1, 0]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  assert.equal(declaredLabels(events, 'declared-write-').length, 0, 'a written test needs no writer')
+  const fix = events.agents.filter((a) => a.label.startsWith('declared-fix-'))
+  assert.equal(fix.length, 1)
+  assert.ok(fix[0].prompt.includes('--kind failing'), 'the resolver is handed the failing rows')
+  assert.ok(/NEVER edit TEST_SPEC/.test(fix[0].prompt) && /the declared test/.test(fix[0].prompt),
+            'the resolver may not move the criterion it is judged by')
+  const labels = events.agents.map((a) => a.label)
+  assert.ok(labels.indexOf('declared-fix-r1') < labels.indexOf('coverage'))
+})
+
+test('round118-6: the writer keeps its test-only scope and is never told to fix source', async () => {
+  const { events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 0]))
+  const w = events.agents.find((a) => a.label === 'declared-write-r1')
+  assert.ok(w.prompt.includes('--kind unwritten'))
+  assert.ok(w.prompt.includes('ONLY test files; DO NOT edit source'))
+})
+
+test('round118-6: unwritten and failing rows in one round dispatch both, each once', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 0], [1, 0]))
+  assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
+  assert.equal(declaredLabels(events, 'declared-write-').length, 1)
+  assert.equal(declaredLabels(events, 'declared-fix-').length, 1)
+})
+
+test('round118-6: tests still failing after two resolver rounds halt the phase', async () => {
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0], [1, 1, 1]))
+  assert.equal(result.halt_step, 'declared-tests')
+  assert.equal(result.owner, 'project')
+  assert.equal(declaredLabels(events, 'declared-fix-').length, 2)
   assert.ok(!events.agents.some((a) => a.label === 'coverage'))
 })
 

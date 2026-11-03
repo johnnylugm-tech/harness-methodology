@@ -509,6 +509,7 @@
     "undelivered-tests": [
       "--help",
       "--json",
+      "--kind",
       "--non-fr",
       "--project",
       "-h"

@@ -26,12 +26,21 @@ def cmd_undelivered_tests(args: argparse.Namespace) -> int:
     Round 114 站5. `--non-fr` narrows to the rows no FR declares — the ones
     Phase 4 writes and `advance-phase --completed 4` asks for. `--json`
     prints the rows for a caller that parses them.
+
+    Round 118 站6. `--kind` splits the rows by who can deliver them:
+    `unwritten` (absent, never collected) is a test to write; `failing` (it
+    ran and did not pass) is a product that misses its row. The P4 step sent
+    both to a writer that may not edit source, so a failing row never
+    converged — taskq-retry halted on six real product defects.
     """
     import json as _json
 
     from core.quality_gate.spec_coverage import undelivered_declared_tests
 
     rows = undelivered_declared_tests(Path(args.project), non_fr=args.non_fr)
+    if getattr(args, "kind", None):
+        unwritten = {"absent", "not_collected"}
+        rows = [r for r in rows if (r.get("why", "absent") in unwritten) == (args.kind == "unwritten")]
     if args.json:
         print(_json.dumps(rows, ensure_ascii=False))
     else:
@@ -357,6 +366,8 @@ def register(sub) -> None:
     udt.add_argument("--non-fr", action="store_true", dest="non_fr",
                      help="Only rows no FR declares (NFR sections, the deferred table)")
     udt.add_argument("--json", action="store_true", help="Print the rows as JSON")
+    udt.add_argument("--kind", choices=("unwritten", "failing"), default=None,
+                     help="unwritten: absent or never collected; failing: ran and did not pass")
     udt.set_defaults(func=cmd_undelivered_tests)
 
     # crg-arch-check (CI: non-interactive deterministic CRG architecture gate)
