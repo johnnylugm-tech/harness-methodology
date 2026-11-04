@@ -2680,3 +2680,21 @@ entries:
     guard: "manual"
     evidence: >-
       2026-10-12: 條件是「出現預覽本來就看不到的義務,導致 push 被 phase 猜測擋下」。本輪唯一的實例(taskq-retry 的 5 個 unread config key)是預覽漏掉 spec_alignment 造成,已由站5 修正;同一棵樹上的端到端重放顯示修正後 advance 會在入口拒絕,不再需要 hook 猜 phase。只查了 PREFLIGHT_CHECKS 中讀取 self.phase 的 16 個 preflight(其餘兩個未在目錄者為 fsm 與 bvs_phase_order,皆為刻意排除),沒有查其他專案在 09-02 之後的 push 是否撞過這個特例失效。
+  - round: 118
+    item: "criteria approval 在 P3 之後的過期與重審"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-11-04: 條件是「老闆指定,或出現 P4 以後被弱化的宣告斷言」。scratch 量測 taskq-final FR-07 的 approval 已失效(P8 e1befbf 合法修改兩支宣告測試),是修改而非弱化;taskq-open、taskq-retry 的 approval 皆仍成立。未搜尋其他專案,也未判斷 e1befbf 的修改是否弱化斷言。
+  - round: 118
+    item: "Declared Tests 遇收集錯誤時退回只看存在(code review F3)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-11-04: 條件是「出現帶收集錯誤的 P4 樹通過 Declared Tests 並進入 Gate 3」。本輪未搜尋語料中的此類實例;只確認 `_live_test_outcomes` 在 rc 非 0 且 outcome 為空時回傳 None(R88 站0),站6/站7 未改變此行為。
+  - round: 118
+    item: "Declared Tests 的 check 回傳 null 視為仍有剩餘(code review F9)"
+    verdict: NOT_MET
+    guard: "manual"
+    evidence: >-
+      2026-11-04: 條件是「出現 null 導致的投機性 fix commit」。本輪未搜尋;站6 之前的 `chk && chk.rc === 0` 寫法在 null 時同樣派出 writer。

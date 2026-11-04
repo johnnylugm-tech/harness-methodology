@@ -96,3 +96,13 @@ def test_the_cli_accepts_only_the_two_kinds():
     assert ns.kind == "failing"
     with pytest.raises(SystemExit):
         parser.parse_args(["undelivered-tests", "--kind", "failed"])
+
+
+def test_the_partition_is_the_one_delivery_outcome_owns(monkeypatch, capsys):
+    """Round 118 站7: the CLI reads the vocabulary from beside
+    `delivery_outcome`, so a status added there cannot drift past it."""
+    from core.quality_gate import spec_coverage
+
+    monkeypatch.setattr(spec_coverage, "UNWRITTEN_OUTCOMES", frozenset({"absent"}))
+    rc, names = _run(monkeypatch, capsys, "unwritten")
+    assert names == ["test_nfr01_absent"]

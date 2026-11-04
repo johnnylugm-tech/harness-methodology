@@ -11696,6 +11696,27 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 - **守衛**: `tests/test_a_failing_declared_test_goes_to_a_resolver.py`（3 支，分割不變式與失敗分類）與 `scripts/workflowgen/js_src/sim_runner.test.mjs`（5 支 `round118-6` 模擬測試）。
 - **誠實邊界**: 若 `declared-write-r1` 漏寫某支測試直到 `declared-write-r2` 才寫出，且該測試一跑就失敗，則僅剩 `declared-fix-r2` 一輪可修；這是 `round <= 3` 雙輪上限的結構邊界。
 
+### 站7 — 站6 的複核:先寫完再收斂,resolver 不得改任何宣告測試(2026-11-04)
+
+老闆令:`/code-review` 對 `edeb9fbc..7de9ce10` 提出 9 項,只修必修三項;方案先驗證是正解、無副作用。歸屬:harness 設計缺陷(生成器 `spec_phase4.py::_render_declared_tests` 與 `cmd_undelivered_tests`);JS 由生成器產生(`--check` OK),非手改。
+
+- **缺陷**(三項同一前提:站6 依結果分流,假設宣告的測試一定寫對):
+  1. writer 只拿 `--kind unwritten`,resolver 不得改宣告測試或 skip —— writer 自己寫錯的斷言、skip、測試檔內 fixture 錯誤(`failed`/`skipped`/`error`)沒有任何有權限的人看得到;站6 之前 writer 每輪看見全部列,這是站6 引入的退化。分類詞彙 `{absent, not_collected}` 寫死在 CLI,而 `delivery_outcome` 才擁有這些值。
+  2. resolver 被授權改「an existing test asserting the opposite of the row」,不排除 FR 列的宣告測試;本步與 P4 出口都只跑 `--non-fr`,criteria review 的 assertion digest 只在 `completed_phase == 3` 重讀 —— Gate 1 驗過的準則可被靜默改寫。
+  3. 7de9ce10 標題的「new failures get two resolver rounds」只對第 1 輪寫出者成立(站6 的誠實邊界自己寫了,標題沒有)。
+- **重現**:對 7de9ce10 的 phase4-testing.js 寫三支 sim(第 2 輪才寫出且需兩次產品修復;寫出的測試本身有缺陷;resolver prompt 權限),三支皆紅(兩支 `halt('declared-tests')`)。
+- **正解**:
+  1. 兩段。階段 W:`--kind unwritten` 問到全部寫出(writer 最多 2 輪,寫完後重新量測);仍有則 halt,不進入 R。階段 R:不帶 kind 問所有未交付列,最多 2 輪,每輪先 `declared-review`(新,只改測試檔:只修測試偏離其列處 —— skip/xfail、列沒寫的斷言、測試檔內 setup/fixture 錯誤、名稱或位置;忠實的測試即使失敗也不動,不得放寬列所陳述者),再 `declared-fix`(只改產品)。所有列在 R 之前都已寫出,每個失敗列都有兩輪。單一 halt 指名是哪一段。
+  2. writer 新增:忠實表達其列而失敗的測試是產品缺陷,保持失敗。
+  3. resolver 可改 source、artifact,以及「列判的是測試碼本身時,未宣告的測試」;NEVER 改任何 TEST_SPEC 宣告的測試(含 FR 列);只能靠改另一支宣告測試才能過,即保持失敗(halt 訊息指出這是 TEST_SPEC 內部矛盾)。
+  4. `spec_coverage.UNWRITTEN_OUTCOMES` 放在 `delivery_outcome` 旁,CLI import;行為不變。
+- **邊界由真實資料決定**:taskq-retry `46a7acc`(站6 的 `declared-fix-r1`)為 NFR-09 在 `test_fr02.py`、`test_fr08.py` 各補一行 assert;兩支皆不在 TEST_SPEC 宣告中(grep 0)。「一律不准改測試」會讓這個真實案例無法收斂,所以規則是「不准改宣告的測試」。
+- **為何不加機械檢查**:F4 是 prompt 明文授權,修在陳述。宣告測試被改的偵測者本來是 criteria digest,但它在 P3 之後沒有執行者 —— scratch 量測 taskq-final FR-07 的 approval 已失效,來源是 P8 `e1befbf test(FR-07): repair 5 spec cases`(合法修改)。把 P3 precheck 延伸到後續 phase,需要每個 phase 都有重審的產出者(R43),登記為不做。
+- **副作用查證**:labels 的讀者只有 dispatch registry(新增 `^declared-review-r$`)與 sim;`advance-phase --completed 4`(exit 52)與其 remedy 不變;CLI 不帶 `--kind` 的輸出不變。dispatch 數:happy path 2 個 check(不變),最壞 6 check + 2 write + 2 review + 2 fix(站6 為 6 check + 2 write + 2 fix)。生成 JS 的 diff 只落在 Declared Tests 區段。scratch clone 全套與同位置未修改 HEAD clone 對照:8962 passed,唯一新增失敗是 `spec_coverage.py` 1000 → 1005 行(本常數,ceiling 同 commit 調整)。
+- **守衛**:sim 11 支(4 支新增、7 支改寫保留原意圖,含有狀態的 `declaredTree` 模擬器)、pytest 1 支。反證 5 組皆轉紅並以 sha256 還原:拿掉 reviewer(4 支)、放回「asserting the opposite」(1)、收斂只 1 輪(3)、換回站6 本體(8)、CLI 放回字面值(1)。
+- **RUNALL_MAX_BYTES**:449939 → 451061;實測 450961,壓縮兩次(+1329 → +1102)。
+- **誠實邊界**:reviewer 與 resolver 的分界只靠 prompt;reviewer 的成功條件不是通過,但沒有機械檢查阻止它放寬斷言。階段 W 兩輪後仍有未寫出的列時直接 halt,已寫出而失敗的列這一輪不會被修。reviewer 在真實專案上對「忠實但失敗」的測試是否真的不動,只有 sim 驗證了 dispatch 結構。
+
 ### §不做(附 re-open 條件)
 
 | 項目 | 理由 | re-open |
@@ -11708,3 +11729,6 @@ parity 項目與 SAD.md 五處說明(−77 行)。舊 manifest 留下的 `{}` �
 | GREEN 後阻擋「改到別的 FR 專屬模組」 | 語料 21 專案、257 個 GREEN commit,57(22%)觸發,多為合理共用檔 | 先量測出誤報率可接受的更窄條件 |
 | 停放後重試的 FR 重做 RED | 只在停放/中斷路徑成立;頻率與副作用未量測 | 出現第二個「停放後重試的 FR,其 RED 測試與後交付的 FR 衝突」的實例 |
 | pre-push hook 的 `handover: advance to Phase N` 特例改為也認得 `chore(state): record phase N completion` | `cli/advance_steps.py:206-210`(Round 43 站2,2026-08-07)明言該猜測在「入口被擋就不翻 phase」之後可移除;09-02 多出的 commit 無意間讓特例失效,但補 A 之後 advance 不會再進入需要猜測的狀態,再替它加分支是擴充預定移除的機制 | 出現預覽本來就看不到的義務,導致 push 被 phase 猜測擋下 |
+| criteria approval 在 P3 之後的過期與重審 | P5~P8 的 per-FR 迴圈合法修改宣告測試(taskq-final FR-07 實測 approval 已失效),延伸 P3 precheck 需要每個 phase 都有重審產出者(R43) | 老闆指定,或出現 P4 以後被弱化的宣告斷言 |
+| Declared Tests 遇收集錯誤時退回只看存在(code review F3) | R88 站0 的既有規則,站6/站7 未改變;Gate 3 全套把無法 import 判紅 | 出現帶收集錯誤的 P4 樹通過 Declared Tests 並進入 Gate 3 |
+| Declared Tests 的 check 回傳 null 視為仍有剩餘(code review F9) | 站6 之前的寫法相同;resolver 自己跑 `--kind failing` 看到空清單 | 出現 null 導致的投機性 fix commit |

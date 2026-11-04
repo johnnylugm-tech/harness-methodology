@@ -1882,15 +1882,16 @@ test('round114: standalone-mutmut fails a score under the gate threshold', async
 // ---- Round 114 站5: P4 writes the declared tests no FR owns ----
 // `undelivered-tests --non-fr` decides (rc 0 = none left); the writer runs only
 // while some remain, at most twice, and a run that still has some halts.
-// Round 118 站6: the command is asked per kind — `unwritten` (absent / never
-// collected) goes to the writer, `failing` (ran and did not pass) to the
-// resolver that may fix the product. Each sequence below is that kind's rc
-// per round.
-const p4WithDeclared = (unwrittenRcs, failingRcs = [0]) => {
+// Round 118 站7: two stages. `--kind unwritten` is asked until every row is
+// written (writer, at most twice); then the rows with no passing result
+// (`declared-check-all`) get at most two rounds of a reviewer that aligns the
+// tests with their rows and a resolver that fixes the product. Each sequence
+// below is that check's rc per ask.
+const p4WithDeclared = (unwrittenRcs, allRcs = [0]) => {
   let u = 0, f = 0
   return makeHappyResponder([
     { match: /^declared-check-unwritten-r\d$/, respond: () => ({ rc: unwrittenRcs[Math.min(u++, unwrittenRcs.length - 1)] }) },
-    { match: /^declared-check-failing-r\d$/, respond: () => ({ rc: failingRcs[Math.min(f++, failingRcs.length - 1)] }) },
+    { match: /^declared-check-all-r\d$/, respond: () => ({ rc: allRcs[Math.min(f++, allRcs.length - 1)] }) },
     ...happyOverrides(),
   ])
 }
@@ -1899,8 +1900,7 @@ const declaredLabels = (events, prefix) => events.agents.map((a) => a.label).fil
 test('round114: nothing undelivered -> no writer is dispatched', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0]))
   assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
-  assert.equal(declaredLabels(events, 'declared-write-').length, 0)
-  assert.equal(declaredLabels(events, 'declared-fix-').length, 0)
+  for (const p of ['declared-write-', 'declared-review-', 'declared-fix-']) assert.equal(declaredLabels(events, p).length, 0, p)
 })
 
 test('round114: undelivered tests are written once, then the check passes', async () => {
@@ -1913,25 +1913,32 @@ test('round114: undelivered tests are written once, then the check passes', asyn
             'the tests must exist before Coverage and Gate 3 measure the suite')
 })
 
-test('round114: tests still undelivered after two writing rounds halt the phase', async () => {
+test('round114: tests still unwritten after two writing rounds halt the phase', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 1, 1]))
   assert.equal(result.halt_step, 'declared-tests')
   assert.equal(result.owner, 'project')
+  assert.ok(/unwritten after 2 writing rounds/.test(result.error))
   assert.equal(declaredLabels(events, 'declared-write-').length, 2)
+  assert.equal(declaredLabels(events, 'declared-fix-').length, 0, 'no resolving stage before every row is written')
   assert.ok(!events.agents.some((a) => a.label === 'coverage'))
 })
 
-test('round118-6: a declared test that runs and fails goes to the resolver, not the writer', async () => {
+test('round118-7: a failing declared test goes to the reviewer, then the resolver, before Coverage', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0], [1, 0]))
   assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
   assert.equal(declaredLabels(events, 'declared-write-').length, 0, 'a written test needs no writer')
-  const fix = events.agents.filter((a) => a.label.startsWith('declared-fix-'))
-  assert.equal(fix.length, 1)
-  assert.ok(fix[0].prompt.includes('--kind failing'), 'the resolver is handed the failing rows')
-  assert.ok(/NEVER edit TEST_SPEC/.test(fix[0].prompt) && /the declared test/.test(fix[0].prompt),
-            'the resolver may not move the criterion it is judged by')
   const labels = events.agents.map((a) => a.label)
+  assert.ok(labels.indexOf('declared-review-r1') < labels.indexOf('declared-fix-r1'))
   assert.ok(labels.indexOf('declared-fix-r1') < labels.indexOf('coverage'))
+  const rev = events.agents.find((a) => a.label === 'declared-review-r1')
+  assert.ok(rev.prompt.includes('ONLY test files; DO NOT edit source'), 'the reviewer edits tests only')
+  assert.ok(!rev.prompt.includes('--kind'), 'the reviewer sees every undelivered row, skipped and errored ones too')
+  assert.ok(/never loosen what the row states/.test(rev.prompt))
+  const fix = events.agents.find((a) => a.label === 'declared-fix-r1')
+  assert.ok(fix.prompt.includes('--kind failing'), 'the resolver is handed the failing rows')
+  assert.ok(/NEVER edit TEST_SPEC/.test(fix.prompt) && /any test TEST_SPEC\.md declares \(FR rows included\)/.test(fix.prompt),
+            'the resolver may not move any criterion, FR rows included')
+  assert.ok(!/asserting the opposite/.test(fix.prompt), 'no authority over an existing declared test')
 })
 
 test('round118-6: the writer keeps its test-only scope and is never told to fix source', async () => {
@@ -1939,36 +1946,65 @@ test('round118-6: the writer keeps its test-only scope and is never told to fix 
   const w = events.agents.find((a) => a.label === 'declared-write-r1')
   assert.ok(w.prompt.includes('--kind unwritten'))
   assert.ok(w.prompt.includes('ONLY test files; DO NOT edit source'))
+  assert.ok(/states its row and fails is a product defect: leave it failing/.test(w.prompt),
+            'a faithful failing test is left for the resolver, not loosened')
 })
 
-test('round118-6: unwritten and failing rows in one round dispatch both, each once', async () => {
+test('round118-7: a row written and then failing gets one writer, one reviewer, one resolver', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([1, 0], [1, 0]))
   assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
-  assert.equal(declaredLabels(events, 'declared-write-').length, 1)
-  assert.equal(declaredLabels(events, 'declared-fix-').length, 1)
+  for (const p of ['declared-write-', 'declared-review-', 'declared-fix-']) assert.equal(declaredLabels(events, p).length, 1, p)
 })
 
-test('round118-6: tests still failing after two resolver rounds halt the phase', async () => {
+test('round118-6: tests still failing after two resolving rounds halt the phase', async () => {
   const { result, events } = await runWorkflow(WF('phase4-testing.js'), p4WithDeclared([0], [1, 1, 1]))
   assert.equal(result.halt_step, 'declared-tests')
   assert.equal(result.owner, 'project')
+  assert.ok(/failing after 2 resolving rounds/.test(result.error))
+  assert.equal(declaredLabels(events, 'declared-review-').length, 2)
   assert.equal(declaredLabels(events, 'declared-fix-').length, 2)
   assert.ok(!events.agents.some((a) => a.label === 'coverage'))
 })
 
-test('round118-6: a newly written test that fails gets two resolver rounds', async () => {
-  let written = false, fixes = 0
-  const responder = makeHappyResponder([
-    { match: /^declared-check-unwritten-r\d$/, respond: () => ({ rc: written ? 0 : 1 }) },
-    { match: /^declared-check-failing-r\d$/, respond: () => ({ rc: written && fixes < 2 ? 1 : 0 }) },
-    { match: /^declared-write-r\d$/, respond: () => { written = true; return 'wrote tests' } },
-    { match: /^declared-fix-r\d$/, respond: () => { fixes++; return 'fixed product' } },
+// A stateful tree: the writer writes `writePerRound` tests a round; a failing
+// one is test-side (the reviewer aligns it) or product-side (it needs
+// `fixesNeeded` resolver rounds). Both checks are computed from that state.
+const declaredTree = ({ need, writePerRound, fail }) => {
+  const written = [], reviewed = new Set(), fixes = {}
+  const unwritten = () => need.filter((t) => !written.includes(t)).length
+  const failingNow = () => written.filter((t) => fail[t] && (fail[t].side === 'test'
+    ? !reviewed.has(t) : (fixes[t] ?? 0) < fail[t].fixesNeeded)).length
+  return makeHappyResponder([
+    { match: /^declared-check-unwritten-r\d$/, respond: () => ({ rc: unwritten() ? 1 : 0 }) },
+    { match: /^declared-check-all-r\d$/, respond: () => ({ rc: unwritten() || failingNow() ? 1 : 0 }) },
+    { match: /^declared-write-r\d$/, respond: () => { need.filter((t) => !written.includes(t)).slice(0, writePerRound).forEach((t) => written.push(t)); return 'wrote' } },
+    { match: /^declared-review-r\d$/, respond: () => { written.forEach((t) => { if (fail[t]?.side === 'test') reviewed.add(t) }); return 'aligned' } },
+    { match: /^declared-fix-r\d$/, respond: () => { written.forEach((t) => { if (fail[t]?.side === 'product') fixes[t] = (fixes[t] ?? 0) + 1 }); return 'fixed' } },
     ...happyOverrides(),
   ])
-  const { result, events } = await runWorkflow(WF('phase4-testing.js'), responder)
+}
+
+test('round118-6: a newly written test that fails gets two resolver rounds', async () => {
+  const tree = declaredTree({ need: ['a'], writePerRound: 1, fail: { a: { side: 'product', fixesNeeded: 2 } } })
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), tree)
   assert.equal(result.error, undefined, JSON.stringify(result).slice(0, 200))
   assert.deepEqual(declaredLabels(events, 'declared-write-'), ['declared-write-r1'])
   assert.deepEqual(declaredLabels(events, 'declared-fix-'), ['declared-fix-r1', 'declared-fix-r2'])
+})
+
+test('round118-7: a test first written in writing round 2 still gets two resolver rounds', async () => {
+  const tree = declaredTree({ need: ['a', 'b'], writePerRound: 1, fail: { b: { side: 'product', fixesNeeded: 2 } } })
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), tree)
+  assert.equal(result.halt_step, undefined, JSON.stringify(result).slice(0, 300))
+  assert.deepEqual(declaredLabels(events, 'declared-write-'), ['declared-write-r1', 'declared-write-r2'])
+  assert.deepEqual(declaredLabels(events, 'declared-fix-'), ['declared-fix-r1', 'declared-fix-r2'])
+})
+
+test('round118-7: a defect in the written test itself reaches an agent allowed to edit tests', async () => {
+  const tree = declaredTree({ need: ['a'], writePerRound: 1, fail: { a: { side: 'test' } } })
+  const { result, events } = await runWorkflow(WF('phase4-testing.js'), tree)
+  assert.equal(result.halt_step, undefined, JSON.stringify(result).slice(0, 300))
+  assert.deepEqual(declaredLabels(events, 'declared-review-'), ['declared-review-r1'])
 })
 
 // ---- Round 114 站7: the P1 matrix is rendered by the framework, not authored ----

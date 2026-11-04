@@ -80,6 +80,11 @@ def _scan_test_functions(test_dir: Path, language: str = "python") -> set[str]:
 _DELIVERING_OUTCOME = "passed"
 
 
+#: The `delivery_outcome` values in which no test of that name ran: a test to
+#: write (Round 118 站6). Every other undelivered value ran and did not pass.
+UNWRITTEN_OUTCOMES = frozenset({"absent", "not_collected"})
+
+
 def delivery_outcome(
     test_fn: str, actual_fns: set, test_outcomes: "dict[str, str] | None"
 ) -> str:

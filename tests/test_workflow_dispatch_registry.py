@@ -177,11 +177,14 @@ DISPATCH_REGISTRY: list[tuple[str, str, str, str]] = [
      "Round 114 站6: `write-approval --bind-context` rc into RC_SCHEMA — the "
      "binding is the sha review-change-context measured, not the agent's"),
     (r"^declared-check-$", "carrier", "schema",
-     "Round 114 站5: `undelivered-tests --non-fr --kind unwritten|failing` rc "
+     "Round 114 站5: `undelivered-tests --non-fr [--kind unwritten]` rc "
      "transcribed into RC_SCHEMA; advance-phase --completed 4 re-asks (exit 52)"),
     (r"^declared-fix-r$", "judgment", "none",
      "Round 118 站6: fixes the product a declared test runs and fails on; "
      "the next declared-check and the P4 exit judge whether it passes"),
+    (r"^declared-review-r$", "judgment", "none",
+     "Round 118 站7: aligns a declared test with its TEST_SPEC row (test files "
+     "only); the next declared-check and the P4 exit judge whether it passes"),
     (r"^declared-write-r$", "judgment", "none",
      "Round 114 站5: writes the declared tests no FR owns; the next "
      "declared-check-r and the P4 exit judge whether they exist and pass"),

@@ -6941,3 +6941,11 @@
 - test: tests/test_workflow_sim.py::test_sim_testbed_passes
   bug: "round118-6 sims: a failing declared test dispatches the resolver (not the writer) before Coverage, the writer keeps its test-only scope, both kinds dispatch both, failing is sampled after declared-write so a newly written test that fails still gets two resolver rounds, and failing rows still there after two rounds halt with owner=project"
   fixed_in: "Round 118 站6"
+
+- test: tests/test_a_failing_declared_test_goes_to_a_resolver.py::test_the_partition_is_the_one_delivery_outcome_owns
+  bug: "the unwritten/failing vocabulary was a literal in cli/checks/gates.py while delivery_outcome owns the status values; a status added there would be routed by a definition nobody updated (R17 drift)"
+  fixed_in: "Round 118 站7 (spec_coverage.UNWRITTEN_OUTCOMES)"
+
+- test: tests/test_workflow_sim.py::test_sim_testbed_passes
+  bug: "round118-7 sims: 站6 split rows by outcome and assumed the declared test is right — a writer's own skip or wrong assertion reached nobody allowed to edit it, a test first written in round 2 got one resolver round, and the resolver was told it could edit an existing test asserting the opposite of the row (FR tests included). Every row is now written first; then each of two rounds runs a test-only reviewer and the resolver, which may not edit any declared test"
+  fixed_in: "Round 118 站7"

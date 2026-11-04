@@ -35,12 +35,12 @@ def cmd_undelivered_tests(args: argparse.Namespace) -> int:
     """
     import json as _json
 
-    from core.quality_gate.spec_coverage import undelivered_declared_tests
+    from core.quality_gate.spec_coverage import UNWRITTEN_OUTCOMES, undelivered_declared_tests
 
     rows = undelivered_declared_tests(Path(args.project), non_fr=args.non_fr)
     if getattr(args, "kind", None):
-        unwritten = {"absent", "not_collected"}
-        rows = [r for r in rows if (r.get("why", "absent") in unwritten) == (args.kind == "unwritten")]
+        rows = [r for r in rows
+                if (r.get("why", "absent") in UNWRITTEN_OUTCOMES) == (args.kind == "unwritten")]
     if args.json:
         print(_json.dumps(rows, ensure_ascii=False))
     else:

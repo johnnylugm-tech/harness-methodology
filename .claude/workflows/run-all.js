@@ -3324,35 +3324,42 @@ if (gate1Pass.length) {
 
 phase('P4 · Declared Tests')
 log('Declared tests no FR owns (NFR sections, the deferred table): write them before Gate 3')
-const declaredCmd = PY + ' ' + REPO + '/harness_cli.py undelivered-tests --project ' + REPO + ' --non-fr --kind '
+const declaredCmd = PY + ' ' + REPO + '/harness_cli.py undelivered-tests --project ' + REPO + ' --non-fr'
 const declaredRc = async (kind, round) => {
-  const r = await dispatch('Run EXACTLY this via the Bash tool:\n`' + declaredCmd + kind + '; echo RC=$?`\nReport via the StructuredOutput tool: rc = the exact number on the final RC= line.',
-    { label: 'declared-check-' + kind + '-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose', schema: RC_SCHEMA })
+  const r = await dispatch('Run EXACTLY this via the Bash tool:\n`' + declaredCmd + (kind ? ' --kind ' + kind : '') + '; echo RC=$?`\nReport via the StructuredOutput tool: rc = the exact number on the final RC= line.',
+    { label: 'declared-check-' + (kind || 'all') + '-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose', schema: RC_SCHEMA })
   return r ? r.rc : null
 }
-let declaredDone = false
-for (let round = 1; round <= 3; round++) {
-  const unwritten = await declaredRc('unwritten', round)
-  if (unwritten !== 0 && round < 3) await dispatch(
+const testsOnly = 'SCOPE RULES:\n- ONLY test files; DO NOT edit source or any phase deliverable, DO NOT rename a declared test, DO NOT run run-gate / advance-phase.'
+let unwritten = await declaredRc('unwritten', 1)
+for (let round = 1; round <= 2 && unwritten !== 0; round++) {
+  await dispatch(
     'YOU ARE THE P4 TEST AUTHOR for the tests TEST_SPEC.md declares outside every FR\'s rows.\n'
     + 'REPO: ' + REPO + '\nPYTHON: ' + PY + '\n\n'
-    + '1. `' + declaredCmd + 'unwritten` lists each one and its section.\n'
+    + '1. `' + declaredCmd + ' --kind unwritten` lists each one and its section.\n'
     + '2. Write each, EXACTLY that name, from its row in 02-architecture/TEST_SPEC.md (Inputs, precondition, sub-assertions), in an NFR test file. Assert what the row says about the product; no `assert True`, no skip.\n'
     + '3. A suite-level criterion READS the harness evidence (.methodology/gate_evidence/, the coverage report); it never runs pytest over its own directory or `make verify-system`.\n'
-    + '4. Run them, then commit only the test files: `git -C ' + REPO + ' add <files> && git -C ' + REPO + ' commit -m "test(P4): declared tests no FR owns"`.\n\n'
-    + 'SCOPE RULES:\n- ONLY test files; DO NOT edit source or any phase deliverable, DO NOT rename a declared test, DO NOT run run-gate / advance-phase.',
+    + '4. Run them. One that states its row and fails is a product defect: leave it failing, never loosen what the row states. Commit only the test files: `git -C ' + REPO + ' add <files> && git -C ' + REPO + ' commit -m "test(P4): declared tests no FR owns"`.\n\n'
+    + testsOnly,
     { label: 'declared-write-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose' })
-  const failing = await declaredRc('failing', round)
-  if (unwritten === 0 && failing === 0) { declaredDone = true; break }
-  if (round === 3) break
-  if (failing !== 0) await dispatch(
-    'YOU ARE THE P4 DECLARED-TEST RESOLVER. REPO: ' + REPO + '\nPYTHON: ' + PY + '\n'
-    + '`' + declaredCmd + 'failing` lists declared tests that run and fail: the product misses its TEST_SPEC.md row. Per test: minimal fix to what the row judges (source, artifact, or an existing test asserting the opposite of the row, citing its AC id) until it passes; full suite green; commit `fix(<scope>): satisfy <test>`.\n'
-    + 'SCOPE RULES:\n- NEVER edit TEST_SPEC/SRS/SAD or the declared test; no skip/xfail/no-cover. DO NOT modify harness/ (HR-17), DO NOT run run-gate / advance-phase.',
-    { label: 'declared-fix-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose' })
+  unwritten = await declaredRc('unwritten', round + 1)
 }
-if (!declaredDone) {
-  return halt('declared-tests', { error: 'declared tests outside every FR\'s rows still undelivered after 2 rounds — `harness_cli.py undelivered-tests --non-fr` lists them', owner: 'project' })
+let undelivered = unwritten === 0 ? await declaredRc('', 1) : unwritten
+for (let round = 1; round <= 2 && unwritten === 0 && undelivered !== 0; round++) {
+  await dispatch(
+    'YOU ARE THE P4 DECLARED-TEST REVIEWER. REPO: ' + REPO + '\nPYTHON: ' + PY + '\n'
+    + '`' + declaredCmd + '` lists declared tests with no passing result. Fix a test only where it departs from its TEST_SPEC.md row: a skip/xfail, an assertion the row does not state, a setup/fixture error in the test file, a wrong name or place. A test that states its row stays, even failing (the product is fixed next); never loosen what the row states. Commit `test(P4): align declared tests with their rows`.\n'
+    + testsOnly,
+    { label: 'declared-review-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose' })
+  await dispatch(
+    'YOU ARE THE P4 DECLARED-TEST RESOLVER. REPO: ' + REPO + '\nPYTHON: ' + PY + '\n'
+    + '`' + declaredCmd + ' --kind failing` lists declared tests that run and fail: the product misses its TEST_SPEC.md row. Per test: minimal fix to what the row judges (source, an artifact, or an undeclared test when the row judges test code) until it passes; full suite green; commit `fix(<scope>): satisfy <test>`. Passing only by changing a declared test: leave it failing.\n'
+    + 'SCOPE RULES:\n- NEVER edit TEST_SPEC/SRS/SAD or any test TEST_SPEC.md declares (FR rows included); no skip/xfail/no-cover. DO NOT modify harness/ (HR-17), DO NOT run run-gate / advance-phase.',
+    { label: 'declared-fix-r' + round, phase: 'P4 · Declared Tests', agentType: 'general-purpose' })
+  undelivered = await declaredRc('', round + 1)
+}
+if (undelivered !== 0) {
+  return halt('declared-tests', { error: 'declared tests outside every FR\'s rows still ' + (unwritten === 0 ? 'failing after 2 resolving rounds (one that passes only by changing another declared test is a TEST_SPEC contradiction)' : 'unwritten after 2 writing rounds') + ' — `harness_cli.py undelivered-tests --non-fr` lists them', owner: 'project' })
 }
 
 
