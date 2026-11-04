@@ -92,6 +92,22 @@ def test_under_512kb_hard_cap(filename):
     assert size <= MAX_BYTES, f"{filename}: {size} bytes exceeds the {MAX_BYTES}-byte runtime parse limit"
 
 
+@pytest.mark.parametrize("filename", GENERATED_FILES)
+def test_every_schema_a_dispatch_names_is_defined(filename):
+    """A `schema: X_SCHEMA` option whose `const X_SCHEMA` is missing is a
+    ReferenceError at the dispatch, not at load — `node --check` and the
+    banned-construct scan both pass it. run-all.js re-emits schemas from a
+    hand-kept union (spec_runall._SCHEMA_UNION), and two P4 bug-hunt schemas
+    were missing from it: the run halted `workflow-crash` only once it
+    reached `hunt-pending`, hours in."""
+    raw = _read(filename)
+    used = set(re.findall(r"\bschema:\s*([A-Z][A-Z0-9_]*SCHEMA)\b", raw))
+    defined = set(re.findall(r"^\s*const\s+([A-Z][A-Z0-9_]*SCHEMA)\b", raw, re.M))
+    assert used - defined == set(), (
+        f"{filename}: schema(s) used but never defined: {sorted(used - defined)}"
+    )
+
+
 @pytest.mark.parametrize("filename", SHIPPED_FILES)
 def test_meta_is_first_statement(filename):
     stripped = strip_comments_and_strings(_read(filename)).lstrip()

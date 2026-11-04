@@ -394,6 +394,23 @@ const HUNT_RECORD_SCHEMA = {
   },
   required: ['rc', 'findings', 'confirmed'],
 }
+const HUNT_PENDING_SCHEMA = {
+  type: 'object',
+  properties: {
+    rc: { type: 'integer', description: 'exit code on the RC= line' },
+    test_dir: { type: 'string', description: 'test_dir from the JSON line' },
+    pending: { type: 'array', description: 'pending from the JSON line, every object verbatim', items: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' } }, required: ['id', 'status'] } },
+  },
+  required: ['rc', 'test_dir', 'pending'],
+}
+const ADJUDICATE_SCHEMA = {
+  type: 'object',
+  properties: {
+    upheld: { type: 'boolean', description: 'true ONLY if the refutation proves the confirmed finding is not a defect in the code as written' },
+    evidence: { type: 'string', description: 'file:line the verdict rests on' },
+  },
+  required: ['upheld', 'evidence'],
+}
 
 
 // ---- reviewChangedDeliverables (Round 114 站6) ----
@@ -3421,7 +3438,7 @@ const huntVerify = async (f, i, j, role, sfx) => await dispatch(
   (role === 'refute'
     ? 'Try to REFUTE this bug finding (hunt_bugs.md Phase 3). Default is_real=false unless undeniable. Is the cited code at the cited line? Does surrounding code already guard it? Is the scenario reachable? Cite line numbers.\n'
     : 'Independently CONFIRM this bug finding (hunt_bugs.md Phase 3). Default is_real=false unless provable: trace the data flow to the line, check tests_for (a passing test on this path suggests it is handled), and confirm only with a concrete trigger + expected vs actual, citing line numbers.\n')
-  + 'REPO: ' + REPO + '\nFINDING:\n' + JSON.stringify(f) + '\nREAD ONLY.',
+  + 'REPO: ' + REPO + '\nFINDING:\n' + JSON.stringify(f) + '\nREAD ONLY. Report ALL four fields: is_real, refutation_attempt, evidence (file:line), severity_agrees.',
   { label: 'hunt-' + i + '-' + j + '-' + role + (sfx || ''), phase: 'P4 · Bug Hunt', agentType: 'Explore', model: HUNT_MODEL, schema: VERIFY_SCHEMA })
 const huntCited = (v) => /(:\d+|line\s*\d+|L\d+)/i.test(String(v.evidence) + ' ' + String(v.refutation_attempt))
 const huntJudge = async (res, p, i) => {
